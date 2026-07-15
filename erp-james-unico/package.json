@@ -5,6 +5,7 @@
   "scripts": {
     "build": "node build.mjs",
     "build:standalone": "node build-standalone.mjs",
+    "validate": "node validate-shell.mjs && node validate-operational-flow.mjs",
     "validate:operations": "node validate-operational-flow.mjs",
     "validate:shell": "node validate-shell.mjs"
   }

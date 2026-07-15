@@ -1,0 +1,5 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "erp-james-unico/dist",
+  "installCommand": "npm install"
+}
