@@ -1,0 +1,11 @@
+{
+  "name": "erp-james-unico",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "build:standalone": "node build-standalone.mjs",
+    "validate:operations": "node validate-operational-flow.mjs",
+    "validate:shell": "node validate-shell.mjs"
+  }
+}

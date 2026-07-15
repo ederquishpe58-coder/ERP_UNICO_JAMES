@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ERP JAMES UNICO</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles/print.css">
+</head>
+<body>
+  <div class="app-shell part2-shell">
+    <aside id="sidebar" class="sidebar part2-sidebar"></aside>
+
+    <div class="workspace-shell">
+      <header id="topbar" class="topbar part2-topbar"></header>
+      <main id="page-root" class="page-root"></main>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="scripts/core/utils.js"></script>
+  <script src="scripts/data/demo.js"></script>
+  <script src="scripts/core/storage.js"></script>
+  <script src="scripts/config/env.js"></script>
+  <script src="scripts/config/navigation.js"></script>
+  <script src="scripts/config/navigation-tree.js"></script>
+  <script src="scripts/services/navigation/menu-service.js"></script>
+  <script src="scripts/config/module-registry.js"></script>
+  <script src="scripts/config/module-contracts.js"></script>
+  <script src="scripts/core/state.js"></script>
+  <script src="scripts/services/supabase/supabase-client.js"></script>
+  <script src="scripts/services/supabase/repository-base.js"></script>
+  <script src="scripts/services/supabase/feature-flag-guard.js"></script>
+  <script src="scripts/repositories/core/company-repository.js"></script>
+  <script src="scripts/repositories/core/user-repository.js"></script>
+  <script src="scripts/repositories/core/audit-log-repository.js"></script>
+  <script src="scripts/repositories/core/sequence-repository.js"></script>
+  <script src="scripts/repositories/core/settings-repository.js"></script>
+  <script src="scripts/repositories/core/menu-repository.js"></script>
+  <script src="scripts/repositories/comercial/customer-repository.js"></script>
+  <script src="scripts/repositories/comercial/final-brand-repository.js"></script>
+  <script src="scripts/repositories/comercial/commercial-order-repository.js"></script>
+  <script src="scripts/repositories/comercial/commercial-order-box-repository.js"></script>
+  <script src="scripts/repositories/comercial/commercial-order-line-repository.js"></script>
+  <script src="scripts/repositories/comercial/commercial-document-repository.js"></script>
+  <script src="scripts/repositories/comercial/commercial-workflow-repository.js"></script>
+  <script src="scripts/repositories/comercial/dae-repository.js"></script>
+  <script src="scripts/repositories/comercial/cargo-agency-repository.js"></script>
+  <script src="scripts/repositories/comercial/airline-repository.js"></script>
+  <script src="scripts/repositories/comercial/export-product-repository.js"></script>
+  <script src="scripts/repositories/operaciones/flower-availability-repository.js"></script>
+  <script src="scripts/repositories/operaciones/flower-reservation-repository.js"></script>
+  <script src="scripts/repositories/operaciones/operational-dispatch-repository.js"></script>
+  <script src="scripts/repositories/operaciones/operational-dispatch-box-repository.js"></script>
+  <script src="scripts/repositories/operaciones/scanner-event-repository.js"></script>
+  <script src="scripts/repositories/operaciones/operational-consumption-repository.js"></script>
+  <script src="scripts/repositories/operaciones/operational-kardex-repository.js"></script>
+  <script src="scripts/repositories/operaciones/flower-inventory-repository.js"></script>
+  <script src="scripts/repositories/operaciones/bunch-label-repository.js"></script>
+  <script src="scripts/repositories/inventario-materiales/material-item-repository.js"></script>
+  <script src="scripts/repositories/inventario-materiales/material-stock-repository.js"></script>
+  <script src="scripts/repositories/inventario-materiales/material-movement-repository.js"></script>
+  <script src="scripts/repositories/inventario-materiales/packaging-requirement-repository.js"></script>
+  <script src="scripts/repositories/contabilidad/chart-of-accounts-repository.js"></script>
+  <script src="scripts/repositories/contabilidad/journal-entry-repository.js"></script>
+  <script src="scripts/repositories/contabilidad/journal-entry-line-repository.js"></script>
+  <script src="scripts/repositories/contabilidad/supplier-repository.js"></script>
+  <script src="scripts/repositories/contabilidad/purchase-repository.js"></script>
+  <script src="scripts/repositories/contabilidad/withholding-issued-repository.js"></script>
+  <script src="scripts/repositories/contabilidad/withholding-received-repository.js"></script>
+  <script src="scripts/repositories/contabilidad/cxp-repository.js"></script>
+  <script src="scripts/repositories/contabilidad/cxc-repository.js"></script>
+  <script src="scripts/repositories/contabilidad/bank-account-repository.js"></script>
+  <script src="scripts/repositories/contabilidad/bank-movement-repository.js"></script>
+  <script src="scripts/repositories/index.js"></script>
+  <script src="scripts/repositories/repository-status.js"></script>
+  <script src="scripts/services/company-settings.js"></script>
+  <script src="scripts/services/chart-of-accounts.js"></script>
+  <script src="scripts/services/tax-config.js"></script>
+  <script src="scripts/services/admin-config.js"></script>
+  <script src="scripts/services/journal.js"></script>
+  <script src="scripts/services/purchases.js"></script>
+  <script src="scripts/services/portfolios.js"></script>
+  <script src="scripts/services/banks.js"></script>
+  <script src="scripts/services/bank-reconciliation.js"></script>
+  <script src="scripts/services/receivables.js"></script>
+  <script src="scripts/services/tax-withholdings.js"></script>
+  <script src="scripts/services/inventory.js"></script>
+  <script src="scripts/services/reports.js"></script>
+  <script src="scripts/services/ats.js"></script>
+  <script src="scripts/modules/part2-foundation.js"></script>
+  <script src="scripts/modules/part2-settings.js"></script>
+  <script src="scripts/modules/part2-accounting.js"></script>
+  <script src="scripts/modules/part2-purchases.js"></script>
+  <script src="scripts/modules/part2-portfolios.js"></script>
+  <script src="scripts/modules/part2-banks.js"></script>
+  <script src="scripts/modules/part2-receivables.js"></script>
+  <script src="scripts/modules/part2-tax.js"></script>
+  <script src="scripts/modules/part2-ats.js"></script>
+  <script src="scripts/modules/part2-inventory.js"></script>
+  <script src="scripts/modules/part2-reports.js"></script>
+  <script src="scripts/modules/comercial/comercial-data.js"></script>
+  <script src="scripts/modules/comercial/comercial-utils.js"></script>
+  <script src="scripts/modules/comercial/comercial-workflow.js"></script>
+  <script src="scripts/modules/comercial/order-box-builder.js"></script>
+  <script src="scripts/modules/comercial/comercial-state.js"></script>
+  <script src="scripts/modules/comercial/order-fulfillment-demo.js"></script>
+  <script src="scripts/modules/comercial/pedido-demand-view.js"></script>
+  <script src="scripts/modules/comercial/pedido-maestro-workspace.js"></script>
+  <script src="scripts/modules/comercial/accounting-preview/accounting-preview-utils.js"></script>
+  <script src="scripts/modules/comercial/accounting-preview/cxc-preview.js"></script>
+  <script src="scripts/modules/comercial/accounting-preview/journal-preview.js"></script>
+  <script src="scripts/modules/comercial/accounting-preview/sales-accounting-preview.js"></script>
+  <script src="scripts/modules/comercial/accounting-preview/index.js"></script>
+  <script src="scripts/modules/comercial/catalogos-comerciales.js"></script>
+  <script src="scripts/modules/comercial/print/print-utils.js"></script>
+  <script src="scripts/modules/comercial/labels/box-labels-data.js"></script>
+  <script src="scripts/modules/comercial/labels/customs-code-utils.js"></script>
+  <script src="scripts/modules/comercial/labels/box-labels-utils.js"></script>
+  <script src="scripts/modules/comercial/labels/box-labels-render.js"></script>
+  <script src="scripts/modules/comercial/bodega-empaque/packaging-data.js"></script>
+  <script src="scripts/modules/comercial/bodega-empaque/packaging-rules.js"></script>
+  <script src="scripts/modules/comercial/bodega-empaque/packaging-status.js"></script>
+  <script src="scripts/modules/comercial/bodega-empaque/packaging-calculator.js"></script>
+  <script src="scripts/modules/comercial/bodega-empaque/packaging-requirements-view.js"></script>
+  <script src="scripts/modules/comercial/bodega-empaque/index.js"></script>
+  <script src="scripts/modules/comercial/print/client-invoice-utils.js"></script>
+  <script src="scripts/modules/comercial/print/commercial-invoice-client-print.js"></script>
+  <script src="scripts/modules/comercial/print/invoice-carguera-print.js"></script>
+  <script src="scripts/modules/comercial/print/packing-list-print.js"></script>
+  <script src="scripts/modules/comercial/print/hoja-ruta-print.js"></script>
+  <script src="scripts/modules/comercial/print/master-packing-print.js"></script>
+  <script src="scripts/modules/comercial/print/box-labels-print.js"></script>
+  <script src="scripts/modules/comercial/print/control-dae-print.js"></script>
+  <script src="scripts/modules/comercial/print/summary-order-print.js"></script>
+  <script src="scripts/modules/comercial/print/index.js"></script>
+  <script src="scripts/modules/comercial/invoice-carguera.js"></script>
+  <script src="scripts/modules/comercial/centro-impresion.js"></script>
+  <script src="scripts/modules/comercial/pedidos-historial.js"></script>
+  <script src="scripts/modules/comercial/disponibilidad-comercial.js"></script>
+  <script src="scripts/modules/comercial/ordenes-dia.js"></script>
+  <script src="scripts/modules/comercial/orden-detalle.js"></script>
+  <script src="scripts/modules/comercial/pedido-maestro.js"></script>
+  <script src="scripts/modules/comercial/index.js"></script>
+  <script src="scripts/modules/operaciones/operaciones-data.js"></script>
+  <script src="scripts/modules/operaciones/code-utils-demo.js"></script>
+  <script src="scripts/modules/operaciones/scanner-hid-adapter-demo.js"></script>
+  <script src="scripts/modules/operaciones/operaciones-utils.js"></script>
+  <script src="scripts/modules/operaciones/rendimientos-utils.js"></script>
+  <script src="scripts/modules/operaciones/operaciones-state.js"></script>
+  <script src="scripts/modules/operaciones/disponibilidad-service-demo.js"></script>
+  <script src="scripts/modules/operaciones/despacho-service-demo.js"></script>
+  <script src="scripts/modules/operaciones/consumo-inventario-demo.js"></script>
+  <script src="scripts/modules/operaciones/operational-cycle-demo.js"></script>
+  <script src="scripts/modules/operaciones/scanner-service-demo.js"></script>
+  <script src="scripts/modules/operaciones/parte1-adapter.js"></script>
+  <script src="scripts/modules/operaciones/panel-operativo.js"></script>
+  <script src="scripts/modules/operaciones/parametros-poscosecha.js"></script>
+  <script src="scripts/modules/operaciones/recepcion-flor.js"></script>
+  <script src="scripts/modules/operaciones/clasificacion.js"></script>
+  <script src="scripts/modules/operaciones/etiquetas-ramos.js"></script>
+  <script src="scripts/modules/operaciones/ramos-report-xlsx.js"></script>
+  <script src="scripts/modules/operaciones/ingreso-ramos-scanner.js"></script>
+  <script src="scripts/modules/operaciones/inventario-rosas.js"></script>
+  <script src="scripts/modules/operaciones/disponibilidad.js"></script>
+  <script src="scripts/modules/operaciones/bodega-rosas.js"></script>
+  <script src="scripts/modules/operaciones/plan-operativo.js"></script>
+  <script src="scripts/modules/operaciones/mallas-procesadas.js"></script>
+  <script src="scripts/modules/operaciones/ramos-ingresados.js"></script>
+  <script src="scripts/modules/operaciones/rendimientos.js"></script>
+  <script src="scripts/modules/operaciones/scanner-zebra.js"></script>
+  <script src="scripts/modules/operaciones/despacho-operativo.js"></script>
+  <script src="scripts/modules/operaciones/index.js"></script>
+  <script src="scripts/modules/core/prueba-guiada-demo.js"></script>
+  <script src="scripts/modules/part2.js"></script>
+  <script src="scripts/ui/layout.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
