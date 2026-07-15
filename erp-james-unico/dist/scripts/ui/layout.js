@@ -83,6 +83,7 @@
     const currentMode = collapsed ? "collapsed" : "expanded";
     const currentRoute = BlessERP.state.currentRoute();
     const menuTree = visibleMenuTree();
+    const deploymentLabel = window.location.hostname.endsWith("github.io") ? "Nube GitHub" : "Modo local";
 
     sidebar.className = `sidebar part2-sidebar${collapsed ? " collapsed" : ""}`;
     sidebar.innerHTML = `
@@ -110,7 +111,7 @@
       <div class="sidebar-foot">
         ${collapsed ? `<small>JU</small>` : `
           <span>Un solo ERP, una sola web, un solo menu</span>
-          <small>Contabilidad base activa con Operaciones y Comercial registrados</small>
+          <small>${deploymentLabel} &middot; Contabilidad base activa con Operaciones y Comercial registrados</small>
         `}
       </div>
     `;
