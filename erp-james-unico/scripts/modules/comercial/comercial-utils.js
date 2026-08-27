@@ -12,6 +12,34 @@
     return String(value || "").trim().toUpperCase();
   }
 
+  function isLocalOrder(order) {
+    const saleType = normalizeText(order?.saleType || order?.sale_type || order?.commercialType);
+    const customerId = order?.customerId || order?.customer_id || "";
+    const customerCategory = normalizeText(data.customers?.find(item => item.id === customerId)?.category);
+    return ["LOCAL", "VENTA LOCAL", "VENTA_LOCAL"].includes(saleType)
+      || customerCategory === "LOCAL";
+  }
+
+  function applyLocalOrderDefaults(order) {
+    if (!order || !isLocalOrder(order)) return order;
+    order.brandId = "";
+    order.destination = "ECUADOR";
+    order.destinationCountry = "ECUADOR";
+    order.destinationModifiedManual = false;
+    order.destinationCountryModifiedManual = false;
+    order.agencyId = "";
+    order.agencyName = "";
+    order.freightForwarder = "";
+    order.coldRoom = "RETIRA EN FINCA";
+    order.daeNumber = "";
+    order.daeDestination = "";
+    order.daeExpirationDate = "";
+    order.daeAssignedAutomatically = false;
+    order.daeModifiedManual = false;
+    order.localPickup = true;
+    return order;
+  }
+
   function iso(value) {
     if (!value) return "";
     const raw = String(value).trim();
@@ -76,6 +104,120 @@
   function normalizeAwb(value) {
     const digits = getAwbDigits(value);
     return digits.length > 3 ? `${digits.slice(0, 3)}-${digits.slice(3)}` : digits;
+  }
+
+  function normalizeTransportType(value) {
+    const normalized = normalizeText(value || "AEREO");
+    if (["AIR", "AEREO", "AÉREO"].includes(normalized)) return "AEREO";
+    if (["SEA", "MARITIME", "MARITIMO", "MARÍTIMO"].includes(normalized)) return "MARITIMO";
+    if (["LAND", "GROUND", "TERRESTRE"].includes(normalized)) return "TERRESTRE";
+    return normalized || "AEREO";
+  }
+
+  function normalizeLogisticsReference(value) {
+    return String(value || "")
+      .replace(/[\r\n\t]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9 .\/-]/g, "");
+  }
+
+  function isAirMawbReference(value) {
+    const reference = normalizeLogisticsReference(value);
+    return /^[0-9\s-]+$/.test(reference) && getAwbDigits(reference).length === 11;
+  }
+
+  function isMaritimeMotherGuide(value) {
+    return /^MAR-[A-Z0-9][A-Z0-9 .\/-]*$/.test(normalizeLogisticsReference(value));
+  }
+
+  function normalizeMaritimeMotherGuide(value, options = {}) {
+    const ensurePrefix = options.ensurePrefix === true;
+    const reference = normalizeLogisticsReference(value);
+    if (!reference || isAirMawbReference(reference)) return ensurePrefix ? "MAR-" : "";
+    const suffix = reference.startsWith("MAR-")
+      ? reference.slice(4)
+      : reference.replace(/^MAR(?:\s*-\s*)?/, "");
+    const normalizedSuffix = suffix.replace(/^[\s-]+/, "");
+    return normalizedSuffix ? `MAR-${normalizedSuffix}` : "MAR-";
+  }
+
+  function normalizeTransportReferences(transportType, values = {}) {
+    const transport = normalizeTransportType(transportType);
+    const motherSource = values.awb ?? values.mawb ?? values.motherGuide ?? "";
+    const childSource = values.hawb ?? values.childGuide ?? "";
+    const awb = transport === "AEREO"
+      ? (isMaritimeMotherGuide(motherSource) ? "" : normalizeAwb(motherSource))
+      : transport === "MARITIMO"
+        ? normalizeMaritimeMotherGuide(motherSource)
+        : normalizeLogisticsReference(motherSource);
+    return {
+      transportType: transport,
+      awb,
+      mawb: awb,
+      hawb: normalizeLogisticsReference(childSource),
+      airlineId: transport === "AEREO" ? String(values.airlineId || "").trim() : ""
+    };
+  }
+
+  function normalizeOrderTransportPayload(order = {}, options = {}) {
+    const normalized = { ...order };
+    const transport = normalizeTransportType(order.transportType || order.transport_type || "AEREO");
+    const previousTransport = normalizeTransportType(options.previousTransportType || transport);
+    const transitioned = previousTransport !== transport;
+    const currentMotherGuide = order.awb ?? order.mawb ?? order.motherGuide ?? "";
+    const currentChildGuide = order.hawb ?? order.childGuide ?? "";
+
+    if (transport === "MARITIMO") {
+      const motherGuide = normalizeMaritimeMotherGuide(
+        transitioned && previousTransport === "AEREO" ? "" : currentMotherGuide,
+        { ensurePrefix: options.ensureMaritimePrefix === true }
+      );
+      normalized.transportType = "maritimo";
+      normalized.awb = motherGuide;
+      normalized.hawb = normalizeLogisticsReference(currentChildGuide);
+      normalized.airlineId = "";
+      if (Object.prototype.hasOwnProperty.call(normalized, "airline_id")) normalized.airline_id = "";
+      if (Object.prototype.hasOwnProperty.call(normalized, "airline")) normalized.airline = "";
+      if (Object.prototype.hasOwnProperty.call(normalized, "airlineName")) normalized.airlineName = "";
+    } else if (transport === "AEREO") {
+      const maritimeReference = isMaritimeMotherGuide(currentMotherGuide);
+      const motherGuide = transitioned && previousTransport === "MARITIMO"
+        ? ""
+        : maritimeReference ? "" : normalizeAwb(currentMotherGuide);
+      normalized.transportType = "aereo";
+      normalized.awb = motherGuide;
+      normalized.hawb = normalizeLogisticsReference(currentChildGuide);
+      if (!motherGuide) {
+        normalized.airlineId = "";
+        if (Object.prototype.hasOwnProperty.call(normalized, "airline_id")) normalized.airline_id = "";
+        if (Object.prototype.hasOwnProperty.call(normalized, "airline")) normalized.airline = "";
+        if (Object.prototype.hasOwnProperty.call(normalized, "airlineName")) normalized.airlineName = "";
+      }
+    } else {
+      normalized.transportType = "terrestre";
+      normalized.awb = normalizeLogisticsReference(currentMotherGuide);
+      normalized.hawb = normalizeLogisticsReference(currentChildGuide);
+      normalized.airlineId = "";
+    }
+
+    if (Object.prototype.hasOwnProperty.call(normalized, "mawb")) normalized.mawb = normalized.awb;
+    if (Object.prototype.hasOwnProperty.call(normalized, "motherGuide")) normalized.motherGuide = normalized.awb;
+    if (Object.prototype.hasOwnProperty.call(normalized, "childGuide")) normalized.childGuide = normalized.hawb;
+    return normalized;
+  }
+
+  function isValidAirMawb(value) {
+    return getAwbDigits(value).length === 11;
+  }
+
+  function getGuideCharacters(value) {
+    return String(value || "");
+  }
+
+  function normalizeHawb(value) {
+    return normalizeLogisticsReference(value);
   }
 
   function findAirlineByAwb(value, appState) {
@@ -186,14 +328,51 @@
     return remaining !== null && remaining >= 0 && remaining <= 5;
   }
 
-  function getAvailableDaesForOrder(order) {
+  function isValidDae(dae) {
+    return String(dae?.status || "").toUpperCase() === "ACTIVA" && !isDaeExpired(dae);
+  }
+
+  function orderDaeCountry(order) {
+    const brand = findBrand(order?.brandId);
+    return normalizeText(order?.destinationCountry || brand?.country || "");
+  }
+
+  function daeMatchesOrder(dae, order) {
     const destination = normalizeText(order.destination);
-    return data.daes.filter(item => (
-      normalizeText(item.destination) === destination &&
-      (!Array.isArray(item.customerIds) || item.customerIds.includes(order.customerId)) &&
-      String(item.status || "").toUpperCase() === "ACTIVA" &&
-      !isDaeExpired(item)
-    ));
+    const country = orderDaeCountry(order);
+    const daeDestination = normalizeText(dae?.destination);
+    const daeCountry = normalizeText(dae?.country || dae?.destination);
+    const customerIds = Array.isArray(dae?.customerIds) ? dae.customerIds : [];
+    const geographyMatches = country
+      ? daeCountry === country
+      : daeDestination === destination;
+    return (
+      geographyMatches
+      && (!customerIds.length || customerIds.includes(order.customerId))
+    );
+  }
+
+  function getCompatibleDaesForOrder(order) {
+    return data.daes
+      .filter(item => isValidDae(item) && daeMatchesOrder(item, order))
+      .sort((left, right) => {
+        const defaultDifference = Number(Boolean(right.isDefault)) - Number(Boolean(left.isDefault));
+        if (defaultDifference) return defaultDifference;
+        const destination = normalizeText(order?.destination);
+        const leftExact = normalizeText(left.destination) === destination;
+        const rightExact = normalizeText(right.destination) === destination;
+        return Number(rightExact) - Number(leftExact);
+      });
+  }
+
+  function getAvailableDaesForOrder(order) {
+    const valid = data.daes.filter(isValidDae);
+    const compatible = getCompatibleDaesForOrder(order);
+    const compatibleNumbers = new Set(compatible.map(item => item.number));
+    return [
+      ...compatible,
+      ...valid.filter(item => !compatibleNumbers.has(item.number))
+    ];
   }
 
   function createLineDefaults(seed = {}) {
@@ -205,11 +384,16 @@
   }
 
   function normalizeOrder(order) {
+    const source = order && typeof order === "object" ? order : {};
     const draft = createOrderDefaults({
-      ...order,
-      lines: Array.isArray(order?.lines) ? order.lines : []
+      ...source,
+      lines: Array.isArray(source.lines)
+        ? source.lines.filter(line => line && typeof line === "object")
+        : []
     });
-    draft.lines = draft.lines.map(line => createLineDefaults(line));
+    draft.lines = Array.isArray(draft?.lines)
+      ? draft.lines.filter(line => line && typeof line === "object").map(line => createLineDefaults(line))
+      : [];
 
     const customer = findCustomer(draft.customerId);
     const brand = findBrand(draft.brandId);
@@ -224,8 +408,8 @@
 
     const activeBrand = findBrand(draft.brandId);
     if (activeBrand) {
-      draft.destination = activeBrand.destination;
-      draft.destinationCountry = activeBrand.country;
+      if (!draft.destinationModifiedManual) draft.destination = activeBrand.destination;
+      if (!draft.destinationCountryModifiedManual) draft.destinationCountry = activeBrand.country;
       if (!draft.agencyId) draft.agencyId = activeBrand.defaultAgencyId || "";
     }
 
@@ -238,14 +422,25 @@
       draft.paymentTerms = `${customer.creditDays} dias`;
     }
 
-    if (draft.transportType !== "aereo") {
-      draft.daeNumber = "";
-      draft.daeDestination = "";
-      draft.daeExpirationDate = "";
-      draft.daeAssignedAutomatically = false;
-      draft.daeModifiedManual = false;
+    applyLocalOrderDefaults(draft);
+    const destinationCountry = normalizeText(draft.destinationCountry || draft.destination).toUpperCase();
+    if (destinationCountry === "ECUADOR") {
+      draft.sriDaeNumber = "";
+      draft.sriGuides = "";
     }
 
+    // Las filas paginadas del historial llegan sin el detalle de lineas para no
+    // descargar pedidos completos. Sus totales ya fueron calculados por
+    // Supabase y son metadatos de lectura: createOrderDefaults no los conoce y
+    // antes los descartaba, haciendo que la interfaz mostrara 0 cajas y $0.
+    if (source._historyMetrics && typeof source._historyMetrics === "object") {
+      draft._historyMetrics = { ...source._historyMetrics };
+    }
+    if (source.__historyServerPage) draft.__historyServerPage = true;
+    if (source.__syncVersion != null) draft.__syncVersion = Number(source.__syncVersion || 0);
+    if (source.__syncUpdatedAt != null) draft.__syncUpdatedAt = String(source.__syncUpdatedAt || "");
+
+    Object.assign(draft, normalizeOrderTransportPayload(draft, { ensureMaritimePrefix: true }));
     return draft;
   }
 
@@ -257,26 +452,37 @@
     if (!dae) {
       order.daeDestination = order.destination || "";
       order.daeExpirationDate = "";
-      return { type: daeNumber ? "warning" : "info", text: daeNumber ? "La DAE seleccionada no existe en el catalogo demo." : "" };
+      return { type: daeNumber ? "warning" : "info", text: daeNumber ? "La DAE seleccionada no existe en el catalogo." : "" };
+    }
+    if (!isValidDae(dae)) {
+      order.daeNumber = "";
+      order.daeDestination = order.destination || "";
+      order.daeExpirationDate = "";
+      order.daeModifiedManual = false;
+      return { type: "warning", text: "La DAE seleccionada no esta activa o se encuentra caducada." };
     }
     order.daeDestination = dae.destination;
-    order.destination = dae.destination;
-    order.destinationCountry = dae.country;
     order.daeExpirationDate = dae.expirationDate;
     if (dae.airlineId) {
       order.airlineId = dae.airlineId;
     }
-    if (isDaeExpired(dae)) {
-      return { type: "warning", text: "La DAE seleccionada esta caducada." };
-    }
     if (isDaeNearExpiry(dae)) {
       return { type: "warning", text: "La DAE seleccionada esta proxima a caducar." };
+    }
+    const selectedCountry = normalizeText(dae.country || dae.destination);
+    const expectedCountry = orderDaeCountry(order);
+    if (selectedCountry && expectedCountry && selectedCountry !== expectedCountry) {
+      return {
+        type: "warning",
+        text: `La DAE seleccionada pertenece a ${dae.country || dae.destination}, mientras el cliente final corresponde a ${order.destinationCountry || expectedCountry}. Verifique antes de guardar.`
+      };
     }
     return { type: "info", text: "" };
   }
 
   function autoAssignDae(order) {
-    if (order.transportType !== "aereo") {
+    const supportsDae = order.transportType === "aereo";
+    if (!supportsDae) {
       order.daeNumber = "";
       order.daeDestination = "";
       order.daeExpirationDate = "";
@@ -285,30 +491,25 @@
       return { type: "info", text: "" };
     }
 
-    const available = getAvailableDaesForOrder(order);
-    if (!available.length) {
+    const compatible = getCompatibleDaesForOrder(order);
+    if (!compatible.length) {
       order.daeNumber = "";
       order.daeDestination = order.destination || "";
       order.daeExpirationDate = "";
       order.daeAssignedAutomatically = false;
       order.daeModifiedManual = false;
-      return { type: "warning", text: "No existe una DAE vigente para el destino seleccionado." };
+      const validAlternatives = getAvailableDaesForOrder(order);
+      return {
+        type: "warning",
+        text: validAlternatives.length
+          ? `No existe una DAE predeterminada para el pais ${orderDaeCountry(order) || "seleccionado"}. Puede escoger otra DAE activa y vigente.`
+          : "No existen DAEs activas y vigentes para seleccionar."
+      };
     }
 
-    if (available.length > 1) {
-      order.daeNumber = "";
-      order.daeDestination = order.destination || "";
-      order.daeExpirationDate = "";
-      order.daeAssignedAutomatically = false;
-      order.daeModifiedManual = false;
-      return { type: "warning", text: "Existen varias DAEs activas para este destino. Debe escoger una manualmente." };
-    }
-
-    const dae = available[0];
+    const dae = compatible[0];
     order.daeNumber = dae.number;
     order.daeDestination = dae.destination;
-    order.destination = dae.destination;
-    order.destinationCountry = dae.country;
     order.daeExpirationDate = dae.expirationDate;
     order.daeAssignedAutomatically = true;
     order.daeModifiedManual = false;
@@ -318,7 +519,12 @@
     if (isDaeNearExpiry(dae)) {
       return { type: "warning", text: "La DAE autoasignada esta proxima a caducar." };
     }
-    return { type: "info", text: "" };
+    return {
+      type: "info",
+      text: compatible.length > 1
+        ? `DAE ${dae.number} seleccionada automaticamente por pais. Puede cambiarla por cualquier otra DAE vigente.`
+        : `DAE ${dae.number} seleccionada automaticamente por pais.`
+    };
   }
 
   function createResolvedLine(line) {
@@ -346,7 +552,9 @@
   }
 
   function getOrderMetrics(order) {
-    const lines = (order.lines || []).map(createResolvedLine).sort((a, b) => {
+    const lines = (Array.isArray(order?.lines) ? order.lines : [])
+      .filter(line => line && typeof line === "object")
+      .map(createResolvedLine).sort((a, b) => {
       if (a.boxNumber !== b.boxNumber) return a.boxNumber - b.boxNumber;
       return a.variety.localeCompare(b.variety);
     });
@@ -558,11 +766,12 @@
     const packagingResult = BlessERP.comercialPackaging?.calculateOrderRequirements
       ? BlessERP.comercialPackaging.calculateOrderRequirements(order, BlessERP.state?.state)
       : null;
+    const localSale = isLocalOrder(order);
 
     if (!customer) errors.push("Falta cliente principal.");
-    if (!brand) errors.push("Falta marca.");
+    if (!localSale && !brand) errors.push("Falta marca.");
     if (!order.destination) errors.push("Falta destino.");
-    if (order.transportType === "aereo" && order.destination !== "ECUADOR" && !order.daeNumber) {
+    if (!localSale && order.transportType === "aereo" && order.destination !== "ECUADOR" && !order.daeNumber) {
       errors.push("Falta DAE vigente.");
     }
     if (!order.issuedAt) errors.push("Falta fecha emision.");
@@ -574,12 +783,14 @@
       errors.push("Fecha vuelo posterior a caducidad DAE.");
     }
 
-    if (brand?.requiresPo && metrics.lines.some(line => !String(line.po || "").trim())) {
+    if (!localSale && brand?.requiresPo && metrics.lines.some(line => !String(line.po || "").trim())) {
       warnings.push("Falta PO cuando la marca lo requiere.");
     }
-    if (!order.awb) warnings.push("Falta guia madre.");
-    if (!order.hawb) warnings.push("Falta guia hija.");
-    if (!order.airlineId || !order.flightNumber) warnings.push("Falta carrier/vuelo.");
+    if (!localSale && order.transportType === "aereo") {
+      if (!order.awb && !order.sriGuides) warnings.push("Falta guia madre.");
+      if (!order.hawb && !order.sriGuides) warnings.push("Falta guia hija.");
+      if (!order.airlineId) warnings.push("Falta linea aerea.");
+    }
     const dae = findDae(order.daeNumber);
     if (dae && isDaeNearExpiry(dae)) warnings.push("DAE proxima a caducar.");
     if (packagingResult?.summary.missingCount > 0) warnings.push("Materiales faltantes en bodega / empaque.");
@@ -607,7 +818,7 @@
     warnings.push("Supabase pendiente.");
 
     if (dispatchReview) {
-      if (dispatchReview.errors.includes("Falta marca.")) errors.push("Despacho sin marca.");
+      if (!localSale && dispatchReview.errors.includes("Falta marca.")) errors.push("Despacho sin marca.");
       if (dispatchReview.errors.includes("Falta destino.")) errors.push("Despacho sin destino.");
       if (dispatchReview.errors.includes("Falta DAE.")) errors.push("Despacho sin DAE.");
       if (dispatchReview.errors.includes("Pedido sin cajas.")) errors.push("Despacho sin cajas.");
@@ -640,6 +851,8 @@
       cliente_principal_nombre: customer?.commercialName || "",
       marca_id: brand?.id || "",
       marca_nombre: brand?.name || "",
+      vendedor_id: order.seller_id || order.sellerId || order.vendedorId || "",
+      vendedor_nombre: order.seller_name || order.sellerName || order.vendedorNombre || "",
       destino: order.destination || "",
       fecha_emision: order.issuedAt || "",
       fecha_vuelo: order.flightDate || "",
@@ -649,10 +862,11 @@
       total_ramos: metrics.totalBunches,
       total_tallos: metrics.totalStems,
       total_usd: metrics.totalUsd,
-      dae: order.daeNumber || "",
+      dae: isLocalOrder(order) ? "" : (order.daeNumber || ""),
       awb: order.awb || "",
       hawb: order.hawb || "",
-      agencia_carga: agency?.name || "",
+      agencia_carga: isLocalOrder(order) ? "" : (agency?.name || order.agencyName || ""),
+      cuarto_frio: isLocalOrder(order) ? "RETIRA EN FINCA" : (order.coldRoom || ""),
       linea_aerea: airline?.name || "",
       tipo_transporte: order.transportType || "",
       observacion: order.notes || ""
@@ -660,6 +874,7 @@
   }
 
   BlessERP.comercialUtils = {
+    applyLocalOrderDefaults,
     badgeClass,
     buildCommercialOrderContract,
     clone,
@@ -681,14 +896,26 @@
     getDispatchService,
     getAvailabilityRowsWithReservations,
     getAvailableDaesForOrder,
+    getCompatibleDaesForOrder,
     getEstimatedMaterials,
     getOrderMetrics,
     getReservationSummary,
     getReservationUsageSummary,
     getValidationState,
     isReservationActive,
+    isLocalOrder,
     getAwbDigits,
+    getGuideCharacters,
+    isAirMawbReference,
+    isMaritimeMotherGuide,
+    isValidAirMawb,
+    normalizeLogisticsReference,
+    normalizeMaritimeMotherGuide,
+    normalizeOrderTransportPayload,
+    normalizeTransportReferences,
+    normalizeTransportType,
     normalizeAwb,
+    normalizeHawb,
     isDaeExpired,
     isDaeNearExpiry,
     iso,

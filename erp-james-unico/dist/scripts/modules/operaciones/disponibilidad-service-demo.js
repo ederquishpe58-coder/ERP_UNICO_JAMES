@@ -14,6 +14,16 @@
     return String(value || "").trim().toUpperCase();
   }
 
+  function deriveAgeDays(item) {
+    if (BlessERP.operacionesState?.deriveInventoryAgeDays) {
+      return BlessERP.operacionesState.deriveInventoryAgeDays(item);
+    }
+    const admittedDate = new Date(String(item?.admittedAt || item?.date || "").replace(" ", "T"));
+    return Number.isNaN(admittedDate.getTime())
+      ? parseNumber(item?.ageDays, 0)
+      : Math.max(0, Math.floor((Date.now() - admittedDate.getTime()) / 86400000));
+  }
+
   function ensureStore(appState) {
     const state = resolveAppState(appState);
     if (!state) throw new Error("No existe appState para disponibilidad demo.");
@@ -22,7 +32,14 @@
 
   function isReservationActive(status) {
     const value = normalizeText(status);
-    return !["LIBERADO_DEMO", "ANULADO_DEMO"].includes(value);
+    return ![
+      "LIBERADO",
+      "LIBERADO_DEMO",
+      "ANULADO",
+      "ANULADO_DEMO",
+      "CANCELADO",
+      "CANCELADO_DEMO"
+    ].includes(value);
   }
 
   function calculateStatus(baseRow, reservedBunches) {
@@ -69,9 +86,76 @@
       .sort((a, b) => String(b.fecha_hora || "").localeCompare(String(a.fecha_hora || "")));
   }
 
+  function canonicalAvailabilityRows(store) {
+    const grouped = new Map();
+    (store.roseInventory || [])
+      .filter(item => String(item.sourceType || "").toUpperCase() === "ESCANEO_ETIQUETA")
+      .filter(item => String(item.state || "").toUpperCase() === "DISPONIBLE")
+      .forEach(item => {
+        const variety = String(item.variety || "").trim().toUpperCase();
+        const length = parseNumber(item.length, 0);
+        const quality = normalizeText(item.quality || item.category || "EXPORTACION");
+        const warehouse = String(item.warehouse || "PENDIENTE UBICACION").trim().toUpperCase();
+        const supplier = String(item.supplier || "").trim().toUpperCase();
+        const block = String(item.block || "").trim().toUpperCase();
+        const category = normalizeText(item.category || quality || "EXPORTACION");
+        const stemsPerBunch = parseNumber(item.stemsPerBunch || item.stems, 0);
+        if (!variety || length <= 0 || stemsPerBunch <= 0) return;
+        const key = [variety, length, quality, warehouse, supplier, block, category, stemsPerBunch].join("|");
+        const availabilityId = `AVL-V2-${key.replace(/[^A-Z0-9]+/g, "-").replace(/-+/g, "-").slice(0, 90)}`;
+        const current = grouped.get(key) || {
+          availability_id: availabilityId,
+          stock_key: String(item.stockKey || key),
+          fecha: String(item.date || item.admittedAt || "").slice(0, 10),
+          fecha_ingreso_bodega: String(item.admittedAt || item.date || ""),
+          variedad: variety,
+          longitud: length,
+          calidad: quality,
+          tallos_por_ramo: stemsPerBunch,
+          ramos_disponibles: 0,
+          tallos_disponibles: 0,
+          ramos_fisicos: 0,
+          tallos_fisicos: 0,
+          bodega: warehouse,
+          proveedor: supplier,
+          bloque: block,
+          categoria: category,
+          estado: "DISPONIBLE",
+          edad_dias: deriveAgeDays(item),
+          observacion: "Proyección derivada de ramos confirmados por escaneo; no es un saldo independiente.",
+          inventory_ids: [],
+          bunch_ids: [],
+          source: "CANONICAL_INVENTORY_V2"
+        };
+        const bunches = Math.max(0, parseNumber(item.bunches, 1));
+        const stems = Math.max(0, parseNumber(item.stems, stemsPerBunch * bunches));
+        current.ramos_disponibles += bunches;
+        current.tallos_disponibles += stems;
+        current.ramos_fisicos += bunches;
+        current.tallos_fisicos += stems;
+        if (item.inventoryId && !current.inventory_ids.includes(item.inventoryId)) current.inventory_ids.push(item.inventoryId);
+        if (item.bunchId && !current.bunch_ids.includes(item.bunchId)) current.bunch_ids.push(item.bunchId);
+        if (item.admittedAt && (!current.fecha_ingreso_bodega || item.admittedAt < current.fecha_ingreso_bodega)) {
+          current.fecha_ingreso_bodega = item.admittedAt;
+          current.fecha = String(item.admittedAt).slice(0, 10);
+        }
+        grouped.set(key, current);
+      });
+    return [...grouped.values()].sort((left, right) => (
+      left.variedad.localeCompare(right.variedad, "es")
+      || left.longitud - right.longitud
+      || left.calidad.localeCompare(right.calidad, "es")
+    ));
+  }
+
   function getAvailabilityDemo(appState) {
     const store = ensureStore(appState);
-    return (store.availabilityDemo || []).map(row => buildAvailabilityRow(row, store.demoReservations || []));
+    const canonicalRows = canonicalAvailabilityRows(store);
+    const remoteRequired = BlessERP.getZebraV2Repository?.()?.remoteRequired?.() === true;
+    const rows = canonicalRows.length || remoteRequired
+      ? canonicalRows
+      : (store.availabilityDemo || []);
+    return rows.map(row => buildAvailabilityRow(row, store.demoReservations || []));
   }
 
   function getAvailabilityByIdDemo(appState, availabilityId) {
@@ -166,8 +250,8 @@
       userDemo: payload.usuario_demo || payload.userDemo || state.db.session?.activeUser?.name || "Usuario demo",
       usuario_demo: payload.usuario_demo || payload.userDemo || state.db.session?.activeUser?.name || "Usuario demo",
       fecha_hora: new Date().toISOString(),
-      observation: payload.observacion || payload.note || "Reserva demo creada desde Pedido Maestro.",
-      observacion: payload.observacion || payload.note || "Reserva demo creada desde Pedido Maestro."
+      observation: payload.observacion || payload.note || "Reserva demo creada desde Crear pedido.",
+      observacion: payload.observacion || payload.note || "Reserva demo creada desde Crear pedido."
     };
 
     store.demoReservations.unshift(record);
@@ -202,6 +286,7 @@
   }
 
   BlessERP.operacionesAvailabilityDemo = {
+    canonicalAvailabilityRows,
     confirmReservationDemo,
     getAvailabilityByIdDemo,
     getAvailabilityDemo,

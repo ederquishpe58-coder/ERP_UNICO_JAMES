@@ -51,7 +51,7 @@
     [codeUtils.buildOrderCodeDemo("60334")]: {
       tipo_codigo: "PEDIDO",
       pedido_id: "order-demo-0001",
-      modulo_destino: "Comercial / Pedido Maestro",
+      modulo_destino: "Comercial / Crear pedido",
       observacion: "Pedido demo identificado."
     },
     [codeUtils.buildDispatchCodeDemo("60334")]: {
@@ -150,7 +150,7 @@
       modulo_destino: parsed.tipo_codigo === "RAMO"
         ? "Operaciones / Etiquetas de ramos"
         : parsed.tipo_codigo === "PEDIDO"
-          ? "Comercial / Pedido Maestro"
+      ? "Comercial / Crear pedido"
           : parsed.tipo_codigo === "DESPACHO"
             ? "Operaciones / Despacho operativo"
             : "Core / Auditoria demo",
@@ -474,7 +474,8 @@
       notFound: events.filter(item => item.resultado === "NO_ENCONTRADO").length,
       duplicates: events.filter(item => item.resultado === "DUPLICADO").length,
       lastEvent: events[0] || null,
-      zebraRealPending: true
+      zebraAutomaticReady: true,
+      zebraRealPending: false
     };
   }
 

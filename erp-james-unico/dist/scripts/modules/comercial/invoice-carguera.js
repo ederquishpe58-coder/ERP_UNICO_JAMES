@@ -15,7 +15,7 @@
 
     return BlessERP.comercialPrintSystem.renderWorkspace(docCode, order, appState, {
       title: "Invoice / Packing carguera",
-      description: "Vista comercial y logistica basada en el Pedido Maestro. No corresponde a factura cliente ni a SRI.",
+    description: "Vista comercial y logistica basada en Crear pedido. No corresponde a factura cliente ni a SRI.",
       actionsMarkup: `
         <div class="table-actions-inline">
           <button class="secondary-button" data-commercial-preview-doc="${docCode}">Vista previa ${docCode === "INVOICE_PACKING_REAL" ? "real demo" : "referencial"}</button>

@@ -156,7 +156,7 @@
       subcategory: category === "MATERIAL_EMPAQUE" ? "carton" : "otro",
       unit: category === "QUIMICO" ? "litro" : category === "FERTILIZANTE" ? "kilo" : "unidad",
       inventoryAccountCode: category === "MATERIAL_EMPAQUE" ? "1.1.03.02" : "1.1.03.01",
-      expenseAccountCode: category === "MATERIAL_EMPAQUE" ? "5.2" : "6.2",
+      expenseAccountCode: category === "MATERIAL_EMPAQUE" ? "5.2" : "5.4",
       defaultCostCenter: "",
       requiresCostCenter: false,
       defaultResponsibleId: "",

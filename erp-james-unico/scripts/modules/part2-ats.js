@@ -75,12 +75,13 @@
   }
 
   function summaryCards(generation) {
-    const summary = generation?.summary || { purchases: 0, issued: 0, received: 0, errors: 0, warnings: 0 };
+    const summary = generation?.summary || { purchases: 0, issued: 0, received: 0, sales: 0, errors: 0, warnings: 0 };
     return `
       <section class="summary-grid">
         <article class="summary-card"><span>Compras ATS</span><strong>${esc(String(summary.purchases))}</strong><small>Documentos listos para revision</small></article>
         <article class="summary-card"><span>Retenciones emitidas</span><strong>${esc(String(summary.issued))}</strong><small>Confirmadas o simuladas para el periodo</small></article>
         <article class="summary-card"><span>Retenciones recibidas</span><strong>${esc(String(summary.received))}</strong><small>Aplicadas y pendientes de relacion</small></article>
+        <article class="summary-card"><span>Ventas ATS</span><strong>${esc(String(summary.sales || 0))}</strong><small>Facturas autorizadas del periodo</small></article>
         <article class="summary-card"><span>Errores criticos</span><strong>${esc(String(summary.errors))}</strong><small>Bloquean la generacion final</small></article>
         <article class="summary-card"><span>Advertencias</span><strong>${esc(String(summary.warnings))}</strong><small>Requieren justificacion o correccion</small></article>
         <article class="summary-card"><span>Estado actual</span><strong>${esc(atsStatusLabel(generation?.status || "BORRADOR"))}</strong><small>${generation?.period ? `Periodo ${esc(generation.period)}` : "Sin generacion activa"}</small></article>
@@ -499,6 +500,7 @@
                 <th>Compras</th>
                 <th>Ret. emitidas</th>
                 <th>Ret. recibidas</th>
+                <th>Ventas</th>
                 <th>Errores</th>
                 <th>Advertencias</th>
                 <th>Usuario</th>
@@ -514,6 +516,7 @@
                   <td>${esc(String(item.summary?.purchases || 0))}</td>
                   <td>${esc(String(item.summary?.issued || 0))}</td>
                   <td>${esc(String(item.summary?.received || 0))}</td>
+                  <td>${esc(String(item.summary?.sales || 0))}</td>
                   <td>${esc(String(item.summary?.errors || 0))}</td>
                   <td>${esc(String(item.summary?.warnings || 0))}</td>
                   <td>${esc(item.userName || "-")}</td>
@@ -526,7 +529,7 @@
                     </div>
                   </td>
                 </tr>
-              `).join("") || `<tr><td colspan="10"><div class="empty-inline">No hay generaciones ATS guardadas.</div></td></tr>`}
+              `).join("") || `<tr><td colspan="11"><div class="empty-inline">No hay generaciones ATS guardadas.</div></td></tr>`}
             </tbody>
           </table>
         </div>
@@ -534,12 +537,36 @@
     `;
   }
 
-  function salesFuturePanel() {
+  function salesTable(rows) {
     return `
-      <section class="future-banner">
-        <strong>Ventas ATS en fase futura</strong>
-        <span>Las ventas, exportaciones y facturacion SRI se implementaran en una fase posterior. Este ATS base prepara la estructura, pero por ahora no genera ventas reales.</span>
-      </section>
+      <article class="panel-card">
+        <div class="panel-card-head">
+          <div>
+            <p class="section-kicker">VENTAS ATS</p>
+            <h3>Facturas de venta autorizadas</h3>
+          </div>
+          <span class="status-badge partial">${esc(String(rows.length))} factura(s)</span>
+        </div>
+        <p class="panel-note">La forma de pago se toma del pedido autorizado y, por defecto, de la configuracion del cliente principal.</p>
+        <div class="compact-table-wrap">
+          <table class="compact-table">
+            <thead><tr><th>Fecha</th><th>Factura</th><th>Cliente</th><th>Identificacion</th><th>Tipo</th><th>Forma pago</th><th>Total</th><th>Autorizacion</th><th>Estado</th></tr></thead>
+            <tbody>${rows.map(item => `
+              <tr>
+                <td>${esc(item.issueDate || "-")}</td>
+                <td><strong>${esc(item.documentNumber || "-")}</strong></td>
+                <td>${esc(item.customerName || "-")}</td>
+                <td>${esc(item.customerTaxId || "-")}</td>
+                <td>${item.exportSale ? "EXPORTACION" : "LOCAL"}</td>
+                <td><strong>Codigo ${esc(item.paymentMethod || "-")}</strong></td>
+                <td>${money(item.total)}</td>
+                <td>${esc(item.authorization || item.accessKey || "-")}</td>
+                <td>${statusBadge(item.status)}</td>
+              </tr>
+            `).join("") || `<tr><td colspan="9"><div class="empty-inline">No hay facturas de venta autorizadas dentro del periodo seleccionado.</div></td></tr>`}</tbody>
+          </table>
+        </div>
+      </article>
     `;
   }
 
@@ -551,7 +578,7 @@
     if (uiState.tab === "validations") return validationsTable(activeGeneration);
     if (uiState.tab === "export") return exportPanel(activeGeneration);
     if (uiState.tab === "history") return historyPanel(atsService.history());
-    if (uiState.tab === "sales") return salesFuturePanel();
+    if (uiState.tab === "sales") return salesTable(activeGeneration?.dataset?.sales || []);
     return generatorPanel(activeGeneration);
   }
 
@@ -563,7 +590,7 @@
         <div>
           <p class="section-kicker">${esc(route.groupLabel.toUpperCase())}</p>
           <h1>${esc(route.title)}</h1>
-          <p>Modulo base para preparar, validar, revisar y exportar informacion preliminar del ATS con compras y retenciones ya existentes en la base administrativa actual, sin prometer aun aceptacion final por parte del SRI.</p>
+          <p>Modulo para preparar, validar y revisar informacion preliminar del ATS con compras, retenciones y facturas de venta autorizadas, incluida su forma de pago SRI.</p>
         </div>
         <div class="page-header-side">
           ${statusBadge(activeGeneration?.status || "BORRADOR")}

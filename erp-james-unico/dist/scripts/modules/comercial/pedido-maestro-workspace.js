@@ -1,6 +1,5 @@
 (function(){
   const BlessERP = window.BlessERP = window.BlessERP || {};
-
   const RELEASED_STATES = new Set([
     "LIBERADO_BODEGA",
     "EN_ARMADO",
@@ -27,14 +26,6 @@
     return line?.anyLength === true || (isOpenMixedLine(line) && line?.mixedAnyLength !== false);
   }
 
-  function exclusionsKey(values) {
-    return (Array.isArray(values) ? values : []).map(normalize).filter(Boolean).sort().join(",");
-  }
-
-  function measureLabel(line) {
-    return isAnyLengthLine(line) ? "CUALQUIER MEDIDA" : `${metric(line?.length)} cm`;
-  }
-
   function renderLengthOptions(lengths, selectedLength, anyLength, utils) {
     const anyValue = BlessERP.comercialBoxBuilder.ANY_LENGTH;
     return `<option value="${anyValue}" ${anyLength ? "selected" : ""}>CUALQUIER MEDIDA</option>${lengths.map(length => `<option value="${utils.esc(length)}" ${!anyLength && Number(length) === Number(selectedLength) ? "selected" : ""}>${utils.esc(length)} cm</option>`).join("")}`;
@@ -45,90 +36,15 @@
     return `<span class="status-badge ${utils.badgeClass(status)}">${utils.esc(status)}</span>`;
   }
 
-  function stageState(ok, warning) {
-    if (ok) return "OK";
-    return warning ? "ADVERTENCIA" : "PENDIENTE";
-  }
-
   function disabled(flag) {
     return flag ? "disabled" : "";
   }
 
   function fieldLocked(order, field, workflow) {
-    if (order.revisionEditing) return ["customerId", "brandId", "transportType"].includes(field);
+    if (workflow.isSriAuthorized?.(order)) return true;
+    if (order.revisionEditing) return !workflow.canEditOrderField(order, field).ok;
+    if (RELEASED_STATES.has(normalize(order.warehouseStatus))) return true;
     return !workflow.canEditOrderField(order, field).ok;
-  }
-
-  function buildCoverageRows(appState, fulfillment) {
-    const availability = BlessERP.comercialOrderFulfillment?.getAvailabilityRows?.(appState) || [];
-    const byKey = new Map(availability.filter(item => !item.anyLength && !item.openMixed).map(item => [
-      `${normalize(item.variety)}|${metric(item.length)}|${metric(item.stemsPerBunch)}`,
-      item
-    ]));
-
-    return (fulfillment?.boxes || []).flatMap(box => box.lines.map(progress => {
-      const line = progress.line;
-      const key = `${normalize(line.variety)}|${metric(line.length)}|${metric(line.stemsPerBunch)}`;
-      const openMixed = isOpenMixedLine(line);
-      const anyLength = isAnyLengthLine(line);
-      const stock = openMixed
-        ? availability.find(item => (
-          item.openMixed
-          && Boolean(item.anyLength) === anyLength
-          && (anyLength || metric(item.length) === metric(line.length))
-          && metric(item.stemsPerBunch) === metric(line.stemsPerBunch)
-          && exclusionsKey(item.excludedVarieties) === exclusionsKey(line.mixedExcludedVarieties)
-        )) || {}
-        : anyLength
-          ? availability.find(item => (
-            !item.openMixed
-            && item.anyLength
-            && normalize(item.variety) === normalize(line.variety)
-            && metric(item.stemsPerBunch) === metric(line.stemsPerBunch)
-          )) || {}
-          : byKey.get(key) || {};
-      const physical = metric(stock.physicalBunches);
-      const pending = metric(progress.pending);
-      const covered = Math.min(physical, pending);
-      return {
-        boxNumber: box.boxNumber,
-        line,
-        required: metric(progress.required),
-        scanned: metric(progress.scanned),
-        pending,
-        physical,
-        projected: metric(stock.projectedBunches),
-        shortage: Math.max(pending - physical, 0),
-        coverage: pending === 0 ? "COMPLETA" : covered >= pending ? "DISPONIBLE" : covered > 0 ? "PARCIAL" : "FALTANTE"
-      };
-    }));
-  }
-
-  function renderOrderSelector(order, appState, utils, stateApi) {
-    const orders = stateApi.getOrders(appState)
-      .slice()
-      .sort((left, right) => String(right.issuedAt || "").localeCompare(String(left.issuedAt || "")) || String(right.number || "").localeCompare(String(left.number || "")));
-    return `
-      <section class="panel-card master-order-selector">
-        <div>
-          <p class="section-kicker">PEDIDO ACTIVO</p>
-          <strong>${utils.esc(order.number || "Sin numero")}</strong>
-          <small>Seleccione otra orden sin salir del Pedido Maestro.</small>
-        </div>
-        <label class="compact-inline-field">
-          <span>Pedido / orden</span>
-          <select data-commercial-master-select-order>
-            ${orders.map(item => `<option value="${utils.esc(item.id)}" ${item.id === order.id ? "selected" : ""}>${utils.esc(item.number)} | ${utils.esc(item.issuedAt || "Sin fecha")} | ${utils.esc(item.status || "BORRADOR")}</option>`).join("")}
-          </select>
-        </label>
-        <div class="table-actions-inline">
-          <button class="secondary-button" data-commercial-new-order>Nuevo pedido</button>
-          <button class="primary-button" data-commercial-jump-box-builder>Crear cajas</button>
-          <button class="secondary-button" data-route-link="commercial-orders-day">Ordenes del dia</button>
-          <button class="secondary-button" data-route-link="commercial-order-history">Historial</button>
-        </div>
-      </section>
-    `;
   }
 
   function renderBoxBuilder(order, draft, nextBox, boxTypes, varieties, lengths, linesEditable, utils) {
@@ -138,10 +54,6 @@
       [modes.MANUAL_MIX]: "Mixto manual",
       [modes.OPEN_MIX]: "Mixto abierto"
     };
-    const templateItems = draft.mode === modes.MANUAL_MIX ? draft.manualItems : [draft];
-    const perBoxBunches = templateItems.reduce((sum, item) => sum + metric(item.bunches), 0);
-    const perBoxStems = templateItems.reduce((sum, item) => sum + metric(item.bunches) * metric(item.stemsPerBunch), 0);
-    const perBoxUsd = templateItems.reduce((sum, item) => sum + metric(item.bunches) * metric(item.stemsPerBunch) * metric(item.unitPrice), 0);
     const commonFields = `
       <label class="compact-field"><span>Caja inicial</span><input type="number" min="1" step="1" value="${utils.esc(draft.firstBox || nextBox)}" data-commercial-range-field="firstBox" ${disabled(!linesEditable)}></label>
       <label class="compact-field"><span>Cantidad cajas</span><input type="number" min="1" max="200" step="1" value="${utils.esc(draft.quantity || 1)}" data-commercial-range-field="quantity" ${disabled(!linesEditable)}></label>
@@ -167,7 +79,7 @@
     if (draft.mode === modes.MANUAL_MIX) {
       modeContent = `
         <div class="master-order-range-grid master-builder-common-grid">${commonFields}</div>
-        <div class="compact-table-wrap master-mix-items"><table class="compact-table"><thead><tr><th>Item</th><th>Variedad</th><th>Medida</th><th>Ramos</th><th>Tallos/ramo</th><th>Precio/tallo</th><th>Total/caja</th><th></th></tr></thead><tbody>
+        <div class="compact-table-wrap master-mix-items"><table class="compact-table"><thead><tr><th>Item</th><th>Variedad</th><th>Medida</th><th>Ramos</th><th>Tallos/ramo</th><th>Precio/tallo</th><th>Accion</th></tr></thead><tbody>
           ${draft.manualItems.map((item, index) => `<tr>
             <td><strong>${index + 1}</strong></td>
             <td><select data-commercial-mix-item-field="${utils.esc(item.id)}|variety" ${disabled(!linesEditable)}>${varieties.map(variety => `<option value="${utils.esc(variety)}" ${variety === item.variety ? "selected" : ""}>${utils.esc(variety)}</option>`).join("")}</select></td>
@@ -175,7 +87,6 @@
             <td><input type="number" min="1" step="1" value="${utils.esc(item.bunches)}" data-commercial-mix-item-field="${utils.esc(item.id)}|bunches" ${disabled(!linesEditable)}></td>
             <td><input type="number" min="1" step="1" value="${utils.esc(item.stemsPerBunch)}" data-commercial-mix-item-field="${utils.esc(item.id)}|stemsPerBunch" ${disabled(!linesEditable)}></td>
             <td><input type="number" min="0.001" step="0.001" value="${utils.esc(item.unitPrice)}" data-commercial-mix-item-field="${utils.esc(item.id)}|unitPrice" ${disabled(!linesEditable)}></td>
-            <td class="numeric"><strong>${utils.money(metric(item.bunches) * metric(item.stemsPerBunch) * metric(item.unitPrice))}</strong></td>
             <td><button class="secondary-button" data-commercial-remove-mix-item="${utils.esc(item.id)}" ${disabled(!linesEditable || draft.manualItems.length <= 2)}>Quitar</button></td>
           </tr>`).join("")}
         </tbody></table></div>
@@ -193,7 +104,7 @@
           <label class="compact-field"><span>Precio comun/tallo</span><input type="number" min="0.001" step="0.001" value="${utils.esc(draft.unitPrice || 0)}" data-commercial-range-field="unitPrice" ${disabled(!linesEditable)}></label>
           <label class="compact-field master-range-exclusions"><span>Variedades excluidas</span><input type="text" value="${utils.esc(draft.excludedVarieties || "")}" placeholder="Ej. PLAYA BLANCA, MONDIAL" data-commercial-range-field="excludedVarieties" ${disabled(!linesEditable)}></label>
         </div>
-        <p class="master-range-help">Bodega puede escanear cualquier variedad permitida. La medida se valida exactamente o queda abierta segun la opcion elegida; la composicion real vuelve a Ventas con cada lectura.</p>
+        <p class="master-range-help">Cuarto frío puede escanear cualquier variedad permitida. La medida se valida exactamente o queda abierta segun la opcion elegida; la composicion real vuelve a Ventas con cada lectura.</p>
       `;
     }
 
@@ -202,55 +113,117 @@
         <div class="master-builder-toolbar">
           <div><strong>Crear cajas</strong><small>Seleccione una forma de armar el pedido.</small></div>
           <div class="table-actions-inline master-builder-modes">
-            <button class="secondary-button" data-commercial-builder-single ${disabled(!linesEditable)}>Caja individual</button>
             ${Object.entries(modeLabels).map(([mode, label]) => `<button class="${draft.mode === mode ? "primary-button" : "secondary-button"}" data-commercial-builder-mode="${utils.esc(mode)}" ${disabled(!linesEditable)}>${utils.esc(label)}</button>`).join("")}
+            <button class="secondary-button master-builder-close" data-commercial-close-box-builder>Cerrar</button>
           </div>
         </div>
-        <div class="master-builder-body">
+        <div class="master-builder-body ${draft.mode === modes.MANUAL_MIX ? "is-manual-mode" : "is-compact-mode"}">
           <div class="master-builder-title"><strong>${utils.esc(modeLabels[draft.mode])}</strong><span class="status-badge partial">Caja ${utils.esc(draft.firstBox || nextBox)} en adelante</span></div>
           ${modeContent}
-          <div class="master-order-totals"><span>Por caja: ${utils.number(perBoxBunches)} ramos</span><span>${utils.number(perBoxStems)} tallos</span><strong>${utils.money(perBoxUsd)}</strong><span>Rango: ${utils.number(perBoxBunches * metric(draft.quantity))} ramos</span><span>${utils.number(perBoxStems * metric(draft.quantity))} tallos</span><strong>${utils.money(perBoxUsd * metric(draft.quantity))}</strong></div>
           <div class="master-builder-submit"><button class="primary-button" data-commercial-add-box-range ${disabled(!linesEditable)}>Generar ${utils.esc(modeLabels[draft.mode].toLowerCase())}</button></div>
         </div>
       </section>
     `;
   }
 
-  function mixedActualSummary(line) {
-    if (line?.boxBuildMode !== "MIXTO_ABIERTO") return "";
-    const rows = Array.isArray(line.mixedActualComposition) ? line.mixedActualComposition : [];
-    if (!rows.length) return isAnyLengthLine(line) ? "Pendiente: Bodega define variedad y medida" : `Pendiente: Bodega define variedad en ${metric(line.length)} cm`;
-    return rows.map(item => `${item.variety} ${item.length} cm: ${item.bunches} ramo(s)`).join(" · ");
-  }
+  function renderQuickCatalogEditors(order, appState, utils, stateApi) {
+    const editorKind = String(stateApi.getUi(appState).quickCatalogEditorKind || "");
+    if (!editorKind) return "";
+    const data = BlessERP.comercialData;
+    const customers = stateApi.getCustomerCatalog(appState);
+    const brands = stateApi.getBrandCatalog(appState);
+    const countries = stateApi.getCountryCatalog(appState).filter(item => normalize(item.status || "ACTIVO") !== "INACTIVO");
+    const destinations = stateApi.getDestinationCatalog(appState).filter(item => normalize(item.status || "ACTIVO") !== "INACTIVO");
+    const agencies = stateApi.getAgencyCatalog(appState).filter(item => normalize(item.status || "ACTIVA") !== "INACTIVA");
+    const customer = customers.find(item => item.id === order.customerId) || data.createCustomer({ country: "ECUADOR" });
+    const brand = brands.find(item => item.id === order.brandId) || data.createBrand({ customerId: order.customerId });
 
-  function scannedMeasureSummary(line) {
-    if (!isAnyLengthLine(line) || isOpenMixedLine(line)) return "";
-    const grouped = new Map();
-    (line.scannedBunches || []).forEach(scan => grouped.set(metric(scan.length), (grouped.get(metric(scan.length)) || 0) + 1));
-    if (!grouped.size) return "Pendiente de lectura en Bodega";
-    return [...grouped.entries()].sort((left, right) => left[0] - right[0]).map(([length, bunches]) => `${length} cm: ${bunches} ramo(s)`).join(" · ");
-  }
-
-  function renderStages(order, workflowSummary, fulfillment, utils) {
-    const transport = normalize(order.transportType);
-    const daeOk = transport !== "AEREO" || Boolean(order.daeNumber);
-    const stages = [
-      { label: "1. Cliente", state: stageState(Boolean(order.customerId && order.brandId)), help: "Cliente principal y marca final" },
-      { label: "2. Logistica", state: stageState(Boolean(order.destination && order.flightDate && order.agencyId && daeOk), Boolean(!order.awb || !order.hawb)), help: transport === "MARITIMO" ? "Maritimo: DAE pendiente permitida" : "Destino, DAE, agencia y vuelo" },
-      { label: "3. Cajas", state: stageState(Boolean(fulfillment?.totalBoxes && fulfillment?.requiredBunches)), help: `${fulfillment?.totalBoxes || 0} caja(s), ${fulfillment?.requiredBunches || 0} ramo(s)` },
-      { label: "4. Validacion", state: workflowSummary.validation.errors.length ? "ERROR" : workflowSummary.validation.warnings.length ? "ADVERTENCIA" : "OK", help: `${workflowSummary.validation.errors.length} error(es), ${workflowSummary.validation.warnings.length} advertencia(s)` },
-      { label: "5. Bodega", state: RELEASED_STATES.has(normalize(order.warehouseStatus)) ? (fulfillment?.allBoxesComplete ? "OK" : "EN_PROCESO") : "PENDIENTE", help: order.warehouseStatus || "NO_LIBERADO" }
-    ];
-    return `<section class="master-order-stage-track">${stages.map(item => `<article class="master-order-stage ${utils.badgeClass(item.state)}"><span>${utils.esc(item.label)}</span><strong>${utils.esc(item.state)}</strong><small>${utils.esc(item.help)}</small></article>`).join("")}</section>`;
+    return `
+      <div class="commercial-quick-editor-modal" data-commercial-quick-editor-modal="customer" hidden>
+        <section class="panel-card commercial-quick-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="quick-customer-editor-title" tabindex="-1">
+          <div class="panel-card-head commercial-quick-editor-head">
+            <div><p class="section-kicker">CLIENTE PRINCIPAL</p><h2 id="quick-customer-editor-title">Crear o editar cliente</h2><p class="panel-note">Los cambios actualizan el catalogo comercial y el selector del pedido.</p></div>
+            <button class="commercial-order-control-close" type="button" data-commercial-close-quick-editor aria-label="Cerrar editor de cliente">×</button>
+          </div>
+          <div class="commercial-quick-editor-grid">
+            <label class="compact-field"><span>Codigo</span><input value="${utils.esc(customer.code)}" data-commercial-quick-customer-field="code" readonly></label>
+            <label class="compact-field"><span>Categoria</span><select data-commercial-quick-customer-field="category">${["EXPORTACION", "LOCAL", "MIXTO"].map(item => `<option ${item === customer.category ? "selected" : ""}>${item}</option>`).join("")}</select></label>
+            <label class="compact-field commercial-quick-span-2"><span>Apellidos y nombres / Razon social</span><input value="${utils.esc(customer.legalName)}" data-commercial-quick-customer-field="legalName"></label>
+            <label class="compact-field"><span>Nombre comercial</span><input value="${utils.esc(customer.commercialName)}" data-commercial-quick-customer-field="commercialName"></label>
+            <label class="compact-field"><span>Estado</span><select data-commercial-quick-customer-field="status"><option ${customer.status === "ACTIVO" ? "selected" : ""}>ACTIVO</option><option ${customer.status === "INACTIVO" ? "selected" : ""}>INACTIVO</option></select></label>
+            <label class="compact-field"><span>Tipo identificacion</span><select data-commercial-quick-customer-field="identificationType">${["RUC", "CEDULA", "PASAPORTE", "TAX ID"].map(item => `<option ${item === customer.identificationType ? "selected" : ""}>${item}</option>`).join("")}</select></label>
+            <label class="compact-field"><span>Identificacion</span><input value="${utils.esc(customer.identification)}" placeholder="Automatico: CE0001" data-commercial-quick-customer-field="identification"><small>Si queda vacio se asigna automaticamente.</small></label>
+            <label class="compact-field"><span>Pais</span><select data-commercial-quick-customer-field="country">${countries.map(item => `<option value="${utils.esc(item.name)}" ${normalize(item.name) === normalize(customer.country) ? "selected" : ""}>${utils.esc(item.name)}</option>`).join("")}</select></label>
+            <label class="compact-field"><span>Ciudad</span><input value="${utils.esc(customer.city)}" data-commercial-quick-customer-field="city"></label>
+            <label class="compact-field commercial-quick-span-2"><span>Direccion</span><textarea rows="2" data-commercial-quick-customer-field="address">${utils.esc(customer.address)}</textarea></label>
+            <label class="compact-field"><span>Contacto</span><input value="${utils.esc(customer.contact)}" data-commercial-quick-customer-field="contact"></label>
+            <label class="compact-field"><span>Telefono movil</span><input value="${utils.esc(customer.mobilePhone)}" data-commercial-quick-customer-field="mobilePhone"></label>
+            <label class="compact-field"><span>Correo contacto</span><input type="email" value="${utils.esc(customer.contactEmail)}" data-commercial-quick-customer-field="contactEmail"></label>
+            <label class="compact-field"><span>Correo facturacion</span><input type="email" value="${utils.esc(customer.billingEmail)}" data-commercial-quick-customer-field="billingEmail"></label>
+          </div>
+          <div class="commercial-quick-editor-actions">
+            <button class="secondary-button" type="button" data-commercial-new-quick-customer>Nuevo cliente</button>
+            <button class="primary-button" type="button" data-commercial-save-quick-customer>Guardar cliente</button>
+          </div>
+        </section>
+      </div>
+      <div class="commercial-quick-editor-modal" data-commercial-quick-editor-modal="brand" hidden>
+        <section class="panel-card commercial-quick-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="quick-brand-editor-title" tabindex="-1">
+          <div class="panel-card-head commercial-quick-editor-head">
+            <div><p class="section-kicker">MARCA / CLIENTE FINAL</p><h2 id="quick-brand-editor-title">Crear o editar marca</h2><p class="panel-note">La marca queda vinculada al cliente principal y parametriza destino, agencia y cuarto frio.</p></div>
+            <button class="commercial-order-control-close" type="button" data-commercial-close-quick-editor aria-label="Cerrar editor de marca">×</button>
+          </div>
+          <div class="commercial-quick-editor-grid">
+            <label class="compact-field"><span>Codigo</span><input value="${utils.esc(brand.code)}" data-commercial-quick-brand-field="code" readonly></label>
+            <label class="compact-field"><span>Cliente principal</span><select data-commercial-quick-brand-field="customerId"><option value="">Seleccione cliente</option>${customers.filter(item => normalize(item.status || "ACTIVO") !== "INACTIVO").map(item => `<option value="${utils.esc(item.id)}" ${item.id === brand.customerId ? "selected" : ""}>${utils.esc(item.commercialName)}</option>`).join("")}</select></label>
+            <label class="compact-field commercial-quick-span-2"><span>Apellidos y nombres / Razon social</span><input value="${utils.esc(brand.finalClientName)}" data-commercial-quick-brand-field="finalClientName"></label>
+            <label class="compact-field"><span>Destino</span><select data-commercial-quick-brand-field="destination"><option value="">Seleccione destino</option>${destinations.map(item => `<option value="${utils.esc(item.destination)}" ${normalize(item.destination) === normalize(brand.destination) ? "selected" : ""}>${utils.esc(item.destination)}</option>`).join("")}</select></label>
+            <label class="compact-field"><span>Pais automatico</span><input value="${utils.esc(brand.country)}" data-commercial-quick-brand-field="country" readonly></label>
+            <label class="compact-field"><span>Agencia automatica</span><select data-commercial-quick-brand-field="defaultAgencyId"><option value="">Sin agencia</option>${agencies.map(item => `<option value="${utils.esc(item.id)}" ${item.id === brand.defaultAgencyId ? "selected" : ""}>${utils.esc(item.name)}</option>`).join("")}</select></label>
+            <label class="compact-field"><span>Cuarto frio base</span><input value="${utils.esc(brand.agencyColdRoom)}" data-commercial-quick-brand-field="agencyColdRoom"></label>
+            <label class="compact-field commercial-quick-span-2"><span>Direccion</span><textarea rows="2" data-commercial-quick-brand-field="address">${utils.esc(brand.address)}</textarea></label>
+            <label class="compact-field"><span>Ciudad</span><input value="${utils.esc(brand.city)}" data-commercial-quick-brand-field="city"></label>
+            <label class="compact-field"><span>Contacto</span><input value="${utils.esc(brand.contact)}" data-commercial-quick-brand-field="contact"></label>
+            <label class="compact-field"><span>Telefono</span><input value="${utils.esc(brand.phone)}" data-commercial-quick-brand-field="phone"></label>
+            <label class="compact-field"><span>Correo</span><input type="email" value="${utils.esc(brand.email)}" data-commercial-quick-brand-field="email"></label>
+            <label class="compact-field"><span>Requiere PO</span><select data-commercial-quick-brand-field="requiresPo"><option value="false" ${!brand.requiresPo ? "selected" : ""}>No</option><option value="true" ${brand.requiresPo ? "selected" : ""}>Si</option></select></label>
+            <label class="compact-field"><span>Estado</span><select data-commercial-quick-brand-field="status"><option ${brand.status === "ACTIVO" ? "selected" : ""}>ACTIVO</option><option ${brand.status === "INACTIVO" ? "selected" : ""}>INACTIVO</option></select></label>
+          </div>
+          <div class="commercial-quick-editor-actions">
+            <button class="secondary-button" type="button" data-commercial-new-quick-brand>Nueva marca</button>
+            <button class="primary-button" type="button" data-commercial-save-quick-brand>Guardar marca</button>
+          </div>
+        </section>
+      </div>
+    `;
   }
 
   function renderHeaderData(order, appState, utils, stateApi, workflow) {
     const customers = stateApi.getCustomerCatalog(appState).filter(item => normalize(item.status) !== "INACTIVO");
+    const selectedCustomer = customers.find(item => item.id === order.customerId);
     const brands = stateApi.getBrandCatalog(appState).filter(item => item.customerId === order.customerId && normalize(item.status || "ACTIVO") !== "INACTIVO");
+    const salespeople = stateApi.listSalespeople(appState);
     const agencies = stateApi.getAgencyCatalog(appState).filter(item => normalize(item.status || "ACTIVA") !== "INACTIVA");
+    const airlines = stateApi.getAirlineCatalog(appState).filter(item => normalize(item.status || "ACTIVA") !== "INACTIVA");
     const daes = utils.getAvailableDaesForOrder(order);
+    if (order.daeNumber && !daes.some(item => item.number === order.daeNumber)) {
+      daes.unshift({
+        number: order.daeNumber,
+        expirationDate: order.daeExpirationDate || "",
+        destination: order.daeDestination || order.destination || ""
+      });
+    }
     const transport = normalize(order.transportType) || "AEREO";
+    const localSale = utils.isLocalOrder?.(order) || transport === "TERRESTRE";
+    const supportsDae = transport === "AEREO";
     const revisionLabel = order.revisionEditing ? `REVISION R${order.revisionDraftNumber}` : order.status || "BORRADOR";
+    const released = RELEASED_STATES.has(normalize(order.warehouseStatus));
+    const sriAuthorized = workflow.isSriAuthorized?.(order) || false;
+    const orderEditable = !workflow.getEditPolicy(order).editBlocked;
+    const imperioCompanyId = BlessERP.companyCapabilities?.COMPANY_IDS?.IMPERIO || "COMP-IMPERIO-FLOWERS";
+    const isImperioOrder = String(order.sellingCompanyId || order.companyId || "") === imperioCompanyId;
+    const supplyMode = normalize(order.inventorySupplyMode || order.inventory_supply_mode || (isImperioOrder ? "EXTERNAL_FARM" : "BLESS_INVENTORY"));
+    const externalSupply = supplyMode === "EXTERNAL_FARM";
     const selectedAgency = agencies.find(item => item.id === order.agencyId);
     const agencyRooms = [...new Set([...(selectedAgency?.coldRooms || []), selectedAgency?.coldRoom, order.coldRoom].filter(Boolean))];
     const recognizedAirline = utils.findAirlineByAwb(order.awb, appState)
@@ -263,81 +236,97 @@
         : "Ingrese los 3 primeros digitos para reconocer la linea aerea.";
 
     return `
-      <section class="panel-card master-order-entry-card">
+      <section class="panel-card master-order-entry-card ${order.revisionEditing ? "is-data-editing" : ""}">
         <div class="panel-card-head">
-          <div><p class="section-kicker">PEDIDO MAESTRO</p><h3>Cliente, marca y logistica</h3></div>
-          ${statusBadge(utils, revisionLabel)}
+          <div><p class="section-kicker">DATOS DEL COMPRADOR</p><h3>Cliente, marca y logistica</h3><p class="panel-note">Seleccione o escriba para buscar. Use + para crear o editar el cliente y la marca sin salir del pedido.</p></div>
+          <div class="master-order-entry-actions">
+            ${statusBadge(utils, revisionLabel)}
+            ${!released && !sriAuthorized && !order.revisionEditing && !externalSupply ? `<button class="primary-button" type="button" data-commercial-release-warehouse>Enviar a Cuarto frío</button>` : ""}
+            ${!released && !sriAuthorized && !order.revisionEditing ? `<button class="primary-button" type="button" data-commercial-save-order>Guardar pedido</button>` : ""}
+            ${released && orderEditable && !sriAuthorized && !order.revisionEditing ? `<button class="primary-button" type="button" data-commercial-start-revision>Editar pedido</button>` : ""}
+            ${order.revisionEditing ? `<button class="primary-button" type="button" data-commercial-submit-revision>Actualizar pedido</button><button class="secondary-button" type="button" data-commercial-cancel-revision>Cancelar</button>` : ""}
+            <button class="secondary-button" type="button" data-commercial-new-order>Nuevo</button>
+          </div>
         </div>
-        <p class="panel-note">Complete el pedido directamente en esta pantalla. Cliente y marca parametrizan destino, agencia, cuarto frio y DAE sugerida.</p>
-        <div class="master-order-form-grid">
-          <label class="compact-field"><span>Pedido</span><input value="${utils.esc(order.number || "")}" disabled></label>
-          <label class="compact-field"><span>Fecha pedido</span><input type="date" value="${utils.esc(order.issuedAt || "")}" data-commercial-order-field="issuedAt" ${disabled(fieldLocked(order, "issuedAt", workflow))}></label>
-          <label class="compact-field master-field-wide"><span>Cliente principal</span><select data-commercial-order-field="customerId" ${disabled(fieldLocked(order, "customerId", workflow))}><option value="">Seleccione cliente</option>${customers.map(item => `<option value="${utils.esc(item.id)}" ${item.id === order.customerId ? "selected" : ""}>${utils.esc(item.commercialName)} · ${utils.esc(item.code)}</option>`).join("")}</select></label>
-          <label class="compact-field master-field-wide"><span>Marca / cliente final</span><select data-commercial-order-field="brandId" ${disabled(fieldLocked(order, "brandId", workflow) || !order.customerId)}><option value="">Seleccione marca</option>${brands.map(item => `<option value="${utils.esc(item.id)}" ${item.id === order.brandId ? "selected" : ""}>${utils.esc(item.name)} · ${utils.esc(item.destination || "-")}</option>`).join("")}</select></label>
-          <label class="compact-field"><span>PO general</span><input value="${utils.esc(order.generalPo || "")}" data-commercial-order-field="generalPo" ${disabled(fieldLocked(order, "generalPo", workflow))}></label>
-          <label class="compact-field"><span>Transporte</span><select data-commercial-order-field="transportType" ${disabled(fieldLocked(order, "transportType", workflow))}><option value="aereo" ${transport === "AEREO" ? "selected" : ""}>Aereo</option><option value="maritimo" ${transport === "MARITIMO" ? "selected" : ""}>Maritimo</option><option value="terrestre" ${transport === "TERRESTRE" ? "selected" : ""}>Terrestre</option></select></label>
-          <label class="compact-field"><span>Destino</span><input value="${utils.esc(order.destination || "")}" disabled></label>
-          <label class="compact-field"><span>Pais</span><input value="${utils.esc(order.destinationCountry || "")}" disabled></label>
-          <label class="compact-field"><span>Fecha vuelo / salida</span><input type="date" value="${utils.esc(order.flightDate || "")}" data-commercial-order-field="flightDate" ${disabled(fieldLocked(order, "flightDate", workflow))}></label>
-          <label class="compact-field master-field-wide"><span>Agencia de carga</span><select data-commercial-order-field="agencyId" ${disabled(fieldLocked(order, "agencyId", workflow))}><option value="">Seleccione agencia</option>${agencies.map(item => `<option value="${utils.esc(item.id)}" ${item.id === order.agencyId ? "selected" : ""}>${utils.esc(item.name)} · ${utils.esc(item.coldRoom || "-")}</option>`).join("")}</select></label>
-          <label class="compact-field"><span>Cuarto frio</span><input list="master-order-cold-rooms" value="${utils.esc(order.coldRoom || "")}" data-commercial-order-field="coldRoom" ${disabled(fieldLocked(order, "coldRoom", workflow))}><datalist id="master-order-cold-rooms">${agencyRooms.map(room => `<option value="${utils.esc(room)}"></option>`).join("")}</datalist></label>
-          <label class="compact-field master-field-wide"><span>DAE ${transport === "AEREO" ? "obligatoria" : "pendiente permitida"}</span><select data-commercial-order-field="daeNumber" ${disabled(transport !== "AEREO" || fieldLocked(order, "daeNumber", workflow))}><option value="">${transport === "AEREO" ? "Seleccione DAE" : "No requerida para enviar a Bodega"}</option>${daes.map(item => `<option value="${utils.esc(item.number)}" ${item.number === order.daeNumber ? "selected" : ""}>${utils.esc(item.number)} · vence ${utils.esc(item.expiresAt || "-")}</option>`).join("")}</select></label>
-          <label class="compact-field"><span>AWB / guia madre</span><input inputmode="numeric" maxlength="12" placeholder="045-12345678" value="${utils.esc(order.awb || "")}" data-commercial-order-field="awb" data-commercial-awb-input ${disabled(fieldLocked(order, "awb", workflow))}></label>
-          <label class="compact-field master-field-wide master-awb-result"><span>Linea aerea automatica</span><input value="${utils.esc(recognizedAirline ? `${recognizedAirline.name} · prefijo ${recognizedAirline.awbPrefix}` : "Prefijo AWB no reconocido")}" data-commercial-awb-airline disabled><small class="${recognizedAirline ? "is-valid" : awbDigits.length >= 3 ? "is-warning" : ""}" data-commercial-awb-status>${utils.esc(awbStatus)}</small></label>
-          <label class="compact-field"><span>Vuelo</span><input value="${utils.esc(order.flightNumber || "")}" data-commercial-order-field="flightNumber" ${disabled(fieldLocked(order, "flightNumber", workflow))}></label>
-          <label class="compact-field"><span>HAWB / guia hija</span><input value="${utils.esc(order.hawb || "")}" data-commercial-order-field="hawb" ${disabled(fieldLocked(order, "hawb", workflow))}></label>
-          <label class="compact-field master-field-full"><span>Observaciones</span><textarea data-commercial-order-field="notes" ${disabled(fieldLocked(order, "notes", workflow))}>${utils.esc(order.notes || "")}</textarea></label>
+        ${sriAuthorized ? `<div class="inline-feedback danger"><strong>Factura AUTORIZADA por el SRI</strong> · El pedido queda solo para consulta. Para corregirlo debe anular el comprobante conforme al proceso tributario y generar uno nuevo.</div>` : ""}
+        ${externalSupply ? `<div class="inline-feedback info"><strong>${utils.esc(order.sellingCompanyName || (isImperioOrder ? "Imperio Flowers" : "Bless Flower"))} · compra externa</strong> · Este pedido se factura sin reservar, descontar ni enviar inventario a Cuarto frío.</div>` : ""}
+        ${order.revisionEditing ? `<div class="inline-feedback warning"><strong>Edicion del pedido activa</strong> · Puede corregir cliente, marca, logistica, cajas, cantidades y precios. Pulse Actualizar pedido para que Cuarto frío reciba la revision.</div>` : ""}
+        <div class="master-order-number-strip">
+          <div><span>Numero</span><strong>${utils.esc(order.number || "Se asigna al guardar")}</strong></div>
+          <div><span>Factura</span><strong>${utils.esc(order.sriInvoiceNumber || order.sriSequential || "Se asigna al guardar")}</strong></div>
         </div>
-        <div class="table-actions-inline"><button class="secondary-button" data-route-link="commercial-customers-brands">Administrar clientes</button><button class="secondary-button" data-route-link="commercial-brands">Administrar marcas</button><button class="secondary-button" data-route-link="commercial-cargo-agencies">Administrar agencias</button></div>
+        <div class="master-order-buyer-layout">
+          <section class="master-order-form-section">
+            <h4>Comprador</h4>
+            <div class="master-order-field-with-action">
+              <div class="compact-field master-order-customer-search-field">
+                <span>Cliente principal</span>
+                <div class="master-order-customer-combobox" data-commercial-customer-combobox>
+                  <input type="search" value="${utils.esc(selectedCustomer?.legalName || "")}" placeholder="Escriba la razon social" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" data-commercial-customer-search ${disabled(fieldLocked(order, "customerId", workflow))}>
+                  <div class="master-order-customer-results" role="listbox" data-commercial-customer-results hidden>
+                    <div class="master-order-customer-empty" data-commercial-customer-empty>Escriba para buscar; se mostraran hasta 50 coincidencias.</div>
+                  </div>
+                </div>
+              </div>
+              <button type="button" class="master-order-plus-button" data-commercial-open-quick-editor="customer" aria-label="Crear o editar cliente principal">+</button>
+            </div>
+            <div class="master-order-field-with-action">
+              <label class="compact-field"><span>Marca / cliente final</span><select data-commercial-order-field="brandId" data-commercial-export-only ${localSale ? "hidden" : ""} ${disabled(localSale || fieldLocked(order, "brandId", workflow) || !order.customerId)}><option value="">Seleccione o escriba para buscar</option>${brands.map(item => `<option value="${utils.esc(item.id)}" ${item.id === order.brandId ? "selected" : ""}>${utils.esc(item.finalClientName)} · ${utils.esc(item.destination || "-")}</option>`).join("")}</select><input value="NO APLICA EN VENTA LOCAL" data-commercial-local-only ${localSale ? "" : "hidden"} disabled></label>
+              <button type="button" class="master-order-plus-button" data-commercial-open-quick-editor="brand" data-commercial-export-only aria-label="Crear o editar marca" ${localSale ? "hidden disabled" : ""}>+</button>
+            </div>
+            <label class="compact-field" data-commercial-export-only ${localSale ? "hidden" : ""}><span>Agencia de carga</span><select data-commercial-order-field="agencyId" ${disabled(localSale || fieldLocked(order, "agencyId", workflow))}><option value="">Seleccione agencia</option>${agencies.map(item => `<option value="${utils.esc(item.id)}" ${item.id === order.agencyId ? "selected" : ""}>${utils.esc(item.name)} · ${utils.esc(item.coldRoom || "-")}</option>`).join("")}</select></label>
+            <label class="compact-field" data-commercial-export-only ${localSale ? "hidden" : ""}><span>${transport === "AEREO" ? "DAE" : "DAE maritima"}</span>${supportsDae ? `<select data-commercial-order-field="daeNumber" ${disabled(localSale || fieldLocked(order, "daeNumber", workflow))}><option value="">Seleccione DAE</option>${daes.map(item => `<option value="${utils.esc(item.number)}" ${item.number === order.daeNumber ? "selected" : ""}>${utils.esc(item.number)} · ${utils.esc(item.country || item.destination || "SIN PAIS")}</option>`).join("")}</select><small>La DAE se asigna automaticamente segun el pais del cliente final. Puede elegir otra DAE activa y vigente.</small>` : `<input value="Se completa en Documentos electronicos SRI" disabled>`}</label>
+          </section>
+          <section class="master-order-form-section">
+            <h4>Emision y destino</h4>
+            <label class="compact-field"><span>Fecha de emision</span><input type="date" value="${utils.esc(order.issuedAt || "")}" data-commercial-order-field="issuedAt" ${disabled(fieldLocked(order, "issuedAt", workflow))}></label>
+            <label class="compact-field"><span>Fecha de vuelo / salida</span><input type="date" value="${utils.esc(order.flightDate || "")}" data-commercial-order-field="flightDate" ${disabled(fieldLocked(order, "flightDate", workflow))}></label>
+            <label class="compact-field"><span>Cuarto frio</span><input list="master-order-cold-rooms" value="${utils.esc(localSale ? "RETIRA EN FINCA" : (order.coldRoom || ""))}" data-commercial-order-field="coldRoom" ${disabled(localSale || fieldLocked(order, "coldRoom", workflow))}><datalist id="master-order-cold-rooms">${agencyRooms.map(room => `<option value="${utils.esc(room)}"></option>`).join("")}</datalist></label>
+            <div class="inline-feedback info" data-commercial-local-only ${localSale ? "" : "hidden"}><strong>Venta local</strong> · Retiro en finca. No requiere agencia ni DAE. Las guias y la linea aerea son opcionales.</div>
+            <label class="compact-field"><span>Guia madre / AWB${localSale ? " (opcional)" : ""}</span><input inputmode="numeric" maxlength="12" placeholder="045-12345678" value="${utils.esc(order.awb || "")}" data-commercial-order-field="awb" data-commercial-awb-input data-commercial-guide-input="awb" ${disabled(fieldLocked(order, "awb", workflow))}></label>
+          </section>
+          <section class="master-order-form-section">
+            <h4>Logistica y venta</h4>
+            <label class="compact-field"><span>Origen de las cajas</span><select data-commercial-order-field="inventorySupplyMode" ${disabled(fieldLocked(order, "inventorySupplyMode", workflow))}>${isImperioOrder ? `<option value="EXTERNAL_FARM" ${externalSupply ? "selected" : ""}>Compra a finca externa · sin inventario</option><option value="BLESS_SHARED" ${supplyMode === "BLESS_SHARED" ? "selected" : ""}>Disponibilidad compartida de Bless</option>` : `<option value="BLESS_INVENTORY" ${supplyMode !== "EXTERNAL_FARM" ? "selected" : ""}>Inventario propio de Bless · flujo normal</option><option value="EXTERNAL_FARM" ${externalSupply ? "selected" : ""}>Compra a finca externa · sin inventario</option>`}</select><small>La compra externa se factura sin afectar disponibilidad ni pasar por Cuarto frío.</small></label>
+            <label class="compact-field master-awb-result"><span>Linea aerea${localSale ? " (opcional)" : ""}</span><input value="${utils.esc(recognizedAirline ? `${recognizedAirline.name} · prefijo ${recognizedAirline.awbPrefix}` : "Se reconoce al ingresar la guia madre")}" data-commercial-awb-airline disabled><small class="${recognizedAirline ? "is-valid" : awbDigits.length >= 3 ? "is-warning" : ""}" data-commercial-awb-status>${utils.esc(awbStatus)}</small></label>
+            <label class="compact-field"><span>Tipo</span><select data-commercial-order-field="transportType" ${disabled(fieldLocked(order, "transportType", workflow))}><option value="aereo" ${transport === "AEREO" ? "selected" : ""}>Aereo</option><option value="maritimo" ${transport === "MARITIMO" ? "selected" : ""}>Maritimo</option><option value="terrestre" ${transport === "TERRESTRE" ? "selected" : ""}>Terrestre</option></select></label>
+            <label class="compact-field"><span>Guia hija${localSale ? " (opcional)" : ""}</span><input type="text" placeholder="Texto libre, sin limite de caracteres" value="${utils.esc(order.hawb || "")}" data-commercial-order-field="hawb" data-commercial-guide-input="hawb" ${disabled(fieldLocked(order, "hawb", workflow))}><small>Admite letras, numeros, espacios y simbolos sin limite fijo.</small></label>
+            <label class="compact-field"><span>Vendedor</span><select data-commercial-order-field="sellerId" ${disabled(fieldLocked(order, "sellerId", workflow) || !salespeople.length)}><option value="">${salespeople.length ? "Seleccione vendedor" : "Parametrice vendedores en Rol de pagos"}</option>${salespeople.map(item => `<option value="${utils.esc(item.seller_id)}" ${item.seller_id === (order.seller_id || order.sellerId) ? "selected" : ""}>${utils.esc(item.full_name)} · ${utils.esc(item.seller_id)}</option>`).join("")}</select></label>
+            <label class="compact-field"><span>PO general</span><input value="${utils.esc(order.generalPo || "")}" data-commercial-order-field="generalPo" ${disabled(fieldLocked(order, "generalPo", workflow))}></label>
+            <label class="compact-field"><span>Observaciones</span><textarea rows="2" data-commercial-order-field="notes" ${disabled(fieldLocked(order, "notes", workflow))}>${utils.esc(order.notes || "")}</textarea></label>
+          </section>
+        </div>
       </section>
+      ${renderQuickCatalogEditors(order, appState, utils, stateApi)}
     `;
   }
 
-  function renderReadiness(order, workflowSummary, fulfillment, coverageRows, utils) {
-    const missingCoverage = coverageRows.reduce((sum, item) => sum + item.shortage, 0);
-    const released = RELEASED_STATES.has(normalize(order.warehouseStatus));
-    const operationalWarnings = workflowSummary.validation.warnings.filter(message => ![
-      "Supabase",
-      "SRI",
-      "Contabilidad real",
-      "inventario real",
-      "Scanner real",
-      "reservas"
-    ].some(token => message.toLowerCase().includes(token.toLowerCase())));
-    const messages = [
-      ...workflowSummary.validation.errors.map(message => ({ tone: "ERROR", message })),
-      ...operationalWarnings.map(message => ({ tone: "ADVERTENCIA", message }))
-    ].slice(0, 8);
-    if (missingCoverage > 0) messages.unshift({ tone: "ADVERTENCIA", message: `Faltante proyectado de ${missingCoverage} ramo(s). El pedido puede prepararse, pero Bodega debe revisar disponibilidad fisica.` });
-    if (order.labelReprintRequired) messages.unshift({ tone: "REIMPRESION", message: `Las etiquetas anteriores fueron anuladas. Corresponde imprimir la revision R${order.labelRevision || 1}.` });
-    return `
-      <article class="panel-card master-order-readiness">
-        <div class="panel-card-head"><div><p class="section-kicker">GUARDAR Y ENVIAR</p><h3>Control del pedido</h3></div>${statusBadge(utils, order.warehouseStatus || "NO_LIBERADO")}</div>
-        <div class="master-order-kpis">
-          <div><span>Cajas</span><strong>${utils.number(fulfillment?.totalBoxes || 0)}</strong></div>
-          <div><span>Ramos</span><strong>${utils.number(fulfillment?.requiredBunches || 0)}</strong></div>
-          <div><span>Leidos</span><strong>${utils.number(fulfillment?.scannedBunches || 0)}</strong></div>
-          <div><span>Pendientes</span><strong>${utils.number(fulfillment?.pendingBunches || 0)}</strong></div>
-        </div>
-        <div class="base-ready-list master-order-alerts">
-          ${messages.map(item => `<div class="base-ready-item"><strong>${utils.esc(item.tone)}</strong><span>${utils.esc(item.message)}</span></div>`).join("") || `<div class="base-ready-item"><strong>LISTO</strong><span>La cabecera y el detalle no presentan errores criticos.</span></div>`}
-        </div>
-        <div class="table-actions-inline">
-          ${!released ? `<button class="secondary-button" data-commercial-save-order>Guardar borrador</button><button class="primary-button" data-commercial-release-warehouse>Enviar a Bodega</button>` : ""}
-          ${released && !order.revisionEditing ? `<button class="primary-button" data-commercial-start-revision>Modificar pedido</button>` : ""}
-          ${order.revisionEditing ? `<button class="primary-button" data-commercial-submit-revision>Enviar actualizacion a Bodega</button><button class="secondary-button" data-commercial-cancel-revision>Cancelar revision</button>` : ""}
-          <button class="secondary-button" data-commercial-open-warehouse>Ver en Bodega</button>
-        </div>
-        <p class="panel-note">Enviar a Bodega ejecuta la validacion automaticamente. AWB, HAWB y vuelo pueden completarse despues, pero seran obligatorios antes de imprimir etiquetas finales.</p>
-      </article>
-    `;
+  function commercialBoxes(order) {
+    const groups = new Map();
+    (order?.lines || []).forEach(line => {
+      const boxNumber = Number(line?.boxNumber || 0);
+      if (!boxNumber) return;
+      if (!groups.has(boxNumber)) groups.set(boxNumber, []);
+      groups.get(boxNumber).push({
+        line,
+        required: Math.max(0, metric(line?.bunches))
+      });
+    });
+    return [...groups.entries()]
+      .sort((left, right) => left[0] - right[0])
+      .map(([boxNumber, lines]) => ({
+        boxNumber,
+        boxType: lines[0]?.line?.boxType || "HB",
+        lines
+      }));
   }
 
-  function renderBoxes(order, appState, fulfillment, utils, stateApi, workflow) {
+  function renderBoxes(order, appState, utils, stateApi, workflow) {
     const metrics = utils.getOrderMetrics(order);
     const boxTypes = BlessERP.comercialData.boxTypes || [];
     const rangeDraft = stateApi.getBoxRangeDraft(appState) || {};
-    const nextRangeBox = Math.max(0, ...(fulfillment?.boxes || []).map(box => Number(box.boxNumber || 0))) + 1;
+    const boxes = commercialBoxes(order);
+    const nextRangeBox = Math.max(0, ...boxes.map(box => Number(box.boxNumber || 0))) + 1;
     const operationalStore = BlessERP.operacionesState?.getStore?.(appState);
     const varieties = [...new Set([
       ...(operationalStore?.masterData?.varieties || []).filter(item => item.active !== false).map(item => item.name),
@@ -350,66 +339,71 @@
       metric(rangeDraft.length),
       ...(rangeDraft.manualItems || []).map(item => metric(item.length))
     ].filter(length => length > 0))].sort((left, right) => left - right);
-    const linesEditable = order.revisionEditing || workflow.canEditLines(order).ok;
+    const released = RELEASED_STATES.has(normalize(order.warehouseStatus));
+    const sriAuthorized = workflow.isSriAuthorized?.(order) || false;
+    const linesEditable = !sriAuthorized && (released ? Boolean(order.revisionEditing) : workflow.canEditLines(order).ok);
+    const canRetireDirectly = released && !sriAuthorized && !order.revisionEditing;
+    const builderExpanded = Boolean(stateApi.getUi(appState).boxBuilderExpanded);
+    const boxTypeOptionsCache = new Map();
+    const varietyOptionsCache = new Map();
+    const lengthOptionsCache = new Map();
+    const boxTypeOptions = selected => {
+      const key = String(selected || "");
+      if (!boxTypeOptionsCache.has(key)) {
+        boxTypeOptionsCache.set(key, boxTypes.map(type => `<option value="${utils.esc(type.code)}" ${type.code === selected ? "selected" : ""}>${utils.esc(type.code)}</option>`).join(""));
+      }
+      return boxTypeOptionsCache.get(key);
+    };
+    const varietyOptions = selected => {
+      const key = String(selected || "");
+      if (!varietyOptionsCache.has(key)) {
+        varietyOptionsCache.set(key, varieties.map(variety => `<option value="${utils.esc(variety)}" ${variety === selected ? "selected" : ""}>${utils.esc(variety)}</option>`).join(""));
+      }
+      return varietyOptionsCache.get(key);
+    };
+    const lengthOptions = line => {
+      const anyLength = isAnyLengthLine(line);
+      const key = `${anyLength ? "ANY" : metric(line.length)}|${metric(line.length)}`;
+      if (!lengthOptionsCache.has(key)) {
+        lengthOptionsCache.set(key, renderLengthOptions(lengths, line.length, anyLength, utils));
+      }
+      return lengthOptionsCache.get(key);
+    };
+    const boxRows = boxes.map((box, boxIndex) => {
+      const boxLines = box.lines || [];
+      const boxTone = `master-box-tone-${boxIndex % 3}`;
+      const itemRows = boxLines.map((item, lineIndex) => {
+        const line = item.line;
+        const scanned = Array.isArray(line.scannedBunches) ? line.scannedBunches.length : 0;
+        const isNewRevisionLine = Number(line.addedRevision || 1) === Number(order.revisionDraftNumber || 0);
+        const structuralLocked = !linesEditable || (order.revisionEditing && scanned > 0 && !isNewRevisionLine);
+        const boxNumberLocked = !linesEditable || (order.revisionEditing && !isNewRevisionLine);
+        return `<tr class="master-order-grid-row ${boxTone} ${lineIndex === 0 ? "is-box-start" : "is-box-continuation"}">
+          <td class="master-box-number-cell"><strong>${utils.esc(box.boxNumber)}</strong><input type="hidden" value="${utils.esc(line.boxNumber)}" data-commercial-line-field="${utils.esc(line.id)}|boxNumber" ${disabled(boxNumberLocked)}></td>
+          <td><select data-commercial-line-field="${utils.esc(line.id)}|boxType" ${disabled(structuralLocked)}>${boxTypeOptions(line.boxType)}</select></td>
+          <td><select data-commercial-line-field="${utils.esc(line.id)}|variety" ${disabled(structuralLocked || line.boxBuildMode === "MIXTO_ABIERTO")}>${varietyOptions(line.variety)}</select>${line.boxBuildMode === "MIXTO_ABIERTO" && line.mixedExcludedVarieties?.length ? `<small class="warn-text">Excluye: ${utils.esc(line.mixedExcludedVarieties.join(", "))}</small>` : ""}</td>
+          <td><input value="${utils.esc(line.po || "")}" data-commercial-line-field="${utils.esc(line.id)}|po" ${disabled(!linesEditable)}></td>
+          <td><select data-commercial-line-field="${utils.esc(line.id)}|lengthSelection" ${disabled(structuralLocked)}>${lengthOptions(line)}</select></td>
+          <td><input type="number" min="${Math.max(1, scanned)}" step="1" value="${utils.esc(line.bunches)}" data-commercial-line-field="${utils.esc(line.id)}|bunches" ${disabled(!linesEditable)}></td>
+          <td><input type="number" min="1" step="1" value="${utils.esc(line.stemsPerBunch)}" data-commercial-line-field="${utils.esc(line.id)}|stemsPerBunch" ${disabled(structuralLocked)}></td>
+          <td><input type="number" min="0" step="0.001" value="${utils.esc(line.unitPrice)}" data-commercial-line-field="${utils.esc(line.id)}|unitPrice" ${disabled(!linesEditable)}></td>
+          <td><details class="master-box-action-menu"><summary>Opciones</summary><div class="master-box-action-menu-popover"><button class="secondary-button" data-commercial-duplicate-line="${utils.esc(line.id)}" ${disabled(!linesEditable)}>Duplicar item</button>${lineIndex === 0 ? `<button class="secondary-button" data-commercial-add-item-box="${utils.esc(box.boxNumber)}" ${disabled(!linesEditable || line.boxBuildMode === "MIXTO_ABIERTO")}>Agregar item</button><button class="secondary-button" data-commercial-duplicate-box="${utils.esc(box.boxNumber)}" ${disabled(!linesEditable)}>Duplicar caja</button><button class="secondary-button" data-commercial-delete-box="${utils.esc(box.boxNumber)}" data-commercial-box-action="${released ? "retire" : "delete"}" ${disabled(!linesEditable && !canRetireDirectly)}>${released ? "Retirar caja" : "Eliminar caja"}</button>` : `<button class="secondary-button" data-commercial-delete-line="${utils.esc(line.id)}" ${disabled(!linesEditable || scanned > 0)}>Eliminar item</button>`}</div></details></td>
+        </tr>`;
+      }).join("");
+      return itemRows;
+    }).join("");
     return `
       <section class="panel-card master-order-boxes">
-        <div class="panel-card-head">
-          <div><p class="section-kicker">ORDEN DEL CLIENTE</p><h3>Cajas, variedades, cantidades y precios</h3></div>
-          <div class="table-actions-inline"><button class="primary-button" data-commercial-builder-single ${disabled(!linesEditable)}>Agregar caja</button><button class="secondary-button" data-route-link="operations-availability">Ver disponibilidad</button></div>
+        <div class="panel-card-head master-boxes-head">
+          <div><p class="section-kicker">ORDEN DEL CLIENTE</p><h3>Cajas, variedades, cantidades y precios</h3><p class="panel-note">Defina aquí únicamente la composición comercial. El avance operativo se consulta en Seguimiento de pedidos.</p></div>
+          <div class="table-actions-inline master-boxes-quick-actions">
+            <button class="primary-button" type="button" data-commercial-jump-box-builder ${disabled(!linesEditable)}>Tipo de caja</button>
+            <button class="secondary-button" data-route-link="operations-availability">Ver disponibilidad</button>
+          </div>
         </div>
-        <p class="panel-note">El precio es manual por tallo. Use Agregar item cuando una caja contenga varias variedades o medidas. Bodega no visualiza precios.</p>
-        ${renderBoxBuilder(order, rangeDraft, nextRangeBox, boxTypes, varieties, lengths, linesEditable, utils)}
-        <div class="master-order-box-list">
-          ${(fulfillment?.boxes || []).map(box => {
-            const boxLines = box.lines || [];
-            const boxTotal = boxLines.reduce((sum, item) => sum + metric(item.line.bunches) * metric(item.line.stemsPerBunch) * metric(item.line.unitPrice), 0);
-            const boxHasScans = boxLines.some(item => item.scanned > 0);
-            const rangeLine = boxLines[0]?.line;
-            const buildLabel = rangeLine?.boxBuildMode === "MIXTO_MANUAL" ? "Mixto manual" : rangeLine?.boxBuildMode === "MIXTO_ABIERTO" ? "Mixto abierto" : "";
-            const rangeInfo = rangeLine?.boxRangeId
-              ? `${buildLabel ? `${buildLabel} · ` : ""}${rangeLine.boxRangeLabel} · ${rangeLine.boxRangeSequence}/${rangeLine.boxRangeTotal}`
-              : "";
-            return `<details class="master-order-box" open>
-              <summary><span><strong>Caja ${utils.esc(box.boxNumber)} · ${utils.esc(box.boxType)}</strong><small>${utils.esc([rangeInfo, boxLines[0]?.line?.po || order.generalPo || "Sin PO"].filter(Boolean).join(" · "))}</small></span><span>${utils.number(box.scanned)} / ${utils.number(box.required)} ramos</span>${statusBadge(utils, box.status)}<span>${utils.money(boxTotal)}</span></summary>
-              <div class="master-order-box-actions"><button class="secondary-button" data-commercial-add-item-box="${utils.esc(box.boxNumber)}" ${disabled(!linesEditable || rangeLine?.boxBuildMode === "MIXTO_ABIERTO")}>Agregar item</button><button class="secondary-button" data-commercial-duplicate-box="${utils.esc(box.boxNumber)}" ${disabled(!linesEditable)}>Duplicar caja</button><button class="secondary-button" data-commercial-delete-box="${utils.esc(box.boxNumber)}" ${disabled(!linesEditable || boxHasScans)}>Eliminar caja</button></div>
-              <div class="compact-table-wrap"><table class="compact-table master-order-entry-table"><thead><tr><th>Tipo</th><th>Variedad</th><th>PO</th><th>Medida</th><th>Ramos</th><th>Tallos/ramo</th><th>Total tallos</th><th>Precio/tallo</th><th>Total USD</th><th>Leidos</th><th>Acciones</th></tr></thead><tbody>
-                ${boxLines.map(item => {
-                  const line = item.line;
-                  const isNewRevisionLine = Number(line.addedRevision || 1) === Number(order.revisionDraftNumber || 0);
-                  const structuralLocked = !linesEditable || (order.revisionEditing && item.scanned > 0 && !isNewRevisionLine);
-                  const boxNumberLocked = !linesEditable || (order.revisionEditing && !isNewRevisionLine);
-                  const lineTotal = metric(line.bunches) * metric(line.stemsPerBunch) * metric(line.unitPrice);
-                  return `<tr>
-                    <td><select data-commercial-line-field="${utils.esc(line.id)}|boxType" ${disabled(structuralLocked)}>${boxTypes.map(type => `<option value="${utils.esc(type.code)}" ${type.code === line.boxType ? "selected" : ""}>${utils.esc(type.code)}</option>`).join("")}</select><input type="hidden" value="${utils.esc(line.boxNumber)}" data-commercial-line-field="${utils.esc(line.id)}|boxNumber" ${disabled(boxNumberLocked)}></td>
-                    <td><select data-commercial-line-field="${utils.esc(line.id)}|variety" ${disabled(structuralLocked || line.boxBuildMode === "MIXTO_ABIERTO")}>${varieties.map(variety => `<option value="${utils.esc(variety)}" ${variety === line.variety ? "selected" : ""}>${utils.esc(variety)}</option>`).join("")}</select>${mixedActualSummary(line) ? `<small class="master-mix-actual">${utils.esc(mixedActualSummary(line))}</small>` : ""}${line.boxBuildMode === "MIXTO_ABIERTO" && line.mixedExcludedVarieties?.length ? `<small class="warn-text">Excluye: ${utils.esc(line.mixedExcludedVarieties.join(", "))}</small>` : ""}</td>
-                    <td><input value="${utils.esc(line.po || "")}" data-commercial-line-field="${utils.esc(line.id)}|po" ${disabled(!linesEditable)}></td>
-                    <td><select data-commercial-line-field="${utils.esc(line.id)}|lengthSelection" ${disabled(structuralLocked)}>${renderLengthOptions(lengths, line.length, isAnyLengthLine(line), utils)}</select>${scannedMeasureSummary(line) ? `<small class="master-mix-actual">${utils.esc(scannedMeasureSummary(line))}</small>` : ""}</td>
-                    <td><input type="number" min="${Math.max(1, item.scanned)}" step="1" value="${utils.esc(line.bunches)}" data-commercial-line-field="${utils.esc(line.id)}|bunches" ${disabled(!linesEditable)}></td>
-                    <td><input type="number" min="1" step="1" value="${utils.esc(line.stemsPerBunch)}" data-commercial-line-field="${utils.esc(line.id)}|stemsPerBunch" ${disabled(structuralLocked)}></td>
-                    <td class="numeric"><strong>${utils.number(metric(line.bunches) * metric(line.stemsPerBunch))}</strong></td>
-                    <td><input type="number" min="0" step="0.001" value="${utils.esc(line.unitPrice)}" data-commercial-line-field="${utils.esc(line.id)}|unitPrice" ${disabled(!linesEditable)}></td>
-                    <td class="numeric"><strong>${utils.money(lineTotal)}</strong></td>
-                    <td><strong>${utils.number(item.scanned)} / ${utils.number(item.required)}</strong><br><small>${utils.esc(item.status)}</small></td>
-                    <td><div class="table-actions-inline"><button class="secondary-button" data-commercial-duplicate-line="${utils.esc(line.id)}" ${disabled(!linesEditable)}>Duplicar item</button><button class="secondary-button" data-commercial-delete-line="${utils.esc(line.id)}" ${disabled(!linesEditable || item.scanned > 0)}>Eliminar</button></div></td>
-                  </tr>`;
-                }).join("")}
-              </tbody></table></div>
-            </details>`;
-          }).join("") || `<div class="master-order-empty"><strong>El pedido no tiene cajas.</strong><span>Pulse Agregar caja para completar la misma plantilla con cantidad 1.</span><button class="primary-button" data-commercial-builder-single ${disabled(!linesEditable)}>Agregar primera caja</button></div>`}
-        </div>
-        <div class="master-order-totals"><span>${utils.number(metrics.totalBoxes)} cajas</span><span>${utils.number(metrics.totalFulls.toFixed(3))} fulls</span><span>${utils.number(metrics.totalBunches)} ramos</span><span>${utils.number(metrics.totalStems)} tallos</span><strong>${utils.money(metrics.totalUsd)}</strong></div>
-      </section>
-    `;
-  }
-
-  function renderCoverage(coverageRows, utils) {
-    return `
-      <section class="panel-card master-order-coverage">
-        <div class="panel-card-head"><div><p class="section-kicker">COBERTURA OPERATIVA</p><h3>Inventario fisico frente al pedido</h3></div><span class="status-badge partial">Sin reservas</span></div>
-        <p class="panel-note">La cobertura es informativa. La flor solo se asigna cuando Bodega valida el codigo del ramo dentro de una caja.</p>
-        <div class="compact-table-wrap"><table class="compact-table"><thead><tr><th>Caja</th><th>Variedad</th><th>Medida</th><th>Solicitados</th><th>Leidos</th><th>Pendientes</th><th>Fisico disponible</th><th>Faltante</th><th>Cobertura</th></tr></thead><tbody>
-          ${coverageRows.map(item => `<tr><td>${utils.esc(item.boxNumber)}</td><td><strong>${utils.esc(item.line.variety)}</strong></td><td>${utils.esc(measureLabel(item.line))}</td><td>${utils.number(item.required)}</td><td>${utils.number(item.scanned)}</td><td>${utils.number(item.pending)}</td><td>${utils.number(item.physical)}</td><td>${utils.number(item.shortage)}</td><td>${statusBadge(utils, item.coverage)}</td></tr>`).join("") || `<tr><td colspan="9">Agregue cajas para calcular cobertura.</td></tr>`}
-        </tbody></table></div>
+        <div data-commercial-box-builder-panel ${builderExpanded ? "" : "hidden"}>${renderBoxBuilder(order, rangeDraft, nextRangeBox, boxTypes, varieties, lengths, linesEditable, utils)}</div>
+        ${boxes.length ? `<div class="compact-table-wrap master-order-grid-wrap"><table class="compact-table master-order-entry-table"><colgroup><col class="master-col-box"><col class="master-col-type"><col class="master-col-variety"><col class="master-col-po"><col class="master-col-measure"><col class="master-col-quantity"><col class="master-col-stems"><col class="master-col-price"><col class="master-col-actions"></colgroup><thead><tr><th>Caja</th><th>Tipo</th><th>Variedad</th><th>PO</th><th>Medida</th><th>Ramos</th><th>Tallos/ramo</th><th>Precio/tallo</th><th>Acciones</th></tr></thead><tbody>${boxRows}</tbody></table><small class="master-order-keyboard-help">Teclado: Tab / Shift+Tab y Enter avanzan; flechas recorren filas y columnas. En campos de texto, izquierda/derecha mueven de celda al llegar al borde.</small></div>` : `<div class="master-order-empty"><strong>El pedido no tiene cajas.</strong><span>Use el botón Tipo de caja de la cabecera y elija Rango igual, Mixto manual o Mixto abierto.</span></div>`}
+        <div class="master-order-totals"><span data-commercial-grid-total="boxes">${utils.number(metrics.totalBoxes)} cajas</span><span data-commercial-grid-total="fulls">${utils.number(metrics.totalFulls.toFixed(3))} fulls</span><span data-commercial-grid-total="bunches">${utils.number(metrics.totalBunches)} ramos</span><span data-commercial-grid-total="stems">${utils.number(metrics.totalStems)} tallos</span><strong data-commercial-grid-total="usd">${utils.money(metrics.totalUsd)}</strong></div>
       </section>
     `;
   }
@@ -418,23 +412,15 @@
     const utils = BlessERP.comercialUtils;
     const stateApi = BlessERP.comercialState;
     const workflow = BlessERP.comercialWorkflow;
-    const workflowSummary = workflow.buildWorkflowSummary(order, appState);
-    const fulfillment = BlessERP.comercialOrderFulfillment.getOrderFulfillment(appState, order.id);
-    const coverageRows = buildCoverageRows(appState, fulfillment);
-
     return `
       <div class="master-order-compact">
-        ${renderOrderSelector(order, appState, utils, stateApi)}
-        ${renderStages(order, workflowSummary, fulfillment, utils)}
-        <section class="master-order-main-grid">
-          ${renderHeaderData(order, appState, utils, stateApi, workflow)}
-          ${renderReadiness(order, workflowSummary, fulfillment, coverageRows, utils)}
-        </section>
-        ${renderBoxes(order, appState, fulfillment, utils, stateApi, workflow)}
-        ${renderCoverage(coverageRows, utils)}
+        ${renderHeaderData(order, appState, utils, stateApi, workflow)}
+        ${renderBoxes(order, appState, utils, stateApi, workflow)}
       </div>
     `;
   }
 
-  BlessERP.comercialPedidoMasterWorkspace = { render };
+  BlessERP.comercialPedidoMasterWorkspace = {
+    render
+  };
 })();

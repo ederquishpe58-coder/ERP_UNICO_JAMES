@@ -22,9 +22,9 @@
 
   function badgeClass(status) {
     const value = String(status || "").toLowerCase();
-    if (value.includes("ok") || value.includes("activo") || value.includes("recibido") || value.includes("cerrado") || value.includes("completado") || value.includes("disponible") || value.includes("listo") || value.includes("despachado") || value.includes("simulado") || value.includes("escaneada") || value.includes("ingresado_por_escaneo") || value.includes("inventario_creado")) return "authorized";
-    if (value.includes("demo") || value.includes("parcial") || value.includes("preparando") || value.includes("clasificacion") || value.includes("reservado") || value.includes("revertido") || value.includes("generada") || value.includes("impresa") || value.includes("entregado")) return "partial";
-    if (value.includes("vencido") || value.includes("pendiente") || value.includes("observado") || value.includes("no conectado")) return "pending";
+    if (value.includes("ok") || value.includes("activo") || value.includes("recibido") || value.includes("cerrado") || value.includes("completado") || value.includes("cargado") || value.includes("disponible") || value.includes("listo") || value.includes("despachado") || value.includes("simulado") || value.includes("escaneada") || value.includes("ingresado_por_escaneo") || value.includes("inventario_creado")) return "authorized";
+    if (value.includes("demo") || value.includes("parcial") || value.includes("actualizado") || value.includes("preparando") || value.includes("clasificacion") || value.includes("reservado") || value.includes("revertido") || value.includes("generada") || value.includes("impresa") || value.includes("entregado")) return "partial";
+    if (value.includes("vencido") || value.includes("pendiente") || value.includes("incompleto") || value.includes("observado") || value.includes("no conectado")) return "pending";
     return "cancelled";
   }
 
@@ -41,15 +41,8 @@
     return String(Math.max(1, parseNumber(draft.sequence, 1))).padStart(10, "0");
   }
 
-  function renderTabs(route) {
-    const siblings = BlessERP.navigation.groupMap[route.groupId]?.routes || [];
-    return `
-      <div class="subnav-tabs">
-        ${siblings.map(item => `
-          <button class="subnav-tab ${item.id === route.id ? "active" : ""}" data-route-link="${esc(item.id)}">${esc(item.label)}</button>
-        `).join("")}
-      </div>
-    `;
+  function renderTabs() {
+    return "";
   }
 
   function renderPageHeader(route, badgeText, badgeTone = "partial", descriptionOverride = "") {
@@ -67,9 +60,11 @@
     `;
   }
 
-  function renderNotice(ui) {
+  function renderNotice(ui, options = {}) {
     if (!ui?.notice) return "";
-    return `<div class="inline-feedback ${esc(ui.noticeTone || "info")}">${esc(ui.notice)}</div>`;
+    const normalizedNotice = String(ui.notice || "").trim().toUpperCase();
+    if (options.hideNationalResult && ui.noticeTone === "success" && (normalizedNotice.includes("NACIONAL") || normalizedNotice.includes("RECHAZO"))) return "";
+    return "";
   }
 
   function renderSummaryCards(cards) {
@@ -110,6 +105,9 @@
   }
 
   function inventoryToAvailability(item) {
+    const ageDays = BlessERP.operacionesState?.deriveInventoryAgeDays
+      ? BlessERP.operacionesState.deriveInventoryAgeDays(item)
+      : parseNumber(item.ageDays, 0);
     return {
       availability_id: item.inventoryId,
       fecha: item.date,
@@ -123,7 +121,7 @@
       bloque: item.block,
       categoria: item.category,
       estado: item.state,
-      edad_dias: item.ageDays,
+      edad_dias: ageDays,
       observacion: item.observation
     };
   }
@@ -146,7 +144,9 @@
       stemsPerBunch: item.stemsPerBunch,
       bunches: item.bunches,
       admittedAt: item.admittedAt || item.date,
-      ageDays: item.ageDays,
+      ageDays: BlessERP.operacionesState?.deriveInventoryAgeDays
+        ? BlessERP.operacionesState.deriveInventoryAgeDays(item)
+        : parseNumber(item.ageDays, 0),
       coldState: item.coldState,
       responsible: item.responsible,
       supplier: item.supplier,

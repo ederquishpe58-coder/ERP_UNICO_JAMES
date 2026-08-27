@@ -29,7 +29,6 @@
     {
       label: "3. Documentos",
       tabs: [
-        ["packing", "Packing"],
         ["invoice", "Invoice carguera"],
         ["client-invoice", "Factura cliente"],
         ["route-sheet", "HR"],
@@ -47,20 +46,7 @@
   function renderNotice(appState) {
     const ui = stateApi.getUi(appState);
     if (!ui.notice) return "";
-    const className = ui.noticeTone === "success"
-      ? "authorized"
-      : ui.noticeTone === "warning"
-        ? "pending"
-        : "partial";
-    return `
-      <section class="hero-banner commercial-inline-banner">
-        <div>
-          <strong>Actualizacion del pedido</strong>
-          <span>${utils.esc(ui.notice)}</span>
-        </div>
-        <span class="status-badge ${className}">${utils.esc(ui.noticeTone || "info")}</span>
-      </section>
-    `;
+    return "";
   }
 
   function disabledAttr(flag) {
@@ -68,7 +54,8 @@
   }
 
   function isFieldLocked(order, field) {
-    if (["LIBERADO_BODEGA", "EN_ARMADO", "PARCIAL_FALTANTE", "COMPLETO_BODEGA"].includes(order.warehouseStatus) && ["customerId", "brandId", "transportType"].includes(field)) return true;
+    if (order.revisionEditing) return !workflow.canEditOrderField(order, field).ok;
+    if (["LIBERADO_BODEGA", "EN_ARMADO", "PARCIAL_FALTANTE", "ACTUALIZADO_POR_VENTAS", "CAMBIO_REVISADO_BODEGA", "COMPLETO_BODEGA"].includes(order.warehouseStatus)) return true;
     return !workflow.canEditOrderField(order, field).ok;
   }
 
@@ -204,7 +191,7 @@
       <article class="panel-card">
         <div class="panel-card-head">
           <div>
-            <p class="section-kicker">PEDIDO MAESTRO</p>
+            <p class="section-kicker">FORMULARIO DE PEDIDO</p>
             <h3>${utils.esc(title)}</h3>
           </div>
         </div>
@@ -285,6 +272,7 @@
       <section class="placeholder-grid">
         ${renderKeyValueCard("Cabecera comercial", [
           ["Numero pedido", order.number],
+          ["Vendedor", order.seller_name || order.sellerName || order.vendedorNombre || "-"],
           ["Cliente principal", customer?.commercialName || "-"],
           ["Marca / cliente final", brand?.name || "-"],
           ["Destino", order.destination || "-"],
@@ -293,8 +281,7 @@
         ])}
         ${renderKeyValueCard("Logistica actual", [
           ["Agencia de carga", agency?.name || "-"],
-          ["Carrier", airline?.name || "-"],
-          ["Vuelo", order.flightNumber || "-"],
+          ["Linea aerea", airline?.name || "-"],
           ["AWB", order.awb || "-"],
           ["HAWB", order.hawb || "-"],
           ["Cuarto frio", order.coldRoom || "-"]
@@ -305,6 +292,7 @@
         ${renderKeyValueCard("Contrato comercial demo", [
           ["commercialOrderContract", "Demo preparado"],
           ["Pedido id", contract.pedido_id],
+          ["Vendedor", contract.vendedor_nombre || "-"],
           ["Cliente principal", contract.cliente_principal_nombre || "-"],
           ["Marca", contract.marca_nombre || "-"],
           ["Total cajas", String(contract.total_cajas)],
@@ -320,6 +308,11 @@
     const relatedBrands = utils.findBrandsByCustomer(order.customerId);
     const customerLocked = isFieldLocked(order, "customerId");
     const brandLocked = isFieldLocked(order, "brandId");
+    const paymentMethodLocked = isFieldLocked(order, "sriPaymentMethod");
+    const effectivePaymentMethod = data.normalizeSriPaymentMethod(
+      order.sriPaymentMethod || customer?.sriPaymentMethod,
+      "20"
+    );
 
     return `
       <section class="placeholder-grid">
@@ -349,10 +342,17 @@
                 <option value="">Seleccione marca</option>
                 ${relatedBrands.map(item => `
                   <option value="${utils.esc(item.id)}" ${item.id === order.brandId ? "selected" : ""}>
-                    ${utils.esc(item.name)} · ${utils.esc(item.destination)}
+                    ${utils.esc(item.finalClientName)} · ${utils.esc(item.destination)}
                   </option>
                 `).join("")}
               </select>
+            </label>
+            <label class="compact-field full">
+              <span>Forma de pago para factura de venta SRI</span>
+              <select data-commercial-order-field="sriPaymentMethod" ${disabledAttr(paymentMethodLocked)}>
+                ${data.sriSalePaymentMethods.map(item => `<option value="${utils.esc(item.code)}" ${item.code === effectivePaymentMethod ? "selected" : ""}>${utils.esc(item.label)}</option>`).join("")}
+              </select>
+              <small>Se toma del cliente principal, pero puede cambiarse en este pedido antes de autorizar la factura.</small>
             </label>
           </div>
           <div class="table-actions-inline">
@@ -365,12 +365,12 @@
           ["Razon social", customer?.legalName || "-"],
           ["Identificacion", customer?.identification || "-"],
           ["Correo facturacion", customer?.billingEmail || "-"],
-          ["Credito", customer ? `${customer.creditDays} dias · ${utils.money(customer.creditAmount)}` : "-"]
+          ["Credito", customer ? `${customer.creditDays} dias · ${utils.money(customer.creditAmount)}` : "-"],
+          ["Forma pago SRI", customer ? data.sriPaymentMethodLabel(effectivePaymentMethod) : "-"]
         ])}
         ${renderKeyValueCard("Marca / cliente final", [
           ["Codigo", brand?.code || "-"],
-          ["Marca", brand?.name || "-"],
-          ["Cliente final", brand?.finalClientName || "-"],
+          ["Apellidos y nombres / razon social", brand?.finalClientName || "-"],
           ["Destino", brand?.destination || "-"],
           ["Contacto", brand?.contact || "-"],
           ["Requiere PO", brand ? (brand.requiresPo ? "Si" : "No") : "-"]
@@ -390,10 +390,10 @@
     const awbLocked = isFieldLocked(order, "awb");
     const hawbLocked = isFieldLocked(order, "hawb");
     const airlineLocked = isFieldLocked(order, "airlineId");
-    const flightNumberLocked = isFieldLocked(order, "flightNumber");
     const transportLocked = isFieldLocked(order, "transportType");
     const coldRoomLocked = isFieldLocked(order, "coldRoom");
     const daeLocked = isFieldLocked(order, "daeNumber");
+    const supportsDae = order.transportType === "aereo";
 
     return `
       <section class="panel-card">
@@ -426,11 +426,11 @@
           </label>
           <label class="compact-field">
             <span>AWB / guia madre</span>
-            <input type="text" value="${utils.esc(order.awb)}" data-commercial-order-field="awb" ${disabledAttr(awbLocked)}>
+            <input type="text" inputmode="numeric" maxlength="12" placeholder="045-12345678" value="${utils.esc(order.awb)}" data-commercial-order-field="awb" data-commercial-awb-input data-commercial-guide-input="awb" ${disabledAttr(awbLocked)}>
           </label>
           <label class="compact-field">
             <span>HAWB / guia hija</span>
-            <input type="text" value="${utils.esc(order.hawb)}" data-commercial-order-field="hawb" ${disabledAttr(hawbLocked)}>
+            <input type="text" placeholder="Guia hija / referencia libre" value="${utils.esc(order.hawb)}" data-commercial-order-field="hawb" data-commercial-guide-input="hawb" ${disabledAttr(hawbLocked)}>
           </label>
           <label class="compact-field">
             <span>Carrier / linea aerea</span>
@@ -442,10 +442,6 @@
                 </option>
               `).join("")}
             </select>
-          </label>
-          <label class="compact-field">
-            <span>Vuelo</span>
-            <input type="text" value="${utils.esc(order.flightNumber)}" data-commercial-order-field="flightNumber" ${disabledAttr(flightNumberLocked)}>
           </label>
           <label class="compact-field">
             <span>Tipo transporte</span>
@@ -468,15 +464,15 @@
             <input type="text" value="${utils.esc(order.destination)}" disabled>
           </label>
           <label class="compact-field">
-            <span>DAE asignada</span>
-            <select data-commercial-order-field="daeNumber" ${order.transportType !== "aereo" || daeLocked ? "disabled" : ""}>
-              <option value="">${order.transportType !== "aereo" ? "Bloqueada para transporte no aereo" : "Seleccione DAE"}</option>
+            <span>${order.transportType === "aereo" ? "DAE del pedido aereo" : order.transportType === "maritimo" ? "DAE maritima" : "DAE no aplicable"}</span>
+            ${supportsDae ? `<select data-commercial-order-field="daeNumber" ${daeLocked ? "disabled" : ""}>
+              <option value="">Seleccione DAE</option>
               ${availableDaes.map(item => `
                 <option value="${utils.esc(item.number)}" ${item.number === order.daeNumber ? "selected" : ""}>
-                  ${utils.esc(item.number)} · ${utils.esc(item.destination)}
+              ${utils.esc(item.number)} · ${utils.esc(item.country || item.destination || "SIN PAIS")}
                 </option>
               `).join("")}
-            </select>
+            </select>` : `<input value="${order.transportType === "maritimo" ? "Se completa en Documentos electronicos SRI" : "Venta local: no aplica"}" disabled>`}
           </label>
           <label class="compact-field">
             <span>Caducidad DAE</span>
@@ -486,7 +482,7 @@
         <div class="hero-banner commercial-inline-banner">
           <div>
             <strong>Regla activa</strong>
-            <span>Marca -> destino -> DAE automatica. La agencia y el cuarto frio se sugieren desde la marca, pero pueden ajustarse en demo.</span>
+            <span>En aereo la DAE se relaciona con el pedido. En maritimo se registra unicamente la DAE fiscal al emitir en SRI. En venta local no se usan DAE ni guias de exportacion.</span>
           </div>
           <span class="status-badge ${utils.badgeClass(dae && utils.isDaeNearExpiry(dae) ? "warning" : "demo")}">
             ${utils.esc(dae ? (utils.isDaeNearExpiry(dae) ? "DAE proxima a caducar" : "DAE asignada") : "Sin DAE")}
@@ -864,7 +860,7 @@
         </article>
         ${renderKeyValueCard("Reglas demo", [
           ["Origen", "Operaciones / Disponibilidad demo compartida"],
-          ["Destino", "Pedido Maestro comercial demo"],
+          ["Destino", "Formulario comercial del pedido"],
           ["Consumo real", "No aplica en esta fase"],
           ["Inventario de rosas", "No se modifica desde Comercial"],
           ["Reserva", "Reduce saldo visual demo y puede liberarse"],
@@ -899,7 +895,7 @@
           <button class="secondary-button" data-commercial-preview-doc="INVOICE_PACKING_REFERENCIAL">Vista previa referencial</button>
           <button class="secondary-button" data-commercial-print-doc="INVOICE_PACKING_REFERENCIAL">Imprimir referencial</button>
           <button class="secondary-button" data-commercial-preview-doc="INVOICE_PACKING_REAL">Vista previa real demo</button>
-          <button class="secondary-button" data-commercial-doc-placeholder="pdf|INVOICE_PACKING_REFERENCIAL">Descargar PDF</button>
+          <button class="secondary-button" data-commercial-download-doc="INVOICE_PACKING_REFERENCIAL">Guardar PDF</button>
         </div>
       `
     });
@@ -940,7 +936,8 @@
       actionsMarkup: `
         <div class="table-actions-inline">
           <button class="secondary-button" data-commercial-preview-doc="HR">Vista previa</button>
-          <button class="secondary-button" data-commercial-print-doc="HR">Imprimir</button>
+          <button class="primary-button" data-commercial-print-doc="HR">Imprimir</button>
+          <button class="secondary-button" data-commercial-download-doc="HR">Guardar PDF</button>
           <button class="secondary-button" data-commercial-doc-placeholder="email|HR">Enviar por correo</button>
         </div>
       `
@@ -955,7 +952,7 @@
         <div class="table-actions-inline">
           <button class="secondary-button" data-commercial-preview-doc="MP">Vista previa</button>
           <button class="secondary-button" data-commercial-print-doc="MP">Imprimir</button>
-          <button class="secondary-button" data-commercial-doc-placeholder="pdf|MP">Descargar PDF</button>
+          <button class="secondary-button" data-commercial-download-doc="MP">Guardar PDF</button>
         </div>
       `
     });
@@ -1060,7 +1057,6 @@
           <strong>Despacho demo sincronizado visualmente con Operaciones</strong>
           <span>Despacho demo. No descuenta inventario real de rosas, no consume materiales reales, no genera contabilidad y no conecta scanner real.</span>
         </div>
-        <button class="secondary-button" data-commercial-dispatch-open-operations data-order-id="${utils.esc(order.id)}">Ver en Despacho operativo</button>
       </section>
       <section class="panel-card">
         <div class="panel-card-head">
@@ -1076,10 +1072,6 @@
           <div class="info-row"><strong>Cajas pendientes</strong><span>${utils.esc(utils.number(scannerStatus.summary.pending || 0))}</span></div>
           <div class="info-row"><strong>Duplicadas</strong><span>${utils.esc(utils.number(scannerStatus.summary.duplicated || 0))}</span></div>
           <div class="info-row"><strong>Estado general</strong><span>${utils.esc(scannerStatus.message || "-")}</span></div>
-        </div>
-        <div class="table-actions-inline">
-          <button class="secondary-button" data-commercial-dispatch-open-scanner data-order-id="${utils.esc(order.id)}">Ver en Scanner / Zebra</button>
-          <button class="secondary-button" data-commercial-dispatch-open-operations data-order-id="${utils.esc(order.id)}">Ver en Despacho operativo</button>
         </div>
       </section>
       <section class="placeholder-grid">
@@ -1101,7 +1093,6 @@
             ${(consumptionReview.warnings || []).map(item => `<div class="base-ready-item"><strong>Advertencia</strong><span>${utils.esc(item)}</span></div>`).join("") || `<div class="base-ready-item"><strong>Sin advertencias</strong><span>Consumo demo listo para revisar en Operaciones.</span></div>`}
           </div>
           <div class="table-actions-inline">
-            <button class="secondary-button" data-commercial-dispatch-open-operations data-order-id="${utils.esc(order.id)}">Ver consumo en Operaciones</button>
             <button class="secondary-button" data-commercial-dispatch-action="simulate-consumption">Simular consumo demo</button>
           </div>
         </article>
@@ -1123,7 +1114,7 @@
             <div class="info-row"><strong>Kardex demo</strong><span>${utils.esc(utils.number((cycle.kardex || []).length))} movimiento(s)</span></div>
           </div>
           <div class="base-ready-list">
-            ${(cycle.advertencias || []).slice(0, 6).map(item => `<div class="base-ready-item"><strong>Advertencia</strong><span>${utils.esc(item)}</span></div>`).join("") || `<div class="base-ready-item"><strong>Sin advertencias</strong><span>Ciclo operativo demo visible desde Pedido Maestro.</span></div>`}
+            ${(cycle.advertencias || []).slice(0, 6).map(item => `<div class="base-ready-item"><strong>Advertencia</strong><span>${utils.esc(item)}</span></div>`).join("") || `<div class="base-ready-item"><strong>Sin advertencias</strong><span>Ciclo operativo visible desde el pedido.</span></div>`}
           </div>
           <div class="base-ready-list">
             ${cycleTimeline.slice(0, 5).map(item => `
@@ -1132,10 +1123,6 @@
                 <span>${utils.esc(item.status)} - ${utils.esc(item.detail)}</span>
               </div>
             `).join("") || `<div class="base-ready-item"><strong>Sin timeline</strong><span>No hay eventos demo suficientes.</span></div>`}
-          </div>
-          <div class="table-actions-inline">
-            <button class="secondary-button" data-commercial-dispatch-open-operations data-order-id="${utils.esc(order.id)}">Ver ciclo en Operaciones</button>
-            <button class="secondary-button" data-commercial-dispatch-open-scanner data-order-id="${utils.esc(order.id)}">Ver escaneo demo</button>
           </div>
           <p class="panel-note">Advertencias visibles: inventario real pendiente, consumo real pendiente y conexion Parte 1 pendiente.</p>
         </article>
@@ -1148,7 +1135,7 @@
           ["AWB", dispatch?.awb || order.awb || "-"],
           ["HAWB", dispatch?.hawb || order.hawb || "-"],
           ["Agencia de carga", dispatch?.agencia_carga || utils.findAgency(order.agencyId)?.name || "-"],
-          ["Carrier / vuelo", `${dispatch?.carrier || utils.findAirline(order.airlineId)?.name || "-"} / ${dispatch?.vuelo || order.flightNumber || "-"}`],
+          ["Linea aerea", dispatch?.carrier || utils.findAirline(order.airlineId)?.name || "-"],
           ["Estado comercial pedido", orderStatus],
           ["Estado despacho demo", dispatchState],
           ["Responsable demo", dispatch?.responsable_demo || currentUser?.name || "Usuario demo"],
@@ -1541,17 +1528,25 @@
     };
   }
 
-  function openDocumentPreview(docCode, order, appState, options, autoPrint) {
+  function openDocumentPreview(docCode, order, appState, options, autoPrint, saveAsPdf = false) {
     const normalizedOrder = utils.normalizeOrder(order);
     const finalOptions = docCode === "ETIQUETAS"
-      ? { ...BlessERP.comercialLabels.getCurrentSelection(appState), ...options }
+      ? { pageSize: "CUSTOMS_LABEL", ...BlessERP.comercialLabels.getCurrentSelection(appState), ...options }
       : options;
     const action = autoPrint ? "print" : "preview";
 
-    if (docCode === "ETIQUETAS") {
+    if (docCode === "ETIQUETAS" && autoPrint) {
       const validation = BlessERP.comercialLabels.validatePrintRequest(normalizedOrder, appState, finalOptions);
       if (!validation.isValid) {
         BlessERP.layout.toast(validation.errors[0] || "No se puede imprimir etiquetas con la seleccion actual.");
+        return false;
+      }
+    }
+
+    if (docCode === "SRI_RIDE") {
+      const sriReport = BlessERP.comercialPrintSystem.getDocumentReport(docCode, normalizedOrder, appState, finalOptions);
+      if (sriReport.validation.errors.length) {
+        BlessERP.layout.toast(sriReport.validation.errors[0] || "La factura SRI no esta autorizada.");
         return false;
       }
     }
@@ -1579,6 +1574,8 @@
       appState,
       {
         autoPrint,
+        saveAsPdf,
+        pageSize: BlessERP.comercialPrintSystem.defaultPageSize(docCode),
         options: finalOptions
       }
     );
@@ -1590,62 +1587,533 @@
     return opened;
   }
 
+  function openSelectedLabelOrders(appState, autoPrint, saveAsPdf = false) {
+    const selectedIds = new Set(stateApi.getUi(appState).labelSelectedOrderIds || []);
+    const sourceOrders = stateApi.getOrders(appState).filter(order => selectedIds.has(order.id));
+    if (!sourceOrders.length) {
+      BlessERP.layout.toast("Seleccione al menos un pedido para generar etiquetas.");
+      return false;
+    }
+
+    const options = { pageSize: "CUSTOMS_LABEL", printType: "all" };
+    const normalizedOrders = sourceOrders.map(order => utils.normalizeOrder(order));
+    for (const order of normalizedOrders) {
+      const validation = BlessERP.comercialLabels.validatePrintRequest(order, appState, options);
+      if (autoPrint && !validation.isValid) {
+        BlessERP.layout.toast(`${order.number}: ${validation.errors[0] || "faltan datos obligatorios para imprimir."}`);
+        return false;
+      }
+      const review = workflow.canExecuteDocumentAction("ETIQUETAS", order, appState, autoPrint ? "print" : "preview", options);
+      if (!review.allowed) {
+        BlessERP.layout.toast(`${order.number}: ${review.errors[0] || "el estado actual no permite imprimir etiquetas."}`);
+        return false;
+      }
+    }
+
+    const opened = BlessERP.comercialPrintSystem.openPreview("ETIQUETAS", normalizedOrders, appState, {
+      autoPrint,
+      saveAsPdf,
+      pageSize: "CUSTOMS_LABEL",
+      options
+    });
+    if (opened) {
+      sourceOrders.forEach(order => workflow.markDocumentActivity(order, appState, "ETIQUETAS", autoPrint ? "print" : "preview", options));
+      BlessERP.state.saveDb();
+    }
+    return opened;
+  }
+
+  function openSelectedInvoiceOrders(docCode, appState, autoPrint, saveAsPdf = false) {
+    const activeMode = stateApi.getUi(appState).printCenterDocument || "AGENCY_INVOICE";
+    const sourceOrders = BlessERP.comercialPrint
+      .getPrintCenterRows(appState, activeMode, { ignoreFilters: true })
+      .filter(row => row.selected && row.ready)
+      .map(row => row.order);
+    if (!sourceOrders.length) {
+      BlessERP.layout.toast("Seleccione al menos una factura para continuar.");
+      return false;
+    }
+
+    const options = docCode === "COMMERCIAL_INVOICE_CLIENT"
+      ? BlessERP.comercialClientInvoice.getCurrentOptions(appState)
+      : {};
+    const normalizedOrders = sourceOrders.map(order => utils.normalizeOrder(order));
+    for (const order of normalizedOrders) {
+      const report = BlessERP.comercialPrintSystem.getDocumentReport(docCode, order, appState, options);
+      if (report.validation.errors.length) {
+        BlessERP.layout.toast(`${order.number}: ${report.validation.errors[0]}`);
+        return false;
+      }
+      const review = workflow.canExecuteDocumentAction(docCode, order, appState, autoPrint ? "print" : "preview", options);
+      if (!review.allowed) {
+        BlessERP.layout.toast(`${order.number}: ${review.errors[0] || "el documento no esta listo."}`);
+        return false;
+      }
+    }
+
+    const opened = BlessERP.comercialPrintSystem.openPreview(docCode, normalizedOrders, appState, {
+      autoPrint,
+      saveAsPdf,
+      pageSize: BlessERP.comercialPrintSystem.defaultPageSize(docCode),
+      options
+    });
+    if (opened) {
+      sourceOrders.forEach(order => workflow.markDocumentActivity(order, appState, docCode, autoPrint ? "print" : "preview", options));
+      BlessERP.state.saveDb();
+    }
+    return opened;
+  }
+
   function render(appState) {
     const order = stateApi.currentOrder(appState);
-    const summary = order ? workflow.buildWorkflowSummary(order, appState) : null;
-
     return `
       <section class="page-header">
         <div>
           <p class="section-kicker">COMERCIAL / EXPORTACIONES</p>
-          <h1>Pedido Maestro</h1>
-          <p>Centro del flujo comercial demo para crear la orden, validar su cobertura, liberar cajas a Bodega y seguir el armado fisico sin reservas.</p>
-        </div>
-        <div class="page-header-side">
-          <span class="status-badge partial">Demo integrado</span>
-          <span class="status-badge ${utils.badgeClass(order?.status)}">${utils.esc(summary?.definition?.shortLabel || order?.status || "BORRADOR")}</span>
+          <h1>Crear / editar pedido</h1>
+          <p>Cree una orden nueva o modifique el pedido seleccionado desde el historial y envíe sus cajas a Cuarto frío.</p>
         </div>
       </section>
-      <section class="hero-banner">
-        <div>
-          <strong>Modo comercial actual</strong>
-          <span>Datos demo. No genera factura SRI, asiento contable real ni CxC real.</span>
-        </div>
-      </section>
-      ${renderNotice(appState)}
-      ${order?.revisionEditing ? `<section class="hero-banner"><div><strong>Revision ${utils.esc(order.revisionDraftNumber)} en edicion</strong><span>Motivo: ${utils.esc(order.revisionReason)}. Puede corregir datos y cajas sin lecturas; una caja con ramos leidos protege su estructura.</span></div><span class="status-badge pending">CAMBIO BORRADOR</span></section>` : ""}
-      ${order?.changeNotifications?.[0] ? `<section class="hero-banner"><div><strong>Ultima actualizacion R${utils.esc(order.changeNotifications[0].revision)}</strong><span>${utils.esc(order.changeNotifications[0].message)} ${utils.esc(order.changeNotifications[0].acknowledgedAt ? `Revisada por ${order.changeNotifications[0].acknowledgedBy}.` : "Pendiente de revision en Bodega.")}</span></div><span class="status-badge ${order.changeNotifications[0].acknowledgedAt ? "authorized" : "pending"}">${utils.esc(order.changeNotifications[0].status)}</span></section>` : ""}
       ${order && BlessERP.comercialPedidoMasterWorkspace?.render
         ? BlessERP.comercialPedidoMasterWorkspace.render(order, appState)
-        : `<section class="panel-card"><p class="panel-note">No hay pedido activo o la pantalla maestra no esta disponible.</p></section>`}
+        : `<section class="panel-card master-order-empty"><strong>No hay un pedido activo.</strong><span>Entrar a esta pantalla ya no crea pedidos automaticamente.</span><button class="primary-button" type="button" data-commercial-new-order>Nuevo pedido</button></section>`}
     `;
   }
 
   function bind(container, appState) {
+    container.__commercialPendingPointerAction = false;
+    if (container.__commercialPendingPointerHandler) {
+      container.removeEventListener("pointerdown", container.__commercialPendingPointerHandler, true);
+    }
+    const markPendingPointerAction = event => {
+      container.__commercialPendingPointerAction = Boolean(
+        event.target.closest("button, a, summary, [role='button'], [data-route-link]")
+      );
+    };
+    // Captura antes de que un input pierda el foco. Así su evento change no
+    // reconstruye el formulario y elimina el botón que el usuario está pulsando.
+    container.__commercialPendingPointerHandler = markPendingPointerAction;
+    container.addEventListener("pointerdown", markPendingPointerAction, true);
+    const clearPendingPointerAction = () => {
+      window.setTimeout(() => { container.__commercialPendingPointerAction = false; }, 0);
+    };
+    container.onpointerup = clearPendingPointerAction;
+    container.onpointercancel = clearPendingPointerAction;
+
+    const refreshGridTotals = () => {
+      const order = stateApi.currentOrder(appState);
+      if (!order) return;
+      const metrics = utils.getOrderMetrics(order);
+      const values = {
+        boxes: `${utils.number(metrics.totalBoxes)} cajas`,
+        fulls: `${utils.number(metrics.totalFulls.toFixed(3))} fulls`,
+        bunches: `${utils.number(metrics.totalBunches)} ramos`,
+        stems: `${utils.number(metrics.totalStems)} tallos`,
+        usd: utils.money(metrics.totalUsd)
+      };
+      Object.entries(values).forEach(([key, value]) => {
+        const output = container.querySelector(`[data-commercial-grid-total="${key}"]`);
+        if (output) output.textContent = value;
+      });
+    };
+
+    const orderGrid = container.querySelector(".master-order-entry-table");
+    if (orderGrid) {
+      const editableControls = row => [...row.querySelectorAll("[data-commercial-line-field]:not([disabled])")]
+        .filter(field => field.type !== "hidden" && field.offsetParent !== null);
+      const focusControl = field => {
+        field?.focus({ preventScroll: true });
+        try { if (field?.tagName === "INPUT") field.select(); } catch (_error) {}
+        field?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+      };
+      orderGrid.addEventListener("keydown", event => {
+        const current = event.target.closest("[data-commercial-line-field]");
+        if (!current || current.disabled || current.type === "hidden" || event.altKey) return;
+        const rows = [...orderGrid.querySelectorAll("tbody tr")];
+        const row = current.closest("tr");
+        const rowIndex = rows.indexOf(row);
+        const rowControls = editableControls(row);
+        const columnIndex = rowControls.indexOf(current);
+        const flatControls = rows.flatMap(editableControls);
+        const flatIndex = flatControls.indexOf(current);
+        let target = null;
+
+        if (event.key === "Tab") {
+          target = flatControls[flatIndex + (event.shiftKey ? -1 : 1)] || null;
+        } else if (event.key === "Enter") {
+          target = flatControls[flatIndex + (event.shiftKey ? -1 : 1)] || null;
+        } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+          const targetRow = rows[rowIndex + (event.key === "ArrowUp" ? -1 : 1)];
+          const targetControls = targetRow ? editableControls(targetRow) : [];
+          target = targetControls[Math.min(columnIndex, Math.max(0, targetControls.length - 1))] || null;
+        } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          const direction = event.key === "ArrowLeft" ? -1 : 1;
+          const supportsCaret = typeof current.selectionStart === "number";
+          const atTextBoundary = !supportsCaret
+            || (direction < 0 ? current.selectionStart === 0 : current.selectionEnd === String(current.value || "").length);
+          if (!atTextBoundary) return;
+          target = rowControls[columnIndex + direction] || null;
+        } else {
+          return;
+        }
+
+        if (!target) return;
+        event.preventDefault();
+        focusControl(target);
+      });
+    }
+
+    const quickEditorModals = [...container.querySelectorAll("[data-commercial-quick-editor-modal]")];
+    const quickEditorModal = kind => quickEditorModals.find(modal => modal.dataset.commercialQuickEditorModal === kind);
+    const closeQuickEditor = (modal, { rerender = true } = {}) => {
+      if (modal) modal.hidden = true;
+      stateApi.getUi(appState).quickCatalogEditorKind = "";
+      if (rerender) BlessERP.layout.renderPage();
+    };
+    const fillQuickEditor = (kind, draft) => {
+      const modal = quickEditorModal(kind);
+      if (!modal || !draft) return;
+      const selector = kind === "customer"
+        ? "[data-commercial-quick-customer-field]"
+        : "[data-commercial-quick-brand-field]";
+      modal.querySelectorAll(selector).forEach(field => {
+        const key = kind === "customer"
+          ? field.dataset.commercialQuickCustomerField
+          : field.dataset.commercialQuickBrandField;
+        if (!key) return;
+        if (field.type === "checkbox") field.checked = Boolean(draft[key]);
+        else field.value = draft[key] ?? "";
+      });
+    };
+    const openQuickEditor = kind => {
+      const modal = quickEditorModal(kind);
+      const order = stateApi.currentOrder(appState);
+      if (!order) return;
+      if (!modal) {
+        stateApi.getUi(appState).quickCatalogEditorKind = kind;
+        BlessERP.layout.renderPage();
+        return;
+      }
+      let draft;
+      if (kind === "customer") {
+        draft = order.customerId && stateApi.selectCustomer(appState, order.customerId)
+          ? stateApi.getUi(appState).customerDraft
+          : stateApi.newCustomer(appState);
+      } else {
+        draft = order.brandId && stateApi.selectBrand(appState, order.brandId)
+          ? stateApi.getUi(appState).brandDraft
+          : stateApi.newBrand(appState);
+        if (!order.brandId && order.customerId) {
+          stateApi.updateBrandDraftField(appState, "customerId", order.customerId);
+          draft = stateApi.getUi(appState).brandDraft;
+        }
+      }
+      fillQuickEditor(kind, draft);
+      modal.hidden = false;
+      modal.querySelector("[data-commercial-close-quick-editor]")?.focus();
+    };
+
+    container.querySelectorAll("[data-commercial-open-quick-editor]").forEach(button => button.addEventListener("click", () => {
+      openQuickEditor(button.dataset.commercialOpenQuickEditor);
+    }));
+    container.querySelectorAll("[data-commercial-close-quick-editor]").forEach(button => button.addEventListener("click", () => {
+      closeQuickEditor(button.closest("[data-commercial-quick-editor-modal]"));
+    }));
+    quickEditorModals.forEach(modal => {
+      modal.addEventListener("click", event => {
+        if (event.target === modal) closeQuickEditor(modal);
+      });
+      modal.addEventListener("keydown", event => {
+        if (event.key === "Escape") closeQuickEditor(modal);
+      });
+    });
+
+    container.querySelectorAll("[data-commercial-quick-customer-field]").forEach(field => {
+      const update = () => stateApi.updateCustomerDraftField(
+        appState,
+        field.dataset.commercialQuickCustomerField,
+        field.type === "checkbox" ? field.checked : field.value
+      );
+      field.addEventListener(field.type === "checkbox" || field.tagName === "SELECT" ? "change" : "input", update);
+    });
+    container.querySelectorAll("[data-commercial-quick-brand-field]").forEach(field => {
+      const update = () => {
+        stateApi.updateBrandDraftField(
+          appState,
+          field.dataset.commercialQuickBrandField,
+          field.type === "checkbox" ? field.checked : field.value
+        );
+        if (["destination", "defaultAgencyId"].includes(field.dataset.commercialQuickBrandField)) {
+          fillQuickEditor("brand", stateApi.getUi(appState).brandDraft);
+        }
+      };
+      field.addEventListener(field.type === "checkbox" || field.tagName === "SELECT" ? "change" : "input", update);
+    });
+    container.querySelector("[data-commercial-new-quick-customer]")?.addEventListener("click", () => {
+      fillQuickEditor("customer", stateApi.newCustomer(appState));
+      quickEditorModal("customer")?.querySelector('[data-commercial-quick-customer-field="legalName"]')?.focus();
+    });
+    container.querySelector("[data-commercial-new-quick-brand]")?.addEventListener("click", () => {
+      const order = stateApi.currentOrder(appState);
+      let draft = stateApi.newBrand(appState);
+      if (order?.customerId) {
+        stateApi.updateBrandDraftField(appState, "customerId", order.customerId);
+        draft = stateApi.getUi(appState).brandDraft;
+      }
+      fillQuickEditor("brand", draft);
+      quickEditorModal("brand")?.querySelector('[data-commercial-quick-brand-field="finalClientName"]')?.focus();
+    });
+    container.querySelector("[data-commercial-save-quick-customer]")?.addEventListener("click", () => {
+      const result = stateApi.saveCustomer(appState);
+      if (!result?.ok) {
+        BlessERP.layout.toast(stateApi.getUi(appState).notice || "No se pudo guardar el cliente.");
+        return;
+      }
+      const order = stateApi.currentOrder(appState);
+      if (order?.customerId !== result.customer.id) {
+        stateApi.updateOrderField(appState, "customerId", result.customer.id);
+      }
+      closeQuickEditor(quickEditorModal("customer"), { rerender: false });
+      BlessERP.layout.renderPage();
+    });
+    container.querySelector("[data-commercial-save-quick-brand]")?.addEventListener("click", () => {
+      const result = stateApi.saveBrand(appState);
+      if (!result?.ok) {
+        BlessERP.layout.toast(stateApi.getUi(appState).notice || "No se pudo guardar la marca.");
+        return;
+      }
+      const order = stateApi.currentOrder(appState);
+      if (order?.brandId !== result.brand.id) {
+        stateApi.updateOrderField(appState, "brandId", result.brand.id);
+      }
+      closeQuickEditor(quickEditorModal("brand"), { rerender: false });
+      BlessERP.layout.renderPage();
+    });
+
+    const pendingQuickEditorKind = String(stateApi.getUi(appState).quickCatalogEditorKind || "");
+    if (pendingQuickEditorKind && quickEditorModal(pendingQuickEditorKind)) {
+      window.requestAnimationFrame(() => openQuickEditor(pendingQuickEditorKind));
+    }
+
+    const customerCombobox = container.querySelector("[data-commercial-customer-combobox]");
+    const customerSearchInput = customerCombobox?.querySelector("[data-commercial-customer-search]");
+    const customerResults = customerCombobox?.querySelector("[data-commercial-customer-results]");
+    const normalizeCustomerSearch = value => String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toUpperCase();
+    const customerSearchRows = stateApi.getCustomerCatalog(appState)
+      .filter(item => normalizeCustomerSearch(item.status || "ACTIVO") !== "INACTIVO")
+      .map(item => ({
+        item,
+        searchText: normalizeCustomerSearch(item.legalName || item.commercialName || "")
+      }))
+      .sort((left, right) => left.searchText.localeCompare(right.searchText));
+    let customerOptions = [];
+    const visibleCustomerOptions = () => customerOptions.filter(option => !option.hidden);
+    const closeCustomerResults = () => {
+      if (!customerResults || !customerSearchInput) return;
+      customerResults.hidden = true;
+      customerSearchInput.setAttribute("aria-expanded", "false");
+    };
+    const filterCustomers = queryValue => {
+      if (!customerResults || !customerSearchInput) return;
+      const query = normalizeCustomerSearch(queryValue);
+      const matches = customerSearchRows.filter(row => !query || row.searchText.includes(query));
+      const visibleRows = matches.slice(0, 50);
+      customerResults.innerHTML = visibleRows.map(row => `
+        <button type="button" role="option" data-commercial-customer-option="${utils.esc(row.item.id)}">
+          <strong>${utils.esc(row.item.legalName || row.item.commercialName || "Sin razon social registrada")}</strong>
+        </button>
+      `).join("") || `<div class="master-order-customer-empty">No se encontraron clientes con ese texto.</div>`;
+      if (matches.length > visibleRows.length) {
+        customerResults.insertAdjacentHTML("beforeend", `<div class="master-order-customer-empty">Mostrando 50 de ${utils.esc(matches.length)} coincidencias. Escriba mas letras para precisar.</div>`);
+      }
+      customerOptions = [...customerResults.querySelectorAll("[data-commercial-customer-option]")];
+      customerResults.hidden = false;
+      customerSearchInput.setAttribute("aria-expanded", "true");
+    };
+    const filterCustomersDebounced = BlessERP.performance?.debounce?.(filterCustomers, 100) || filterCustomers;
+
+    const syncOrderHeaderFields = ({ refreshBrands = false, refreshDaes = false } = {}) => {
+      const order = stateApi.currentOrder(appState);
+      if (!order) return;
+
+      const localSale = Boolean(utils.isLocalOrder?.(order));
+      const selectedCustomer = stateApi.getCustomerCatalog(appState).find(item => item.id === order.customerId);
+      if (customerSearchInput && document.activeElement !== customerSearchInput) {
+        customerSearchInput.value = selectedCustomer?.legalName || selectedCustomer?.commercialName || "";
+      }
+
+      container.querySelectorAll("[data-commercial-export-only]").forEach(element => {
+        element.hidden = localSale;
+      });
+      container.querySelectorAll("[data-commercial-local-only]").forEach(element => {
+        element.hidden = !localSale;
+      });
+
+      const brandField = container.querySelector('[data-commercial-order-field="brandId"]');
+      if (brandField && refreshBrands) {
+        const brands = stateApi.getBrandCatalog(appState)
+          .filter(item => item.customerId === order.customerId && normalizeCustomerSearch(item.status || "ACTIVO") !== "INACTIVO");
+        brandField.innerHTML = `<option value="">Seleccione o escriba para buscar</option>${brands.map(item => `
+          <option value="${utils.esc(item.id)}">${utils.esc(item.finalClientName)} · ${utils.esc(item.destination || "-")}</option>
+        `).join("")}`;
+      }
+      if (brandField) {
+        brandField.value = order.brandId || "";
+        brandField.disabled = localSale || !order.customerId || !workflow.canEditOrderField(order, "brandId").ok;
+      }
+
+      const brandQuickButton = container.querySelector('[data-commercial-open-quick-editor="brand"]');
+      if (brandQuickButton) brandQuickButton.disabled = localSale;
+
+      const agencyField = container.querySelector('[data-commercial-order-field="agencyId"]');
+      if (agencyField) {
+        agencyField.value = order.agencyId || "";
+        agencyField.disabled = localSale || !workflow.canEditOrderField(order, "agencyId").ok;
+      }
+
+      const daeField = container.querySelector('[data-commercial-order-field="daeNumber"]');
+      if (daeField && refreshDaes) {
+        const daes = utils.getAvailableDaesForOrder(order);
+        if (order.daeNumber && !daes.some(item => item.number === order.daeNumber)) {
+          daes.unshift({
+            number: order.daeNumber,
+            expirationDate: order.daeExpirationDate || "",
+            destination: order.daeDestination || order.destination || ""
+          });
+        }
+        daeField.innerHTML = `<option value="">Seleccione DAE</option>${daes.map(item => `
+          <option value="${utils.esc(item.number)}">${utils.esc(item.number)} · ${utils.esc(item.country || item.destination || "SIN PAIS")}</option>
+        `).join("")}`;
+      }
+      if (daeField) {
+        daeField.value = order.daeNumber || "";
+        daeField.disabled = localSale || !workflow.canEditOrderField(order, "daeNumber").ok;
+      }
+
+      const coldRoomField = container.querySelector('[data-commercial-order-field="coldRoom"]');
+      if (coldRoomField && document.activeElement !== coldRoomField) {
+        coldRoomField.value = localSale ? "RETIRA EN FINCA" : (order.coldRoom || "");
+        coldRoomField.disabled = localSale || !workflow.canEditOrderField(order, "coldRoom").ok;
+      }
+
+      const selectedAgency = utils.findAgency(order.agencyId);
+      const coldRoomList = container.querySelector("#master-order-cold-rooms");
+      if (coldRoomList) {
+        const rooms = [...new Set([...(selectedAgency?.coldRooms || []), selectedAgency?.coldRoom, order.coldRoom].filter(Boolean))];
+        coldRoomList.innerHTML = rooms.map(room => `<option value="${utils.esc(room)}"></option>`).join("");
+      }
+
+      const awbField = container.querySelector('[data-commercial-order-field="awb"]');
+      const hawbField = container.querySelector('[data-commercial-order-field="hawb"]');
+      if (awbField && document.activeElement !== awbField) awbField.value = order.awb || "";
+      if (hawbField && document.activeElement !== hawbField) hawbField.value = order.hawb || "";
+      refreshAwbRecognition(order.awb || "");
+    };
+
+    customerSearchInput?.addEventListener("focus", event => {
+      if (event.target.disabled) return;
+      event.target.select();
+      filterCustomers("");
+    });
+    customerSearchInput?.addEventListener("input", event => {
+      filterCustomersDebounced(event.target.value);
+    });
+    customerSearchInput?.addEventListener("keydown", event => {
+      if (["ArrowDown", "Enter"].includes(event.key)) {
+        filterCustomersDebounced.cancel?.();
+        filterCustomers(event.target.value);
+      }
+      if (event.key === "Escape") {
+        closeCustomerResults();
+        event.target.blur();
+        return;
+      }
+      const options = visibleCustomerOptions();
+      if (event.key === "ArrowDown" && options.length) {
+        event.preventDefault();
+        options[0].focus();
+      } else if (event.key === "Enter" && options.length) {
+        event.preventDefault();
+        options[0].click();
+      }
+    });
+    customerResults?.addEventListener("click", event => {
+      const option = event.target.closest("[data-commercial-customer-option]");
+      if (!option) return;
+      stateApi.updateOrderField(appState, "customerId", option.dataset.commercialCustomerOption);
+      closeCustomerResults();
+      syncOrderHeaderFields({ refreshBrands: true, refreshDaes: true });
+    });
+    customerResults?.addEventListener("keydown", event => {
+      const option = event.target.closest("[data-commercial-customer-option]");
+      if (!option) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        option.click();
+        return;
+      }
+      if (!["ArrowDown", "ArrowUp", "Escape"].includes(event.key)) return;
+      event.preventDefault();
+      if (event.key === "Escape") {
+        customerSearchInput?.focus();
+        closeCustomerResults();
+        return;
+      }
+      const options = visibleCustomerOptions();
+      const currentIndex = options.indexOf(option);
+      const nextIndex = event.key === "ArrowDown"
+        ? Math.min(currentIndex + 1, options.length - 1)
+        : Math.max(currentIndex - 1, 0);
+      options[nextIndex]?.focus();
+    });
+    container.onclick = event => {
+      if (customerCombobox && !customerCombobox.contains(event.target)) closeCustomerResults();
+    };
+
     const awbInput = container.querySelector("[data-commercial-awb-input]");
-    const refreshAwbRecognition = value => {
+    function refreshAwbRecognition(value) {
       const digits = utils.getAwbDigits(value);
-      const airline = utils.findAirlineByAwb(value, appState);
+      const order = stateApi.currentOrder(appState);
+      const awbAirline = utils.findAirlineByAwb(value, appState);
+      const airline = awbAirline || utils.findAirline(order?.airlineId, appState);
       const airlineOutput = container.querySelector("[data-commercial-awb-airline]");
       const statusOutput = container.querySelector("[data-commercial-awb-status]");
 
       if (airlineOutput) {
         airlineOutput.value = airline
-          ? `${airline.name} · prefijo ${airline.awbPrefix}`
+          ? (awbAirline ? `${airline.name} · prefijo ${airline.awbPrefix}` : `${airline.name} · sugerida por DAE`)
           : "Prefijo AWB no reconocido";
       }
       if (statusOutput) {
-        statusOutput.textContent = airline
+        statusOutput.textContent = awbAirline
           ? `${airline.name} reconocida por el prefijo ${airline.awbPrefix}.`
+          : airline
+            ? `${airline.name} sugerida por la DAE seleccionada.`
           : digits.length >= 3
             ? `No existe una linea aerea activa con el prefijo ${digits.slice(0, 3)}.`
             : "Ingrese los 3 primeros digitos para reconocer la linea aerea.";
         statusOutput.classList.toggle("is-valid", Boolean(airline));
         statusOutput.classList.toggle("is-warning", !airline && digits.length >= 3);
       }
-    };
+    }
 
-    awbInput?.addEventListener("input", event => refreshAwbRecognition(event.target.value));
+    container.querySelectorAll("[data-commercial-guide-input]").forEach(input => {
+      input.addEventListener("input", event => {
+        const guideType = event.target.dataset.commercialGuideInput;
+        const normalized = guideType === "hawb"
+          ? utils.normalizeHawb(event.target.value)
+          : utils.normalizeAwb(event.target.value);
+        event.target.value = normalized;
+        if (guideType === "awb") refreshAwbRecognition(normalized);
+      });
+    });
+    if (awbInput && !awbInput.dataset.commercialGuideInput) {
+      awbInput.addEventListener("input", event => refreshAwbRecognition(event.target.value));
+    }
 
     container.querySelector("[data-commercial-master-select-order]")?.addEventListener("change", event => {
       if (!stateApi.setCurrentOrder(appState, event.target.value)) return;
@@ -1663,14 +2131,60 @@
       BlessERP.layout.renderPage();
     }));
 
-    container.querySelectorAll("[data-commercial-release-warehouse]").forEach(button => button.addEventListener("click", () => {
-      const result = stateApi.markReadyWarehouse(appState);
-      if (result?.ok === false) BlessERP.layout.toast(result.validation?.errors?.join(" | ") || result.error || result.message || "No se pudo liberar el pedido.");
+    container.querySelectorAll("[data-commercial-release-warehouse]").forEach(button => button.addEventListener("click", async event => {
+      event.preventDefault();
+      if (button.dataset.actionPending === "true") return;
+      button.dataset.actionPending = "true";
+      button.disabled = true;
+      const originalText = button.textContent;
+      button.textContent = "Guardando y enviando...";
+      const policy = BlessERP.operacionesAvailabilityPolicy;
+      const order = stateApi.currentOrder(appState);
+      try {
+        const risk = policy?.evaluateOrderRisk?.(appState, order);
+        if (risk?.hasRisk) {
+          const settings = policy.getSettings(appState);
+          const riskBunches = risk.risks.reduce((sum, item) => sum + item.riskBunches, 0);
+          const detail = risk.risks.slice(0, 3).map(item => `${item.variety} ${item.lengthLabel}: ${item.riskBunches} bonche(s)`).join(" | ");
+          if (settings.requireRiskObservation) {
+            const observation = window.prompt(`ALERTA INFORMATIVA: esta venta puede afectar ${riskBunches} bonche(s) de pedidos futuros en ${risk.projectionDays} día(s).\n${detail}\n\nLa venta no está bloqueada. Ingrese una observación para continuar:`, order?.availabilityRiskObservation || "Venta autorizada después de revisar la proyección futura.") || "";
+            if (!String(observation).trim()) return;
+            policy.recordRiskObservation(appState, order, observation, risk);
+          } else if (!window.confirm(`ALERTA INFORMATIVA: esta venta puede afectar ${riskBunches} bonche(s) de pedidos futuros en ${risk.projectionDays} día(s).\n${detail}\n\nLa venta no está bloqueada. ¿Desea continuar?`)) {
+            return;
+          }
+        }
+        const result = await stateApi.saveAndMarkReadyWarehouseConfirmed(appState);
+        if (!result?.confirmed) {
+          BlessERP.layout.toast(result?.error || "El pedido no se envio porque Supabase no confirmo todo el proceso.");
+        } else {
+          const sentNumber = result.order?.number || "Pedido";
+          stateApi.startNewOrderWorkspace(appState);
+          stateApi.setNotice(appState, `${sentNumber} enviado a Cuarto frio. Nuevo formulario listo.`, "success");
+        }
+      } catch (error) {
+        BlessERP.layout.toast(error?.message || "No se pudo guardar y enviar el pedido a Cuarto frio.");
+      } finally {
+        delete button.dataset.actionPending;
+        button.disabled = false;
+        button.textContent = originalText;
+        BlessERP.layout.renderPage();
+      }
+    }));
+
+    container.querySelectorAll("[data-commercial-edit-order-data]").forEach(button => button.addEventListener("click", () => {
+      const reason = window.prompt(
+        "Motivo de la correccion de datos del pedido:",
+        "Correccion de DAE, guias o datos logisticos."
+      ) || "";
+      if (!String(reason).trim()) return;
+      const result = stateApi.startOrderDataEdit(appState, reason);
+      if (!result?.ok) BlessERP.layout.toast(result?.error || "No se pudo habilitar la edicion de datos.");
       BlessERP.layout.renderPage();
     }));
 
     container.querySelectorAll("[data-commercial-start-revision]").forEach(button => button.addEventListener("click", () => {
-      const reason = window.prompt("Motivo de la modificacion solicitada por el cliente:", "Cliente solicito una caja adicional.") || "";
+      const reason = window.prompt("Motivo de la modificacion solicitada por el cliente:", "Cliente modifico la cantidad de cajas antes de facturar.") || "";
       if (!String(reason).trim()) return;
       const result = stateApi.startOrderRevision(appState, reason);
       if (!result?.ok) BlessERP.layout.toast(result?.error || "No se pudo iniciar la revision.");
@@ -1690,14 +2204,7 @@
       BlessERP.layout.renderPage();
     }));
 
-    container.querySelectorAll("[data-commercial-open-warehouse]").forEach(button => button.addEventListener("click", () => {
-      const order = stateApi.currentOrder(appState);
-      if (order) BlessERP.operacionesState?.setUiValue?.(appState, "warehouseOrderId", order.id);
-      BlessERP.state.setRoute("operations-warehouse");
-      BlessERP.layout.renderApp();
-    }));
-
-    container.querySelectorAll("[data-commercial-status-target]").forEach(button => button.addEventListener("click", () => {
+    container.querySelectorAll("[data-commercial-status-target]").forEach(button => button.addEventListener("click", async () => {
       const target = button.dataset.commercialStatusTarget;
       const order = stateApi.currentOrder(appState);
       const dispatchService = utils.getDispatchService?.();
@@ -1723,8 +2230,14 @@
       }
 
       if (order && target === "LISTO_BODEGA") {
-        const result = stateApi.markReadyWarehouse(appState);
-        if (!result?.ok) BlessERP.layout.toast(result?.validation?.errors?.join(" | ") || result?.error || result?.message || "No se pudo liberar el pedido a Bodega.");
+        const result = await stateApi.saveAndMarkReadyWarehouseConfirmed(appState);
+        if (!result?.confirmed) {
+          BlessERP.layout.toast(result?.validation?.errors?.join(" | ") || result?.error || result?.message || "No se pudo liberar el pedido a Bodega.");
+        } else {
+          const sentNumber = result.order?.number || "Pedido";
+          stateApi.startNewOrderWorkspace(appState);
+          stateApi.setNotice(appState, `${sentNumber} enviado a Cuarto frio. Nuevo formulario listo.`, "success");
+        }
         BlessERP.layout.renderPage();
         return;
       }
@@ -1785,7 +2298,7 @@
         if (!String(motivo).trim()) return;
         result = dispatchService.observeDispatchDemo(appState, order.id, motivo);
       } else if (button.dataset.commercialDispatchAction === "reopen") {
-        const motivo = window.prompt("Motivo de reapertura del despacho:", "Reabierto desde Pedido Maestro demo.") || "";
+        const motivo = window.prompt("Motivo de reapertura del despacho:", "Reabierto desde la edicion del pedido.") || "";
         if (!String(motivo).trim()) return;
         result = dispatchService.reopenDispatchDemo(appState, order.id, motivo);
       } else if (button.dataset.commercialDispatchAction === "simulate-consumption") {
@@ -1807,22 +2320,33 @@
       BlessERP.layout.renderPage();
     }));
 
-    container.querySelectorAll("[data-commercial-dispatch-open-operations]").forEach(button => button.addEventListener("click", () => {
-      BlessERP.operacionesState?.setUiValue?.(appState, "selectedDispatchOrderId", button.dataset.orderId || stateApi.currentOrder(appState)?.id || "");
-      BlessERP.state.setRoute("operations-dispatch");
-      BlessERP.layout.renderApp();
-    }));
-
-    container.querySelectorAll("[data-commercial-dispatch-open-scanner]").forEach(button => button.addEventListener("click", () => {
-      BlessERP.operacionesState?.setUiValue?.(appState, "scannerDispatchPedidoId", button.dataset.orderId || stateApi.currentOrder(appState)?.id || "");
-      BlessERP.state.setRoute("operations-scanner");
-      BlessERP.layout.renderApp();
-    }));
-
+    const lightweightHeaderFields = new Set([
+      "brandId",
+      "agencyId",
+      "daeNumber",
+      "awb",
+      "hawb",
+      "coldRoom",
+      "issuedAt",
+      "flightDate",
+      "sellerId",
+      "seller_id",
+      "vendedorId",
+      "generalPo",
+      "notes"
+    ]);
     container.querySelectorAll("[data-commercial-order-field]").forEach(field => {
       field.addEventListener("change", event => {
-        stateApi.updateOrderField(appState, event.target.dataset.commercialOrderField, event.target.value);
-        BlessERP.layout.renderPage();
+        const fieldName = event.target.dataset.commercialOrderField;
+        stateApi.updateOrderField(appState, fieldName, event.target.value);
+        if (lightweightHeaderFields.has(fieldName)) {
+          syncOrderHeaderFields({
+            refreshBrands: false,
+            refreshDaes: fieldName === "brandId" || fieldName === "flightDate"
+          });
+          return;
+        }
+        if (!container.__commercialPendingPointerAction) BlessERP.layout.renderPage();
       });
     });
 
@@ -1830,7 +2354,7 @@
       field.addEventListener("change", event => {
         const [lineId, key] = String(event.target.dataset.commercialLineField || "").split("|");
         stateApi.updateLineField(appState, lineId, key, event.target.value);
-        BlessERP.layout.renderPage();
+        refreshGridTotals();
       });
     });
 
@@ -1840,27 +2364,37 @@
     }));
 
     container.querySelectorAll("[data-commercial-builder-single]").forEach(button => button.addEventListener("click", () => {
+      stateApi.getUi(appState).boxBuilderExpanded = true;
       stateApi.setBoxBuilderMode(appState, BlessERP.comercialBoxBuilder.MODES.RANGE);
       stateApi.updateBoxRangeDraft(appState, "quantity", 1);
       BlessERP.layout.renderPage();
       requestAnimationFrame(() => document.querySelector("#master-order-box-builder")?.scrollIntoView({ behavior: "smooth", block: "start" }));
     }));
 
-    container.querySelector("[data-commercial-jump-box-builder]")?.addEventListener("click", () => {
-      container.querySelector("#master-order-box-builder")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    container.querySelectorAll("[data-commercial-jump-box-builder]").forEach(button => button.addEventListener("click", event => {
+      event.preventDefault();
+      stateApi.getUi(appState).boxBuilderExpanded = true;
+      const panel = container.querySelector("[data-commercial-box-builder-panel]");
+      if (panel) panel.hidden = false;
+      requestAnimationFrame(() => container.querySelector("#master-order-box-builder")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }));
 
     container.querySelectorAll("[data-commercial-builder-mode]").forEach(button => button.addEventListener("click", () => {
+      stateApi.getUi(appState).boxBuilderExpanded = true;
       if (!stateApi.setBoxBuilderMode(appState, button.dataset.commercialBuilderMode)) return;
       BlessERP.layout.renderPage();
       requestAnimationFrame(() => document.querySelector("#master-order-box-builder")?.scrollIntoView({ block: "start" }));
     }));
 
+    container.querySelector("[data-commercial-close-box-builder]")?.addEventListener("click", () => {
+      stateApi.getUi(appState).boxBuilderExpanded = false;
+      const panel = container.querySelector("[data-commercial-box-builder-panel]");
+      if (panel) panel.hidden = true;
+    });
+
     container.querySelectorAll("[data-commercial-range-field]").forEach(field => {
       field.addEventListener("change", event => {
         stateApi.updateBoxRangeDraft(appState, event.target.dataset.commercialRangeField, event.target.value);
-        BlessERP.layout.renderPage();
-        requestAnimationFrame(() => document.querySelector("#master-order-box-builder")?.scrollIntoView({ block: "start" }));
       });
     });
 
@@ -1868,8 +2402,6 @@
       field.addEventListener("change", event => {
         const [itemId, key] = String(event.target.dataset.commercialMixItemField || "").split("|");
         stateApi.updateManualMixDraftItem(appState, itemId, key, event.target.value);
-        BlessERP.layout.renderPage();
-        requestAnimationFrame(() => document.querySelector("#master-order-box-builder")?.scrollIntoView({ block: "start" }));
       });
     });
 
@@ -1888,6 +2420,7 @@
     container.querySelector("[data-commercial-add-box-range]")?.addEventListener("click", () => {
       const result = stateApi.addBoxRange(appState);
       if (!result?.ok) BlessERP.layout.toast(result?.error || "No se pudo generar el rango de cajas.");
+      if (result?.ok) stateApi.getUi(appState).boxBuilderExpanded = false;
       BlessERP.layout.renderPage();
     });
 
@@ -1904,7 +2437,24 @@
     }));
 
     container.querySelectorAll("[data-commercial-delete-box]").forEach(button => button.addEventListener("click", () => {
-      if (!window.confirm(`Eliminar la caja ${button.dataset.commercialDeleteBox} completa?`)) return;
+      const order = stateApi.currentOrder(appState);
+      const isRetirement = button.dataset.commercialBoxAction === "retire";
+      if (isRetirement) {
+        const reason = window.prompt(
+          `Motivo para retirar la caja ${button.dataset.commercialDeleteBox}:`,
+          "Cliente redujo la cantidad de cajas antes de facturar."
+        ) || "";
+        if (!String(reason).trim()) return;
+        if (!window.confirm(`Retirar la caja ${button.dataset.commercialDeleteBox} y actualizar el pedido ahora? sus ramos volveran a disponibilidad y los documentos se regeneraran sin esta caja.`)) return;
+        const result = stateApi.retireBoxAndUpdate(appState, button.dataset.commercialDeleteBox, reason);
+        BlessERP.layout.toast(result?.ok
+          ? result.notification?.message || `Caja ${button.dataset.commercialDeleteBox} retirada correctamente.`
+          : result?.error || "No se pudo retirar la caja.");
+        BlessERP.layout.renderPage();
+        return;
+      }
+      const message = `Eliminar la caja ${button.dataset.commercialDeleteBox} completa?`;
+      if (!window.confirm(message)) return;
       const result = stateApi.deleteBox(appState, button.dataset.commercialDeleteBox);
       if (!result?.ok) BlessERP.layout.toast(result?.error || "No se pudo eliminar la caja.");
       BlessERP.layout.renderPage();
@@ -2011,6 +2561,76 @@
       BlessERP.layout.renderPage();
     }));
 
+    container.querySelectorAll("[data-commercial-label-order-select]").forEach(field => field.addEventListener("change", event => {
+      stateApi.setLabelOrderSelected(appState, event.target.dataset.commercialLabelOrderSelect, event.target.checked);
+      BlessERP.layout.renderPage();
+    }));
+
+    container.querySelector("[data-commercial-label-select-ready]")?.addEventListener("click", () => {
+      const readyIds = BlessERP.comercialPrint.getBulkLabelRows(appState).filter(row => row.ready).map(row => row.order.id);
+      stateApi.setLabelOrderSelection(appState, readyIds);
+      BlessERP.layout.renderPage();
+    });
+
+    container.querySelector("[data-commercial-label-clear-selection]")?.addEventListener("click", () => {
+      stateApi.setLabelOrderSelection(appState, []);
+      BlessERP.layout.renderPage();
+    });
+
+    container.querySelector("[data-commercial-preview-selected-labels]")?.addEventListener("click", () => {
+      openSelectedLabelOrders(appState, false);
+    });
+
+    container.querySelector("[data-commercial-print-selected-labels]")?.addEventListener("click", () => {
+      openSelectedLabelOrders(appState, true);
+    });
+
+    container.querySelector("[data-commercial-download-selected-labels]")?.addEventListener("click", () => {
+      openSelectedLabelOrders(appState, true, true);
+    });
+
+    container.querySelectorAll("[data-commercial-invoice-order-select]").forEach(field => field.addEventListener("change", event => {
+      stateApi.setPrintCenterOrderSelected(appState, event.target.dataset.commercialInvoiceOrderSelect, event.target.checked);
+      BlessERP.layout.renderPage();
+    }));
+
+    container.querySelector("[data-commercial-invoice-select-visible]")?.addEventListener("click", () => {
+      const mode = stateApi.getUi(appState).printCenterDocument;
+      const visibleIds = BlessERP.comercialPrint.getPrintCenterRows(appState, mode).filter(row => row.ready).map(row => row.order.id);
+      stateApi.setPrintCenterOrderSelection(appState, visibleIds);
+      BlessERP.layout.renderPage();
+    });
+
+    container.querySelector("[data-commercial-invoice-clear-selection]")?.addEventListener("click", () => {
+      stateApi.setPrintCenterOrderSelection(appState, []);
+      BlessERP.layout.renderPage();
+    });
+
+    container.querySelector("[data-commercial-preview-selected-invoices]")?.addEventListener("click", event => {
+      openSelectedInvoiceOrders(event.currentTarget.dataset.commercialSelectedDocCode, appState, false);
+    });
+
+    container.querySelector("[data-commercial-print-selected-invoices]")?.addEventListener("click", event => {
+      openSelectedInvoiceOrders(event.currentTarget.dataset.commercialSelectedDocCode, appState, true);
+    });
+
+    container.querySelector("[data-commercial-download-selected-invoices]")?.addEventListener("click", event => {
+      openSelectedInvoiceOrders(event.currentTarget.dataset.commercialSelectedDocCode, appState, true, true);
+    });
+
+    container.querySelectorAll("[data-commercial-center-doc-action]").forEach(button => button.addEventListener("click", () => {
+      const order = stateApi.findOrder(appState, button.dataset.commercialCenterOrderId);
+      if (!order) return;
+      openDocumentPreview(
+        button.dataset.commercialCenterDocCode,
+        order,
+        appState,
+        resolveDocOptions(button, container, appState),
+        button.dataset.commercialCenterDocAction !== "preview",
+        button.dataset.commercialCenterDocAction === "download"
+      );
+    }));
+
     container.querySelectorAll("[data-commercial-preview-doc]").forEach(button => button.addEventListener("click", () => {
       const order = stateApi.currentOrder(appState);
       if (!order) return;
@@ -2035,25 +2655,68 @@
       );
     }));
 
+    container.querySelectorAll("[data-commercial-download-doc]").forEach(button => button.addEventListener("click", () => {
+      const orderId = button.dataset.commercialCenterOrderId;
+      const order = orderId ? stateApi.findOrder(appState, orderId) : stateApi.currentOrder(appState);
+      if (!order) return;
+      openDocumentPreview(
+        button.dataset.commercialDownloadDoc,
+        order,
+        appState,
+        resolveDocOptions(button, container, appState),
+        true,
+        true
+      );
+    }));
+
     container.querySelectorAll("[data-commercial-doc-placeholder]").forEach(button => button.addEventListener("click", () => {
       const [action, docCode] = String(button.dataset.commercialDocPlaceholder || "").split("|");
+      if (action === "pdf") {
+        const order = stateApi.currentOrder(appState);
+        if (!order) return;
+        openDocumentPreview(
+          docCode,
+          order,
+          appState,
+          resolveDocOptions(button, container, appState),
+          true,
+          true
+        );
+        return;
+      }
       BlessERP.layout.toast(
-        action === "pdf"
-          ? `Pendiente fase futura. PDF real pendiente para ${docCode || "documento"}; esta fase solo deja preview e impresion demo.`
-          : action === "zebra"
+        action === "zebra"
             ? `Pendiente fase futura. Zebra real pendiente para ${docCode || "documento"}; esta fase deja solo etiquetas demo, impresion por rango y reimpresion individual.`
             : `Pendiente fase futura. Envio por correo pendiente para ${docCode || "documento"}; esta fase no genera despacho real.`
       );
     }));
 
     container.querySelectorAll("[data-commercial-new-order]").forEach(button => button.addEventListener("click", () => {
-      stateApi.createNewOrder(appState);
+      stateApi.startNewOrderWorkspace(appState);
       BlessERP.layout.renderPage();
     }));
 
-    container.querySelectorAll("[data-commercial-save-order]").forEach(button => button.addEventListener("click", () => {
-      stateApi.saveCurrentOrder(appState);
-      BlessERP.layout.renderPage();
+    container.querySelectorAll("[data-commercial-save-order]").forEach(button => button.addEventListener("click", async event => {
+      event.preventDefault();
+      if (button.dataset.savePending === "true") return;
+      button.dataset.savePending = "true";
+      button.disabled = true;
+      const originalText = button.textContent;
+      button.textContent = "Guardando...";
+      try {
+        const result = await stateApi.saveCurrentOrderConfirmed(appState);
+        if (!result?.confirmed) {
+          BlessERP.layout.toast(result?.error || "Supabase aun no confirma el pedido. Los datos siguen visibles y se reintentara automaticamente.");
+        } else {
+          const savedNumber = result.order?.number || "Pedido";
+          stateApi.setNotice(appState, `${savedNumber} guardado correctamente. El pedido permanece abierto para revisarlo o enviarlo a Cuarto frio.`, "success");
+        }
+      } finally {
+        delete button.dataset.savePending;
+        button.disabled = false;
+        button.textContent = originalText;
+        BlessERP.layout.renderPage();
+      }
     }));
 
     container.querySelectorAll("[data-commercial-mark-referential]").forEach(button => button.addEventListener("click", () => {

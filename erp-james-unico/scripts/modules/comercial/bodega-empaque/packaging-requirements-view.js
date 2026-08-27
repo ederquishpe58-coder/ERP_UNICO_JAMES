@@ -2,6 +2,7 @@
   const BlessERP = window.BlessERP = window.BlessERP || {};
   const utils = BlessERP.comercialUtils;
   const calculator = BlessERP.comercialPackagingCalculator;
+  const printUtils = BlessERP.comercialPrintUtils;
 
   function renderSummaryCards(result) {
     const summary = result.summary;
@@ -203,7 +204,7 @@
           <div class="table-actions-inline">
             <button class="secondary-button" data-commercial-preview-doc="PACKAGING_REQUIREMENTS">Vista previa requerimiento bodega</button>
             <button class="secondary-button" data-commercial-print-doc="PACKAGING_REQUIREMENTS">Imprimir requerimiento</button>
-            <button class="secondary-button" data-commercial-doc-placeholder="pdf|PACKAGING_REQUIREMENTS">Descargar PDF</button>
+            <button class="secondary-button" data-commercial-download-doc="PACKAGING_REQUIREMENTS">Guardar PDF</button>
           </div>
         </article>
       </section>
@@ -287,7 +288,7 @@
                     <td><span class="status-badge ${utils.badgeClass(row.summary.orderPackagingStatus)}">${utils.esc(row.summary.orderPackagingStatus)}</span></td>
                     <td>
                       <div class="table-actions-inline commercial-action-stack">
-                        <button class="secondary-button" data-commercial-open-order="${utils.esc(row.order.id)}">Abrir Pedido Maestro</button>
+          <button class="secondary-button" data-commercial-open-order="${utils.esc(row.order.id)}">Abrir Crear pedido</button>
                         <button class="secondary-button" data-commercial-preview-order-doc="${utils.esc(row.order.id)}|PACKAGING_REQUIREMENTS">Vista previa bodega</button>
                         <button class="secondary-button" data-commercial-preview-order-doc="${utils.esc(row.order.id)}|PACKAGING_REQUIREMENTS|print">Imprimir bodega</button>
                       </div>
@@ -305,12 +306,16 @@
   function renderPrintDocument(order, appState) {
     const result = calculator.calculateOrderRequirements(order, appState);
     const brand = utils.findBrand(result.order.brandId);
+    const company = BlessERP.services?.companyBranding?.resolveForOrder?.(result.order)
+      || BlessERP.comercialData.company;
     return `
       <article class="doc-page">
         <div class="doc-header">
           <div class="doc-company">
             <span class="doc-kicker">Bodega / Empaque</span>
-            <strong class="doc-company-logo">BLESS FLOWER</strong>
+            ${printUtils?.renderCompanyBrand
+              ? printUtils.renderCompanyBrand(company)
+              : `<strong class="doc-company-logo">${utils.esc(company.commercialName || company.legalName || "Empresa")}</strong>`}
             <h2 class="doc-title">REQUERIMIENTO DE MATERIALES / BODEGA</h2>
             <p class="doc-subtitle">Documento demo interno para preparar materiales de empaque del pedido.</p>
           </div>

@@ -20,11 +20,24 @@
 
   const importStatuses = ["LEIDO", "VALIDO", "DUPLICADO", "ERROR_XML", "PENDIENTE_CUENTA", "IMPORTADO"];
   const retentionStatuses = ["BORRADOR", "CONFIRMADA", "LISTA_PARA_AUTORIZAR", "AUTORIZADA", "ANULADA"];
+  const retentionDecisions = ["PENDIENTE", "APLICAR", "NO_SUJETO_332"];
   const voucherTypes = [
     { code: "factura", label: "Factura" },
     { code: "liquidacion_compra", label: "Liquidacion de compra" },
+    { code: "documento_exterior", label: "Documento del exterior" },
+    { code: "saldo_inicial", label: "Saldo inicial" },
     { code: "nota_credito", label: "Nota de credito" },
     { code: "nota_debito", label: "Nota de debito" }
+  ];
+  const paymentMethods = [
+    { code: "01", label: "Sin utilizacion del sistema financiero" },
+    { code: "15", label: "Compensacion de deudas" },
+    { code: "16", label: "Tarjeta de debito" },
+    { code: "17", label: "Dinero electronico" },
+    { code: "18", label: "Tarjeta prepago" },
+    { code: "19", label: "Tarjeta de credito" },
+    { code: "20", label: "Otros con utilizacion del sistema financiero" },
+    { code: "21", label: "Endoso de titulos" }
   ];
   const lineTypes = [
     "gasto",
@@ -56,9 +69,34 @@
     return Math.round(Number(value || 0) * 100) / 100;
   }
 
+  function vatPurchaseAccountCode(rate, defaults = companyService.settings().defaultAccounts || {}) {
+    return BlessERP.accountingPlanBlessV1?.vatPurchaseAccountCode?.(rate, defaults)
+      || defaults.vatPurchases
+      || "";
+  }
+
+  function vatGroups(lines = [], defaults = companyService.settings().defaultAccounts || {}) {
+    const groups = new Map();
+    (lines || []).forEach(line => {
+      const amount = round2(line.vatValue || 0);
+      if (amount <= 0) return;
+      const rate = Number(line.vatRate || 0);
+      const accountCode = vatPurchaseAccountCode(rate, defaults);
+      const key = `${accountCode}|${rate}`;
+      const current = groups.get(key) || { accountCode, rate, amount: 0 };
+      current.amount = round2(current.amount + amount);
+      groups.set(key, current);
+    });
+    return [...groups.values()];
+  }
+
   function pad9(value) {
     const raw = String(value || "").replace(/\D/g, "");
     return raw.padStart(9, "0").slice(-9);
+  }
+
+  function digits(value) {
+    return String(value || "").replace(/\D+/g, "");
   }
 
   function normalizeText(value) {
@@ -83,8 +121,28 @@
     return adminService?.activeUser?.() || stateApi.state.db.session?.activeUser || { id: "demo", name: "Usuario demo", role: "Administrador" };
   }
 
+  function companyAllows(capability, fallback = true) {
+    const companyContext = BlessERP.services?.companyContext;
+    return companyContext?.hasCapability ? companyContext.hasCapability(capability) : fallback;
+  }
+
+  function retentionCapabilityError() {
+    return {
+      ok: false,
+      code: "COMPANY_CAPABILITY_DENIED",
+      errors: ["La empresa activa no emite retenciones. Solo puede registrar retenciones recibidas."]
+    };
+  }
+
   function cloneList(key) {
     return clone(stateApi.state.db[key] || []);
+  }
+
+  function supplierV2() { return BlessERP.services?.supplierFinanceV2 || null; }
+  function requiresSupplierV2() {
+    const config = BlessERP.getEnvConfig?.() || {};
+    return Boolean(config.supabaseEnabled && config.supplierFinanceV2CaptureEnabled === true
+      && window.location?.protocol !== "file:");
   }
 
   function inventoryApi() {
@@ -97,15 +155,24 @@
   }
 
   function providers() {
-    return cloneList("providers");
+    const canonical = supplierV2()?.providers?.() || [];
+    const byId = new Set(canonical.map(item => String(item.id || item.providerId || "")));
+    const byTax = new Set(canonical.map(item => String(item.taxId || item.ruc || "").replace(/\W/g, "")));
+    return [...canonical, ...cloneList("providers").filter(item => !byId.has(String(item.id || "")) && !byTax.has(String(item.taxId || item.ruc || "").replace(/\W/g, "")))];
   }
 
   function purchases() {
-    return cloneList("purchases");
+    const canonical = supplierV2()?.purchases?.() || [];
+    const replacedDrafts = new Set(canonical.map(item => String(item.legacyDraftId || "")).filter(Boolean));
+    const keys = new Set(canonical.map(item => String(item.sourceKey || "")).filter(Boolean));
+    const legacy = cloneList("purchases").filter(item => !replacedDrafts.has(String(item.id || "")) && !keys.has(duplicateKeyForPurchase(item)));
+    return [...canonical, ...legacy];
   }
 
   function purchasePayables() {
-    return cloneList("purchasePayables");
+    const canonical = supplierV2()?.payables?.() || [];
+    const ids = new Set(canonical.map(item => String(item.id || item.payableId || "")));
+    return [...canonical, ...cloneList("purchasePayables").filter(item => !ids.has(String(item.id || "")))];
   }
 
   function taxSupports() {
@@ -125,10 +192,27 @@
     };
   }
 
-  function withholdingCatalog(type = "") {
-    return taxConfigService
+  function withholdingCatalog(type = "", options = {}) {
+    if (!companyAllows("purchases.issueWithholdings")) return [];
+    const priority = String(type || "").toUpperCase() === "IVA"
+      ? ["3", "1", "10", "11", "2", "9"]
+      : ["312C", "312", "303", "304", "303A", "3482", "340", "311", "501", "502", "511", "520"];
+    const rows = taxConfigService
       .retentions({ taxType: type || "", appliesTo: "compra", onlyActive: true })
-      .map(toLegacyWithholding);
+      .map(toLegacyWithholding)
+      .sort((left, right) => {
+        const leftIndex = priority.indexOf(String(left.sriCode || left.code || ""));
+        const rightIndex = priority.indexOf(String(right.sriCode || right.code || ""));
+        if (leftIndex >= 0 || rightIndex >= 0) {
+          if (leftIndex < 0) return 1;
+          if (rightIndex < 0) return -1;
+          return leftIndex - rightIndex;
+        }
+        return String(left.sriCode || left.code || "").localeCompare(String(right.sriCode || right.code || ""));
+      });
+    return options.issuableOnly
+      ? rows.filter(item => Number(item.percentage || 0) > 0 && String(item.sriCode || item.code || "") !== "332")
+      : rows;
   }
 
   function purchaseMemory() {
@@ -136,6 +220,7 @@
   }
 
   function issuedWithholdings() {
+    if (!companyAllows("purchases.issueWithholdings")) return [];
     return cloneList("issuedWithholdings").map(normalizeIssuedWithholding);
   }
 
@@ -144,7 +229,8 @@
   }
 
   function findProviderByRuc(ruc) {
-    return providers().find(item => item.ruc === ruc);
+    const identity = String(ruc || "").trim().toUpperCase().replace(/[^0-9A-Z]/g, "");
+    return providers().find(item => String(item.ruc || item.taxId || "").trim().toUpperCase().replace(/[^0-9A-Z]/g, "") === identity);
   }
 
   function taxSupportByCode(code) {
@@ -162,6 +248,7 @@
   }
 
   function withholdingByCode(code) {
+    if (!companyAllows("purchases.issueWithholdings")) return null;
     return toLegacyWithholding(taxConfigService.findRetentionByCode(code));
   }
 
@@ -174,6 +261,7 @@
   }
 
   function purchaseTypeUsesInventory(code = "") {
+    if (!companyAllows("inventory.materials")) return false;
     return Boolean(purchaseTypeByCode(code)?.affectsInventory);
   }
 
@@ -254,6 +342,9 @@
   }
 
   function buildDocumentNumber(input) {
+    if (["documento_exterior", "saldo_inicial"].includes(String(input.voucherType || "").trim())) {
+      return String(input.externalDocumentNumber || "").trim().toUpperCase();
+    }
     const estab = String(input.estab || "").padStart(3, "0");
     const ptoEmi = String(input.ptoEmi || "").padStart(3, "0");
     const sequential = pad9(input.sequential || "");
@@ -261,6 +352,11 @@
   }
 
   function duplicateKeyForPurchase(purchase) {
+    if (["documento_exterior", "saldo_inicial"].includes(purchase.voucherType)) {
+      const externalNumber = String(purchase.externalDocumentNumber || purchase.documentNumber || "").trim().toUpperCase();
+      if (!purchase.supplierRuc || !externalNumber) return "";
+      return `${purchase.supplierRuc}|${purchase.voucherType}|${externalNumber}`;
+    }
     const series = `${String(purchase.estab || "").padStart(3, "0")}${String(purchase.ptoEmi || "").padStart(3, "0")}`;
     const authorization = purchase.authorizationNumber || purchase.accessKey || "";
     if (!purchase.supplierRuc || !purchase.voucherType || !series.trim() || !purchase.sequential || !authorization) return "";
@@ -286,6 +382,8 @@
       discount: 0,
       taxableBase: 0,
       vatRate: 15,
+      vatCode: "4",
+      vatCategory: "TARIFA",
       vatValue: 0,
       totalLine: 0,
       accountCode: "",
@@ -307,10 +405,14 @@
       supplierName: "",
       supplierRuc: "",
       supplierAddress: "",
+      supplierCommercialName: "",
+      supplierEmail: "",
+      supplierPhone: "",
       issueDate: today(),
       accountingDate: today(),
       dueDate: "",
       voucherType: "factura",
+      externalDocumentNumber: "",
       estab: settings.mainEstablishment || "001",
       ptoEmi: settings.mainEmissionPoint || "001",
       sequential: nextSequential(settings.mainEstablishment || "001", settings.mainEmissionPoint || "001"),
@@ -318,9 +420,18 @@
       accessKey: "",
       taxSupportCode: "02",
       purchaseType: "GASTO",
+      paymentMethod: "",
+      settlementMode: "CXP",
+      paymentAccountCode: "",
       observation: "",
       status: "BORRADOR",
-      retentionStatus: "Pendiente",
+      retentionStatus: "Pendiente de decision",
+      retentionDecision: "PENDIENTE",
+      retentionDecisionCode: "",
+      retentionDecisionReason: "",
+      retentionDecisionBy: "",
+      retentionDecisionById: "",
+      retentionDecisionAt: "",
       payableId: "",
       journalEntryId: "",
       journalEntryNumber: "",
@@ -338,6 +449,25 @@
     };
   }
 
+  function emptyRetentionLine(taxType = "RENTA", purchase = null) {
+    const normalizedType = String(taxType || "RENTA").trim().toUpperCase() === "IVA" ? "IVA" : "RENTA";
+    const purchaseBase = normalizedType === "IVA"
+      ? Number(purchase?.totals?.iva || 0)
+      : Number(purchase?.totals?.base0 || 0) + Number(purchase?.totals?.baseIva || 0);
+    return {
+      id: uid("RTL"),
+      taxType: normalizedType,
+      code: "",
+      sriCode: "",
+      parameterId: "",
+      description: "",
+      baseAmount: round2(purchaseBase),
+      percentage: 0,
+      retainedAmount: 0,
+      payableAccountCode: ""
+    };
+  }
+
   function emptyRetentionDraft(purchaseId = "") {
     const purchase = purchases().find(item => item.id === purchaseId);
     return {
@@ -345,7 +475,7 @@
       purchaseId,
       supplierName: purchase?.supplierName || "",
       supplierRuc: purchase?.supplierRuc || "",
-      retentionDate: purchase?.accountingDate || today(),
+      retentionDate: today(),
       draftNumber: `RET-BOR-${String(cloneList("issuedWithholdings").length + 1).padStart(6, "0")}`,
       purchaseDocumentNumber: purchase?.documentNumber || "",
       rentCode: "",
@@ -364,11 +494,30 @@
       vatPercentage: 0,
       vatRetainedAmount: 0,
       vatPayableAccountCode: "",
+      retentionLines: [
+        emptyRetentionLine("RENTA", purchase),
+        emptyRetentionLine("IVA", purchase)
+      ],
       totalRetained: 0,
       journalEntryId: "",
       journalEntryNumber: "",
       reverseEntryId: "",
       reverseEntryNumber: "",
+      fullNumber: "",
+      establishmentCode: "",
+      emissionPointCode: "",
+      sequential: "",
+      accessKey: "",
+      authorizationNumber: "",
+      authorizedAt: "",
+      authorizedXml: "",
+      environment: "PRUEBAS",
+      emissionType: "NORMAL",
+      preparedForAuthorizationAt: "",
+      preparedForAuthorizationBy: "",
+      preparedForAuthorizationById: "",
+      authorizedBy: "",
+      authorizedById: "",
       status: "BORRADOR"
     };
   }
@@ -387,6 +536,14 @@
     const computedBase = round2((line.quantity || 0) * (line.unitPrice || 0) - (line.discount || 0));
     line.taxableBase = round2(line.taxableBase || computedBase);
     line.vatRate = round2(line.vatRate || 0);
+    line.vatCode = String(line.vatCode || "").trim();
+    line.vatCategory = ["TARIFA", "NO_OBJETO", "EXENTO"].includes(String(line.vatCategory || "").toUpperCase())
+      ? String(line.vatCategory).toUpperCase()
+      : line.vatCode === "6"
+        ? "NO_OBJETO"
+        : line.vatCode === "7"
+          ? "EXENTO"
+          : "TARIFA";
     line.vatValue = round2(line.vatValue || (line.taxableBase * line.vatRate / 100));
     line.totalLine = round2(line.totalLine || (line.taxableBase + line.vatValue));
     line.description = String(line.description || "").trim();
@@ -405,20 +562,46 @@
       ...emptyPurchase(),
       ...clone(raw || {})
     };
-    const provider = candidate.supplierId ? findProviderById(candidate.supplierId) : findProviderByRuc(candidate.supplierRuc);
+    const provider = (candidate.supplierId ? findProviderById(candidate.supplierId) : null) || findProviderByRuc(candidate.supplierRuc);
     if (provider) {
       candidate.supplierId = provider.id;
       if (!candidate.supplierName) candidate.supplierName = provider.name;
-      if (!candidate.supplierRuc) candidate.supplierRuc = provider.ruc;
+      if (!candidate.supplierRuc) candidate.supplierRuc = provider.ruc || provider.taxId;
       if (!candidate.supplierAddress) candidate.supplierAddress = provider.address || "";
+      if (!candidate.supplierCommercialName) candidate.supplierCommercialName = provider.commercialName || "";
+      if (!candidate.supplierEmail) candidate.supplierEmail = provider.email || "";
+      if (!candidate.supplierPhone) candidate.supplierPhone = provider.phone || "";
     }
+    candidate.supplierCommercialName = String(candidate.supplierCommercialName || "").trim();
+    candidate.supplierEmail = String(candidate.supplierEmail || "").trim();
+    candidate.supplierPhone = String(candidate.supplierPhone || "").trim();
+    candidate.externalDocumentNumber = String(candidate.externalDocumentNumber || "").trim().toUpperCase();
     candidate.issueDate = candidate.issueDate || today();
     candidate.accountingDate = candidate.accountingDate || candidate.issueDate;
     candidate.estab = String(candidate.estab || "001").padStart(3, "0");
     candidate.ptoEmi = String(candidate.ptoEmi || "001").padStart(3, "0");
-    candidate.sequential = pad9(candidate.sequential || nextSequential(candidate.estab, candidate.ptoEmi));
+    candidate.sequential = ["documento_exterior", "saldo_inicial"].includes(candidate.voucherType)
+      ? String(candidate.sequential || "").trim()
+      : pad9(candidate.sequential || nextSequential(candidate.estab, candidate.ptoEmi));
     candidate.taxSupportCode = String(candidate.taxSupportCode || "").trim();
     candidate.purchaseType = canonicalPurchaseTypeCode(candidate.purchaseType);
+    candidate.paymentMethod = String(candidate.paymentMethod || "").trim();
+    candidate.settlementMode = String(candidate.settlementMode || "CXP").trim().toUpperCase() === "CONTADO" ? "CONTADO" : "CXP";
+    candidate.paymentAccountCode = String(candidate.paymentAccountCode || "").trim();
+    const inferredRetentionDecision = ["PENDIENTE_RETENCION", "RETENIDO"].includes(candidate.status)
+      ? "APLICAR"
+      : String(candidate.retentionStatus || "").toUpperCase().includes("NO SUJETA")
+        || String(candidate.retentionStatus || "").toUpperCase().includes("NO REQUERIDA")
+        ? "NO_SUJETO_332"
+        : "PENDIENTE";
+    candidate.retentionDecision = retentionDecisions.includes(String(candidate.retentionDecision || "").trim().toUpperCase())
+      ? String(candidate.retentionDecision || "").trim().toUpperCase()
+      : inferredRetentionDecision;
+    candidate.retentionDecisionCode = candidate.retentionDecision === "NO_SUJETO_332" ? "332" : "";
+    candidate.retentionDecisionReason = String(candidate.retentionDecisionReason || "").trim();
+    candidate.retentionDecisionBy = String(candidate.retentionDecisionBy || "").trim();
+    candidate.retentionDecisionById = String(candidate.retentionDecisionById || "").trim();
+    candidate.retentionDecisionAt = String(candidate.retentionDecisionAt || "").trim();
     candidate.documentNumber = buildDocumentNumber(candidate);
     candidate.lines = (candidate.lines || []).map(line => applyInventoryDefaults(normalizeLine(line), candidate.purchaseType));
     candidate.totals = calculateTotals(candidate.lines, candidate.totals?.withholdingsTotal || 0);
@@ -551,10 +734,38 @@
     if (!candidate.issueDate) errors.push("La fecha de emision es obligatoria.");
     if (!candidate.accountingDate) errors.push("La fecha de contabilizacion es obligatoria.");
     if (!candidate.voucherType) errors.push("El tipo de comprobante es obligatorio.");
-    if (!candidate.estab || !candidate.ptoEmi || !candidate.sequential) errors.push("Serie, punto de emision y secuencial son obligatorios.");
-    if (!candidate.taxSupportCode) errors.push("Debe seleccionar un sustento tributario.");
+    if (["documento_exterior", "saldo_inicial"].includes(candidate.voucherType)) {
+      if (!candidate.externalDocumentNumber) {
+        errors.push(candidate.voucherType === "saldo_inicial"
+          ? "El numero del documento del saldo inicial es obligatorio."
+          : "El numero del documento del exterior es obligatorio.");
+      }
+    } else if (!candidate.estab || !candidate.ptoEmi || !candidate.sequential) {
+      errors.push("Serie, punto de emision y secuencial son obligatorios.");
+    }
+    if (candidate.voucherType !== "saldo_inicial" && !candidate.taxSupportCode) errors.push("Debe seleccionar un sustento tributario.");
     if (!candidate.purchaseType) errors.push("Debe seleccionar un tipo de compra.");
     if (!candidate.lines.length) errors.push("Debe existir al menos una linea de compra.");
+    if (forPost && candidate.voucherType !== "saldo_inicial" && companyAllows("purchases.issueWithholdings")) {
+      if (candidate.retentionDecision === "PENDIENTE") {
+        errors.push("Debe decidir si la compra aplica retencion o corresponde al codigo 332 no sujeto a retencion.");
+      }
+      if (candidate.retentionDecision === "NO_SUJETO_332" && !candidate.retentionDecisionReason) {
+        errors.push("Debe registrar el motivo para usar el codigo 332 no sujeto a retencion.");
+      }
+      if (candidate.retentionDecision === "NO_SUJETO_332") {
+        const noSubjectValidation = taxConfigService.validateRetentionActiveOnDate("332", candidate.accountingDate || candidate.issueDate, {
+          taxType: "RENTA",
+          appliesTo: "compra",
+          skipLinkedAccounts: true
+        });
+        if (!noSubjectValidation.ok) {
+          noSubjectValidation.errors.forEach(message => errors.push(`Codigo SRI 332: ${message}`));
+        } else if (Number(noSubjectValidation.retention?.percentage || 0) !== 0) {
+          errors.push("El codigo SRI 332 debe tener porcentaje 0.");
+        }
+      }
+    }
 
     candidate.lines.forEach((line, index) => {
       const row = index + 1;
@@ -576,8 +787,31 @@
 
     if (forPost) {
       const defaults = companyService.settings().defaultAccounts || {};
-      if (!defaults.accountsPayableSuppliers) errors.push("No existe cuenta por pagar a proveedores predeterminada.");
-      if (Number(candidate.totals.iva || 0) > 0 && !defaults.vatPurchases) errors.push("No existe cuenta IVA compras predeterminada.");
+      if (candidate.settlementMode !== "CONTADO") {
+        const payableAccount = chartService.findByCode(defaults.accountsPayableSuppliers);
+        if (!defaults.accountsPayableSuppliers) errors.push("No existe cuenta por pagar a proveedores predeterminada.");
+        else if (!payableAccount || payableAccount.status !== "Activa" || !payableAccount.isMovement) {
+          errors.push(`La cuenta por pagar a proveedores ${defaults.accountsPayableSuppliers} debe ser de movimiento activa.`);
+        }
+      }
+      if (candidate.settlementMode === "CONTADO") {
+        if (!candidate.paymentAccountCode) errors.push("Seleccione la cuenta de banco o caja usada para pagar la compra.");
+        const paymentAccount = candidate.paymentAccountCode ? chartService.findByCode(candidate.paymentAccountCode) : null;
+        if (candidate.paymentAccountCode && (!paymentAccount || paymentAccount.status !== "Activa" || !paymentAccount.isMovement)) {
+          errors.push("La cuenta seleccionada para banco o caja no es una cuenta de movimiento activa.");
+        }
+      }
+      vatGroups(candidate.lines, defaults).forEach(group => {
+        if (!group.accountCode) {
+          errors.push(`No existe cuenta IVA compras para la tarifa ${group.rate}%.`);
+          return;
+        }
+        const account = chartService.findByCode(group.accountCode);
+        if (!account) errors.push(`La cuenta IVA compras ${group.accountCode} para la tarifa ${group.rate}% no existe.`);
+        else if (account.status !== "Activa" || !account.isMovement) {
+          errors.push(`La cuenta IVA compras ${group.accountCode} para la tarifa ${group.rate}% debe ser de movimiento activa.`);
+        }
+      });
       candidate.lines.forEach((line, index) => {
         if (!line.accountCode) return;
         const account = chartService.findByCode(line.accountCode);
@@ -595,6 +829,19 @@
   function savePurchase(purchase) {
     const { purchase: candidate, errors } = validatePurchase(purchase);
     if (errors.length) return { ok: false, errors };
+
+    if (!requiresSupplierV2()) {
+      const providerResult = BlessERP.services?.portfolios?.upsertProviderFromPurchase?.(candidate, {
+        source: candidate.source === "XML" ? "XML" : "MANUAL",
+        importedAt: candidate.source === "XML" ? new Date().toISOString() : ""
+      });
+      if (providerResult?.ok) {
+        candidate.supplierId = providerResult.provider.id;
+        candidate.supplierName = providerResult.provider.name || candidate.supplierName;
+        candidate.supplierRuc = providerResult.provider.taxId || providerResult.provider.ruc || candidate.supplierRuc;
+        candidate.supplierAddress = providerResult.provider.address || candidate.supplierAddress;
+      }
+    }
 
     const rows = purchases();
     const index = rows.findIndex(item => item.id === candidate.id);
@@ -661,10 +908,11 @@
   function buildPurchaseJournalEntry(purchase) {
     const defaults = companyService.settings().defaultAccounts || {};
     const accountsPayable = chartService.findByCode(defaults.accountsPayableSuppliers);
-    const vatPurchases = chartService.findByCode(defaults.vatPurchases);
     const entry = journalService.emptyEntry();
     entry.accountingDate = purchase.accountingDate;
-    entry.accountingPeriod = companyService.settings().activePeriod || entry.accountingPeriod;
+    entry.accountingPeriod = journalService.accountingPeriodForDate?.(entry.accountingDate, entry.accountingPeriod)
+      || String(entry.accountingDate || "").slice(0, 7)
+      || entry.accountingPeriod;
     entry.concept = `Compra ${purchase.supplierName} | ${purchase.lines[0]?.description || purchase.documentNumber}`;
     entry.originModule = "Compras";
     entry.sourceDocument = purchase.documentNumber;
@@ -681,28 +929,33 @@
       lineDescription: line.description || "",
       documentReference: purchase.documentNumber
     }));
-    if (Number(purchase.totals.iva || 0) > 0 && vatPurchases) {
+    vatGroups(purchase.lines, defaults).forEach(group => {
+      const vatPurchases = chartService.findByCode(group.accountCode);
+      if (!vatPurchases) return;
       entry.lines.push({
         id: uid("JLN"),
         accountCode: vatPurchases.code,
         accountName: vatPurchases.name,
-        debit: round2(purchase.totals.iva),
+        debit: round2(group.amount),
         credit: 0,
         costCenter: "",
         auxiliary: "",
-        lineDescription: "IVA compras",
+        lineDescription: `IVA compras ${group.rate}%`,
         documentReference: purchase.documentNumber
       });
-    }
+    });
+    const paymentAccount = purchase.settlementMode === "CONTADO"
+      ? chartService.findByCode(purchase.paymentAccountCode)
+      : accountsPayable;
     entry.lines.push({
       id: uid("JLN"),
-      accountCode: accountsPayable.code,
-      accountName: accountsPayable.name,
+      accountCode: paymentAccount.code,
+      accountName: paymentAccount.name,
       debit: 0,
       credit: round2(purchase.totals.total),
       costCenter: "",
-      auxiliary: purchase.supplierRuc,
-      lineDescription: `Proveedor ${purchase.supplierName}`,
+      auxiliary: purchase.settlementMode === "CONTADO" ? "" : purchase.supplierRuc,
+      lineDescription: purchase.settlementMode === "CONTADO" ? `Pago inmediato ${purchase.supplierName}` : `Proveedor ${purchase.supplierName}`,
       documentReference: purchase.documentNumber
     });
     return entry;
@@ -753,12 +1006,21 @@
     candidate.postedBy = currentUser().name;
     candidate.postedById = currentUser().id;
     candidate.postedAt = new Date().toISOString();
-    const typeConfig = purchaseTypeByCode(candidate.purchaseType);
-    candidate.status = typeConfig?.requiresRetentionRent || typeConfig?.requiresRetentionVat
+    const requiresRetention = companyAllows("purchases.issueWithholdings")
+      && candidate.retentionDecision === "APLICAR";
+    candidate.status = requiresRetention
       ? "PENDIENTE_RETENCION"
       : "CONTABILIZADO";
-    candidate.retentionStatus = candidate.status === "PENDIENTE_RETENCION" ? "Pendiente" : "No requerida";
-    candidate.payableId = createOrUpdatePayable(candidate).id;
+    candidate.retentionStatus = candidate.status === "PENDIENTE_RETENCION"
+      ? "Pendiente de emitir"
+      : candidate.retentionDecision === "NO_SUJETO_332"
+        ? "No sujeta (332)"
+        : "No emite retencion";
+    candidate.retentionDecisionCode = candidate.retentionDecision === "NO_SUJETO_332" ? "332" : "";
+    candidate.retentionDecisionBy = currentUser().name;
+    candidate.retentionDecisionById = currentUser().id;
+    candidate.retentionDecisionAt = new Date().toISOString();
+    candidate.payableId = candidate.settlementMode === "CXP" ? createOrUpdatePayable(candidate).id : "";
     rows[index] = candidate;
     saveList("purchases", rows);
     updatePurchaseMemory(candidate);
@@ -779,6 +1041,71 @@
     return { ok: true, purchase: clone(candidate), entry: clone(postedEntry.entry) };
   }
 
+  async function postPurchaseV2(purchaseOrId, options = {}) {
+    const suppliedDraft = purchaseOrId && typeof purchaseOrId === "object" ? normalizePurchase(clone(purchaseOrId)) : null;
+    const purchaseId = suppliedDraft?.id || purchaseOrId;
+    if (!requiresSupplierV2()) return suppliedDraft
+      ? { ok:false,errors:["La revisión XML en memoria requiere Compras V2 confirmada por Supabase."] }
+      : postPurchase(purchaseId);
+    const current = suppliedDraft || purchases().find(item => item.id === purchaseId || item.purchaseDocumentId === purchaseId);
+    if (!current) return { ok:false,errors:["Compra no encontrada."] };
+    // Notas de crédito/débito todavía no capturan de forma obligatoria el
+    // documento y la CxP afectados. Se conserva su flujo legacy para no
+    // convertirlas erróneamente en una nueva obligación positiva.
+    if (["nota_credito", "nota_debito"].includes(String(current.voucherType || "").toLowerCase())) {
+      return postPurchase(purchaseId);
+    }
+    if (current.syncFlow === "SUPPLIER_FINANCE_V2" || current.status === "POSTED") {
+      return { ok:true,purchase:clone(current),reused:true };
+    }
+    const { purchase:candidate,errors } = validatePurchase(current,{ forPost:true });
+    if (errors.length) return { ok:false,errors };
+    const result = await supplierV2()?.postPurchase?.(candidate,options);
+    return result || { ok:false,errors:["Servicio de compras V2 no disponible."] };
+  }
+
+  function deleteOrAnnulPurchase(purchaseId, reason = "Correccion solicitada por el usuario") {
+    const rows = purchases();
+    const index = rows.findIndex(item => item.id === purchaseId);
+    if (index < 0) return { ok: false, message: "Compra no encontrada." };
+    const target = normalizePurchase(rows[index]);
+    const activeRetention = issuedWithholdings().find(item => item.purchaseId === target.id && item.status !== "ANULADA");
+    if (activeRetention) return { ok: false, message: "Anule primero la retencion relacionada con esta compra." };
+    if (!isPostedStatus(target.status)) {
+      rows.splice(index, 1);
+      saveList("purchases", rows);
+      saveList("purchasePayables", purchasePayables().filter(item => item.purchaseId !== target.id));
+      adminService?.addAuditLog?.({ module: "COMPRAS", action: "ELIMINAR_BORRADOR_COMPRA", entityType: "purchase", entityId: target.id, entityLabel: target.documentNumber, description: reason, before: target, result: "exitoso" });
+      return { ok: true, deleted: true, purchase: clone(target) };
+    }
+    if (target.status === "ANULADO") return { ok: false, message: "La compra ya esta anulada." };
+    const reversed = journalService.reverseEntry(target.journalEntryId);
+    if (!reversed.ok) return { ok: false, message: reversed.message || "No se pudo reversar el asiento de la compra." };
+    const previousStatus = target.status;
+    const before = clone(target);
+    target.status = "ANULADO";
+    target.reverseEntryId = reversed.entry.id;
+    target.reverseEntryNumber = reversed.entry.entryNumber;
+    target.annulledAt = new Date().toISOString();
+    target.annulledBy = currentUser().name;
+    target.annulmentReason = reason;
+    rows[index] = target;
+    saveList("purchases", rows);
+    saveList("purchasePayables", purchasePayables().map(item => item.purchaseId === target.id ? { ...item, balance: 0, status: "anulado" } : item));
+    adminService?.addAuditLog?.({ module: "COMPRAS", action: "ANULAR_COMPRA", entityType: "purchase", entityId: target.id, entityLabel: target.documentNumber, previousStatus, nextStatus: "ANULADO", description: reason, before, after: target, result: "exitoso" });
+    return { ok: true, deleted: false, purchase: clone(target), reversal: clone(reversed.entry) };
+  }
+
+  async function deleteOrAnnulPurchaseV2(purchaseId, reason = "Correccion solicitada por el usuario", options = {}) {
+    const current = purchases().find(item => String(item.id || item.purchaseDocumentId) === String(purchaseId));
+    if (!current) return { ok: false, errors: ["Compra no encontrada."] };
+    if (!requiresSupplierV2() || current.syncFlow !== "SUPPLIER_FINANCE_V2") {
+      return deleteOrAnnulPurchase(purchaseId, reason);
+    }
+    const result = await supplierV2()?.reversePurchase?.(current.purchaseDocumentId || current.id, reason, options);
+    return result || { ok: false, errors: ["Servicio de reversión de compras V2 no disponible."] };
+  }
+
   function parseVoucherType(codDoc) {
     const map = {
       "01": "factura",
@@ -795,6 +1122,15 @@
       if (node?.textContent?.trim()) return node.textContent.trim();
     }
     return "";
+  }
+
+  function pickAdditionalText(doc, labels = []) {
+    const normalizedLabels = labels.map(label => normalizeText(label));
+    const field = Array.from(doc.querySelectorAll("campoAdicional")).find(node => {
+      const label = normalizeText(node.getAttribute("nombre") || "");
+      return normalizedLabels.some(item => label === item || label.includes(item));
+    });
+    return String(field?.textContent || "").trim();
   }
 
   function parseXmlString(xmlText, fileName = "") {
@@ -821,16 +1157,22 @@
       const codDoc = pickText(doc, ["codDoc"]);
       const supplierRuc = pickText(doc, ["infoTributaria > ruc", "ruc"]);
       const supplierName = pickText(doc, ["infoTributaria > razonSocial", "razonSocial"]);
+      const supplierCommercialName = pickText(doc, ["infoTributaria > nombreComercial", "nombreComercial"]);
+      const supplierAddress = pickText(doc, ["infoTributaria > dirMatriz", "dirMatriz"]);
+      const supplierEmail = pickAdditionalText(doc, ["email", "correo", "correo electronico"]);
+      const supplierPhone = pickAdditionalText(doc, ["telefono", "celular", "telefono proveedor"]);
       const issueDate = pickText(doc, ["fechaEmision", "infoFactura > fechaEmision"]);
       const estab = pickText(doc, ["estab"]);
       const ptoEmi = pickText(doc, ["ptoEmi"]);
       const sequential = pickText(doc, ["secuencial"]);
-      const details = Array.from(doc.querySelectorAll("detalle")).map(node => {
+      const details = Array.from(doc.querySelectorAll("detalles > detalle")).map(node => {
         const quantity = round2(pickText(node, ["cantidad"]) || 1);
         const unitPrice = round2(pickText(node, ["precioUnitario"]) || 0);
         const discount = round2(pickText(node, ["descuento"]) || 0);
         const taxableBase = round2(pickText(node, ["precioTotalSinImpuesto"]) || (quantity * unitPrice - discount));
-        const vatNode = node.querySelector("impuesto");
+        const taxNodes = Array.from(node.querySelectorAll("impuestos > impuesto"));
+        const vatNode = taxNodes.find(tax => pickText(tax, ["codigo"]) === "2") || taxNodes[0] || null;
+        const vatCode = pickText(vatNode || node, ["codigoPorcentaje"]);
         const vatRate = round2(pickText(vatNode || node, ["tarifa"]) || 0);
         const vatValue = round2(pickText(vatNode || node, ["valor"]) || 0);
         return {
@@ -842,6 +1184,8 @@
           discount,
           taxableBase,
           vatRate,
+          vatCode,
+          vatCategory: vatCode === "6" ? "NO_OBJETO" : vatCode === "7" ? "EXENTO" : "TARIFA",
           vatValue,
           totalLine: round2(taxableBase + vatValue),
           accountCode: "",
@@ -860,7 +1204,10 @@
         supplierId: findProviderByRuc(supplierRuc)?.id || "",
         supplierName,
         supplierRuc,
-        supplierAddress: findProviderByRuc(supplierRuc)?.address || "",
+        supplierAddress: findProviderByRuc(supplierRuc)?.address || supplierAddress,
+        supplierCommercialName,
+        supplierEmail,
+        supplierPhone,
         issueDate: issueDate ? issueDate.split("/").reverse().join("-") : today(),
         accountingDate: issueDate ? issueDate.split("/").reverse().join("-") : today(),
         dueDate: "",
@@ -872,9 +1219,12 @@
         accessKey,
         taxSupportCode: "",
         purchaseType: "",
+        paymentMethod: pickText(doc, ["pagos > pago > formaPago", "formaPago"]),
         observation: `Importado desde ${fileName || "XML"}`,
         status: "XML_LEIDO",
-        retentionStatus: "Pendiente",
+        retentionStatus: "Pendiente de decision",
+        retentionDecision: "PENDIENTE",
+        retentionDecisionReason: "",
         payableId: "",
         journalEntryId: "",
         journalEntryNumber: "",
@@ -901,6 +1251,106 @@
     return parseXmlString(xmlText, file.name);
   }
 
+  function registerProvidersFromXmlBatch(batch = []) {
+    const results = [];
+    batch.forEach(item => {
+      if (!item?.ok || !item.purchase?.supplierRuc || !item.purchase?.supplierName) return;
+      const providerResult = BlessERP.services?.portfolios?.upsertProviderFromPurchase?.(item.purchase, {
+        source: "XML",
+        importedAt: new Date().toISOString()
+      });
+      if (!providerResult?.ok) return;
+      item.purchase.supplierId = providerResult.provider.id;
+      item.purchase.supplierRuc = providerResult.provider.taxId || providerResult.provider.ruc || item.purchase.supplierRuc;
+      results.push({
+        providerId: providerResult.provider.id,
+        created: Boolean(providerResult.created),
+        taxId: providerResult.provider.taxId
+      });
+    });
+    return {
+      processed: results.length,
+      created: results.filter(item => item.created).length,
+      updated: results.filter(item => !item.created).length,
+      results
+    };
+  }
+
+  async function registerProvidersFromXmlBatchV2(batch = []) {
+    if (!requiresSupplierV2()) return registerProvidersFromXmlBatch(batch);
+    const results=[];
+    for (const item of batch) {
+      if (!item?.ok || !item.purchase?.supplierRuc || !item.purchase?.supplierName) continue;
+      const existed = Boolean(supplierV2()?.findProvider?.({ taxId:item.purchase.supplierRuc }));
+      const result=await supplierV2()?.upsertProvider?.({ ...item.purchase,taxId:item.purchase.supplierRuc,name:item.purchase.supplierName },{ source:"XML" });
+      if (!result?.ok) { results.push({ ok:false,error:result?.message || result?.errors?.join(" ") }); continue; }
+      item.purchase.supplierId=result.provider.id || result.provider.providerId;
+      results.push({ ok:true,providerId:item.purchase.supplierId,created:!existed,taxId:result.provider.taxId });
+    }
+    return { processed:results.filter(item=>item.ok).length,created:results.filter(item=>item.ok&&item.created).length,
+      updated:results.filter(item=>item.ok&&!item.created).length,errors:results.filter(item=>!item.ok),results };
+  }
+
+  function detectXmlBatchDuplicates(batch = []) {
+    const seen = new Map();
+    let duplicates = 0;
+    batch.forEach(item => {
+      if (!item?.ok || !item.purchase) return;
+      const key = duplicateKeyForPurchase(item.purchase);
+      if (!key) return;
+      if (seen.has(key)) {
+        item.importStatus = "DUPLICADO";
+        item.purchase.importStatus = "DUPLICADO";
+        item.duplicateWithinBatch = true;
+        item.duplicateOfFileName = seen.get(key);
+        duplicates += 1;
+        return;
+      }
+      seen.set(key, item.fileName || key);
+    });
+    return { duplicates };
+  }
+
+  async function resolveProvidersFromXmlBatchV2(batch = []) {
+    const duplicateResult = detectXmlBatchDuplicates(batch);
+    const candidates = batch.filter(item => item?.ok && item.purchase?.supplierRuc);
+    const taxIds = [...new Set(candidates.map(item => String(item.purchase.supplierRuc || "")
+      .trim().toUpperCase().replace(/[^0-9A-Z]/g, "")).filter(Boolean))];
+    let rows = [];
+    if (requiresSupplierV2()) {
+      const result = await supplierV2()?.resolveProvidersByTaxIds?.(taxIds);
+      if (!result?.ok) {
+        return { ok: false, processed: 0, existing: 0, pendingCreation: taxIds.length,
+          duplicates: duplicateResult.duplicates, errors: result?.errors || [result?.message || "No se pudieron consultar los proveedores."] };
+      }
+      rows = result.rows || [];
+    } else {
+      rows = taxIds.map(taxId => findProviderByRuc(taxId)).filter(Boolean).map(provider => ({
+        id: provider.id,
+        providerId: provider.id,
+        taxId: provider.taxId || provider.ruc,
+        legalName: provider.name || provider.legalName,
+        commercialName: provider.commercialName || "",
+        status: provider.status || ""
+      }));
+    }
+    const byTax = new Map(rows.map(provider => [String(provider.taxId || "").replace(/[^0-9A-Z]/gi, "").toUpperCase(), provider]));
+    candidates.forEach(item => {
+      const taxId = String(item.purchase.supplierRuc || "").replace(/[^0-9A-Z]/gi, "").toUpperCase();
+      const provider = byTax.get(taxId) || null;
+      item.providerResolution = provider
+        ? { status: "REGISTERED", providerId: provider.id || provider.providerId, taxId,
+          legalName: provider.legalName || provider.name || item.purchase.supplierName,
+          providerCode: provider.providerCode || "", version: Number(provider.version || 0), updatedAt: provider.updatedAt || "" }
+        : { status: "PENDING_CREATION", providerId: "", taxId,
+          legalName: item.purchase.supplierName || "", providerCode: "", version: 0, updatedAt: "" };
+      item.purchase.supplierId = provider?.id || provider?.providerId || "";
+    });
+    return { ok: true, processed: candidates.length, existing: candidates.filter(item => item.providerResolution?.status === "REGISTERED").length,
+      pendingCreation: candidates.filter(item => item.providerResolution?.status === "PENDING_CREATION").length,
+      duplicates: duplicateResult.duplicates, errors: [], rows };
+  }
+
   function importXmlBatch(batch = []) {
     const rows = purchases();
     const results = [];
@@ -914,9 +1364,24 @@
         results.push({ fileName: item.fileName, imported: false, reason: "duplicado" });
         return;
       }
+      const providerResult = BlessERP.services?.portfolios?.upsertProviderFromPurchase?.(candidate, {
+        source: "XML",
+        importedAt: new Date().toISOString()
+      });
+      if (providerResult?.ok) {
+        candidate.supplierId = providerResult.provider.id;
+        candidate.supplierName = providerResult.provider.name || candidate.supplierName;
+        candidate.supplierAddress = providerResult.provider.address || candidate.supplierAddress;
+      }
       candidate.importStatus = "IMPORTADO";
       rows.unshift(candidate);
-      results.push({ fileName: item.fileName, imported: true, purchaseId: candidate.id });
+      results.push({
+        fileName: item.fileName,
+        imported: true,
+        purchaseId: candidate.id,
+        providerId: providerResult?.provider?.id || candidate.supplierId || "",
+        providerCreated: Boolean(providerResult?.created)
+      });
     });
     saveList("purchases", rows);
     adminService?.addAuditLog?.({
@@ -935,12 +1400,248 @@
     return {
       ok: true,
       results,
-      imported: results.filter(item => item.imported).length
+      imported: results.filter(item => item.imported).length,
+      providersCreated: results.filter(item => item.providerCreated).length
     };
   }
 
+  function periodKey(value = "") {
+    const match = /^(\d{4})-(\d{2})/.exec(String(value || ""));
+    return match ? `${match[1]}-${match[2]}` : "";
+  }
+
+  function daysBetweenDates(fromValue = "", toValue = "") {
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(fromValue || "")) ? new Date(`${fromValue}T00:00:00Z`) : null;
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(String(toValue || "")) ? new Date(`${toValue}T00:00:00Z`) : null;
+    if (!from || !to || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
+    return Math.round((to.getTime() - from.getTime()) / 86400000);
+  }
+
+  function purchaseTaxBreakdown(purchase = {}) {
+    const breakdown = {
+      base15: 0,
+      iva15: 0,
+      base8: 0,
+      iva8: 0,
+      base5: 0,
+      iva5: 0,
+      base0: 0,
+      baseNoObjeto: 0,
+      baseExenta: 0,
+      baseOther: 0,
+      ivaOther: 0,
+      ivaTotal: 0
+    };
+    (purchase.lines || []).map(normalizeLine).forEach(line => {
+      const base = Number(line.taxableBase || 0);
+      const iva = Number(line.vatValue || 0);
+      if (line.vatCategory === "NO_OBJETO" || line.vatCode === "6") {
+        breakdown.baseNoObjeto += base;
+      } else if (line.vatCategory === "EXENTO" || line.vatCode === "7") {
+        breakdown.baseExenta += base;
+      } else if (Math.abs(Number(line.vatRate || 0) - 15) < 0.001) {
+        breakdown.base15 += base;
+        breakdown.iva15 += iva;
+      } else if (Math.abs(Number(line.vatRate || 0) - 8) < 0.001) {
+        breakdown.base8 += base;
+        breakdown.iva8 += iva;
+      } else if (Math.abs(Number(line.vatRate || 0) - 5) < 0.001) {
+        breakdown.base5 += base;
+        breakdown.iva5 += iva;
+      } else if (Math.abs(Number(line.vatRate || 0)) < 0.001) {
+        breakdown.base0 += base;
+      } else {
+        breakdown.baseOther += base;
+        breakdown.ivaOther += iva;
+      }
+      breakdown.ivaTotal += iva;
+    });
+    Object.keys(breakdown).forEach(key => {
+      breakdown[key] = round2(breakdown[key]);
+    });
+    return breakdown;
+  }
+
+  function purchaseRetentionReport(period = "", scope = "BOTH", search = "") {
+    const normalizedScope = ["BOTH", "PURCHASE", "RETENTION", "CROSS"].includes(String(scope || "").toUpperCase())
+      ? String(scope || "").toUpperCase()
+      : "BOTH";
+    const query = normalizeText(search);
+    const retentionRows = issuedWithholdings().filter(item => item.status !== "ANULADA");
+    const matchedRetentionIds = new Set();
+    const rows = [];
+    purchases().forEach(purchase => {
+      const related = retentionRows.filter(retention =>
+        retention.purchaseId === purchase.id
+        || (!retention.purchaseId && retention.purchaseDocumentNumber === purchase.documentNumber)
+      );
+      const detailRows = related.length ? related : [null];
+      detailRows.forEach(retention => {
+        if (retention) matchedRetentionIds.add(retention.id);
+        const purchasePeriod = periodKey(purchase.accountingDate || purchase.issueDate);
+        const retentionPeriod = periodKey(retention?.retentionDate);
+        const crossPeriod = Boolean(retentionPeriod && purchasePeriod && retentionPeriod !== purchasePeriod);
+        const retentionDaysAfterPurchase = retention
+          ? daysBetweenDates(purchase.issueDate || purchase.accountingDate, retention.retentionDate)
+          : null;
+        const retentionOutOfTerm = retentionDaysAfterPurchase !== null && retentionDaysAfterPurchase > 5;
+        const taxBreakdown = purchaseTaxBreakdown(purchase);
+        const matchesPeriod = !period
+          || (normalizedScope === "PURCHASE" && purchasePeriod === period)
+          || (normalizedScope === "RETENTION" && retentionPeriod === period)
+          || (normalizedScope === "CROSS" && crossPeriod && (purchasePeriod === period || retentionPeriod === period))
+          || (normalizedScope === "BOTH" && (purchasePeriod === period || retentionPeriod === period));
+        const haystack = normalizeText([
+          purchase.supplierName,
+          purchase.supplierRuc,
+          purchase.documentNumber,
+          retention?.fullNumber,
+          retention?.draftNumber
+        ].join(" "));
+        if (!matchesPeriod || (query && !haystack.includes(query))) return;
+        rows.push({
+          id: `${purchase.id}:${retention?.id || "SIN_RETENCION"}`,
+          purchaseId: purchase.id,
+          purchaseDate: purchase.issueDate || "",
+          accountingDate: purchase.accountingDate || purchase.issueDate || "",
+          purchasePeriod,
+          supplierName: purchase.supplierName || "",
+          supplierRuc: purchase.supplierRuc || "",
+          purchaseDocumentNumber: purchase.documentNumber || "",
+          purchaseAuthorization: purchase.authorizationNumber || purchase.accessKey || "",
+          taxSupportCode: purchase.taxSupportCode || "",
+          purchaseTotal: round2(purchase.totals?.total || 0),
+          ...taxBreakdown,
+          purchaseStatus: purchase.status || "",
+          retentionDecision: purchase.retentionDecision || "",
+          retentionId: retention?.id || "",
+          retentionDate: retention?.retentionDate || "",
+          retentionPeriod,
+          retentionNumber: retention?.fullNumber || retention?.draftNumber || "",
+          retentionStatus: retention?.status || "SIN_RETENCION",
+          rentRetained: round2(retention?.rentRetainedAmount || 0),
+          vatRetained: round2(retention?.vatRetainedAmount || 0),
+          totalRetained: round2(retention?.totalRetained || 0),
+          crossPeriod,
+          retentionDaysAfterPurchase,
+          retentionOutOfTerm,
+          atsTreatment: !retention
+            ? "Compra sin comprobante de retencion relacionado"
+            : retentionOutOfTerm
+              ? `Revisar: retencion emitida ${retentionDaysAfterPurchase} dias despues de la factura; supera el plazo de 5 dias`
+            : crossPeriod
+              ? retentionPeriod === period
+                ? `Retencion del periodo ${retentionPeriod}; compra ${purchasePeriod} solo como referencia`
+                : `Compra del periodo ${purchasePeriod}; retencion registrada en ${retentionPeriod}`
+              : `Compra y retencion en ${purchasePeriod || retentionPeriod || "periodo no definido"}`
+        });
+      });
+    });
+    retentionRows.filter(item => !matchedRetentionIds.has(item.id)).forEach(retention => {
+      const retentionPeriod = periodKey(retention.retentionDate);
+      if (period && !["BOTH", "RETENTION"].includes(normalizedScope) && normalizedScope !== "CROSS") return;
+      if (period && retentionPeriod !== period) return;
+      rows.push({
+        id: `SIN_COMPRA:${retention.id}`,
+        purchaseId: "",
+        purchaseDate: "",
+        accountingDate: "",
+        purchasePeriod: "",
+        supplierName: retention.supplierName || "",
+        supplierRuc: retention.supplierRuc || "",
+        purchaseDocumentNumber: retention.purchaseDocumentNumber || "",
+        purchaseAuthorization: "",
+        taxSupportCode: "",
+        purchaseTotal: 0,
+        ...purchaseTaxBreakdown(),
+        purchaseStatus: "NO_ENCONTRADA",
+        retentionDecision: "",
+        retentionId: retention.id,
+        retentionDate: retention.retentionDate || "",
+        retentionPeriod,
+        retentionNumber: retention.fullNumber || retention.draftNumber || "",
+        retentionStatus: retention.status || "",
+        rentRetained: round2(retention.rentRetainedAmount || 0),
+        vatRetained: round2(retention.vatRetainedAmount || 0),
+        totalRetained: round2(retention.totalRetained || 0),
+        crossPeriod: false,
+        retentionDaysAfterPurchase: null,
+        retentionOutOfTerm: false,
+          atsTreatment: "Revisar: retencion sin compra relacionada en JAEDER SYSTEMS"
+      });
+    });
+    return rows.sort((a, b) => String(b.retentionDate || b.accountingDate).localeCompare(String(a.retentionDate || a.accountingDate)));
+  }
+
+  function accountedPurchaseReportRows(purchaseIds = []) {
+    const allowedIds = new Set((purchaseIds || []).filter(Boolean));
+    const accountedStatuses = new Set(["CONTABILIZADO", "PENDIENTE_RETENCION", "RETENIDO"]);
+    const activeRetentions = issuedWithholdings()
+      .map(normalizeIssuedWithholding)
+      .filter(issuedWithholdingAffectsPayable);
+    return purchases()
+      .filter(purchase => (!allowedIds.size || allowedIds.has(purchase.id))
+        && accountedStatuses.has(String(purchase.status || "").toUpperCase()))
+      .map(purchase => {
+        const tax = purchaseTaxBreakdown(purchase);
+        const relatedRetentions = activeRetentions.filter(retention =>
+          retention.purchaseId === purchase.id
+          || (!retention.purchaseId && retention.purchaseDocumentNumber === purchase.documentNumber)
+        );
+        const retentionVat = round2(relatedRetentions.reduce((sum, item) => sum + Number(item.vatRetainedAmount || 0), 0));
+        const retentionRent = round2(relatedRetentions.reduce((sum, item) => sum + Number(item.rentRetainedAmount || 0), 0));
+        const retentionTotal = round2(retentionVat + retentionRent);
+        const purchaseTotal = round2(purchase.totals?.total || 0);
+        return {
+          purchaseId: purchase.id,
+          accountingNumber: purchase.journalEntryNumber || "",
+          issueDate: purchase.issueDate || "",
+          supplierRuc: purchase.supplierRuc || "",
+          supplierName: purchase.supplierName || "",
+          documentNumber: purchase.documentNumber || "",
+          ...tax,
+          purchaseTotal,
+          retentionVat,
+          retentionRent,
+          retentionTotal,
+          netPayable: round2(purchaseTotal - retentionTotal)
+        };
+      })
+      .sort((a, b) => String(b.issueDate).localeCompare(String(a.issueDate)) || String(b.accountingNumber).localeCompare(String(a.accountingNumber)));
+  }
+
+  function retentionDetailReportRows(options = {}) {
+    const allowedRetentionIds = new Set((options.retentionIds || []).filter(Boolean));
+    const allowedPurchaseIds = new Set((options.purchaseIds || []).filter(Boolean));
+    return issuedWithholdings()
+      .map(normalizeIssuedWithholding)
+      .filter(retention => issuedWithholdingAffectsPayable(retention)
+        && (!allowedRetentionIds.size || allowedRetentionIds.has(retention.id))
+        && (!allowedPurchaseIds.size || allowedPurchaseIds.has(retention.purchaseId)))
+      .flatMap(retention => (retention.retentionLines || [])
+        .filter(line => line.code)
+        .map(line => ({
+          retentionId: retention.id,
+          accountingNumber: retention.journalEntryNumber || "",
+          supplierRuc: retention.supplierRuc || "",
+          supplierName: retention.supplierName || "",
+          originNumber: digits(retention.purchaseDocumentNumber).slice(-9),
+          retentionNumber: retention.fullNumber || retention.draftNumber || "",
+          retentionCode: line.sriCode || line.code || "",
+          baseAmount: round2(line.baseAmount || 0),
+          percentage: round2(line.percentage || 0),
+          retainedAmount: round2(line.retainedAmount || 0),
+          accessKey: retention.accessKey || ""
+        })))
+      .sort((a, b) => String(b.retentionNumber).localeCompare(String(a.retentionNumber)) || String(a.retentionCode).localeCompare(String(b.retentionCode)));
+  }
+
   function purchasesPendingRetention() {
-    return purchases().filter(item => item.status === "PENDIENTE_RETENCION" || item.status === "CONTABILIZADO");
+    if (!companyAllows("purchases.issueWithholdings")) return [];
+    return purchases().filter(item =>
+      item.status === "PENDIENTE_RETENCION"
+      || (item.status === "CONTABILIZADO" && normalizePurchase(item).retentionDecision === "APLICAR")
+    );
   }
 
   function normalizeIssuedWithholding(raw = {}) {
@@ -948,12 +1649,64 @@
       ...emptyRetentionDraft(raw.purchaseId || ""),
       ...clone(raw || {})
     };
-    const rentBaseAmount = round2(current.rentBaseAmount || current.baseAmount || 0);
-    const rentPercentage = round2(current.rentPercentage || (current.taxType === "RENTA" ? current.percentage : 0) || 0);
-    const rentRetainedAmount = round2(current.rentRetainedAmount || (current.taxType === "RENTA" ? current.retainedAmount : 0) || (rentBaseAmount * rentPercentage / 100));
-    const vatBaseAmount = round2(current.vatBaseAmount || (current.taxType === "IVA" ? current.baseAmount : 0) || 0);
-    const vatPercentage = round2(current.vatPercentage || (current.taxType === "IVA" ? current.percentage : 0) || 0);
-    const vatRetainedAmount = round2(current.vatRetainedAmount || (current.taxType === "IVA" ? current.retainedAmount : 0) || (vatBaseAmount * vatPercentage / 100));
+    const hasStoredLines = Object.prototype.hasOwnProperty.call(raw || {}, "retentionLines")
+      && Array.isArray(raw.retentionLines);
+    const legacyLines = [];
+    if (!hasStoredLines && (current.rentCode || current.taxType === "RENTA")) {
+      legacyLines.push({
+        id: uid("RTL"),
+        taxType: "RENTA",
+        code: current.rentCode || current.code || "",
+        sriCode: current.rentSriCode || current.sriCode || "",
+        parameterId: current.rentParameterId || current.parameterId || "",
+        description: current.rentDescription || current.description || "",
+        baseAmount: current.rentBaseAmount || current.baseAmount || 0,
+        percentage: current.rentPercentage || current.percentage || 0,
+        retainedAmount: current.rentRetainedAmount || current.retainedAmount || 0,
+        payableAccountCode: current.rentPayableAccountCode || current.payableAccountCode || ""
+      });
+    }
+    if (!hasStoredLines && (current.vatCode || current.taxType === "IVA")) {
+      legacyLines.push({
+        id: uid("RTL"),
+        taxType: "IVA",
+        code: current.vatCode || current.code || "",
+        sriCode: current.vatSriCode || current.sriCode || "",
+        parameterId: current.vatParameterId || current.parameterId || "",
+        description: current.vatDescription || current.description || "",
+        baseAmount: current.vatBaseAmount || current.baseAmount || 0,
+        percentage: current.vatPercentage || current.percentage || 0,
+        retainedAmount: current.vatRetainedAmount || current.retainedAmount || 0,
+        payableAccountCode: current.vatPayableAccountCode || current.payableAccountCode || ""
+      });
+    }
+    const sourceLines = hasStoredLines ? raw.retentionLines : legacyLines;
+    const retentionLines = sourceLines.map(line => {
+      const taxType = String(line.taxType || "RENTA").trim().toUpperCase() === "IVA" ? "IVA" : "RENTA";
+      const baseAmount = round2(line.baseAmount || 0);
+      const percentage = round2(line.percentage || 0);
+      return {
+        id: String(line.id || uid("RTL")).trim(),
+        taxType,
+        code: String(line.code || "").trim(),
+        sriCode: String(line.sriCode || line.code || "").trim(),
+        parameterId: String(line.parameterId || "").trim(),
+        description: String(line.description || "").trim(),
+        baseAmount,
+        percentage,
+        retainedAmount: round2(baseAmount * percentage / 100),
+        payableAccountCode: String(line.payableAccountCode || "").trim()
+      };
+    });
+    const selectedLines = retentionLines.filter(line => line.code);
+    const rentLines = selectedLines.filter(line => line.taxType === "RENTA");
+    const vatLines = selectedLines.filter(line => line.taxType === "IVA");
+    const firstRent = rentLines[0] || {};
+    const firstVat = vatLines[0] || {};
+    const rentBaseAmount = round2(rentLines.reduce((sum, line) => sum + Number(line.baseAmount || 0), 0));
+    const rentRetainedAmount = round2(rentLines.reduce((sum, line) => sum + Number(line.retainedAmount || 0), 0));
+    const vatBaseAmount = round2(vatLines.reduce((sum, line) => sum + Number(line.baseAmount || 0), 0));
+    const vatRetainedAmount = round2(vatLines.reduce((sum, line) => sum + Number(line.retainedAmount || 0), 0));
     return {
       ...current,
       id: current.id || uid("RET"),
@@ -962,27 +1715,43 @@
       supplierRuc: String(current.supplierRuc || "").trim(),
       retentionDate: String(current.retentionDate || today()).trim(),
       draftNumber: String(current.draftNumber || `RET-BOR-${String(cloneList("issuedWithholdings").length + 1).padStart(6, "0")}`).trim(),
-      rentCode: String(current.rentCode || (current.taxType === "RENTA" ? current.code : "") || "").trim(),
-      rentSriCode: String(current.rentSriCode || (current.taxType === "RENTA" ? current.sriCode : "") || "").trim(),
-      rentParameterId: String(current.rentParameterId || (current.taxType === "RENTA" ? current.parameterId : "") || "").trim(),
-      rentDescription: String(current.rentDescription || (current.taxType === "RENTA" ? current.description : "") || "").trim(),
+      rentCode: String(firstRent.code || "").trim(),
+      rentSriCode: String(firstRent.sriCode || "").trim(),
+      rentParameterId: String(firstRent.parameterId || "").trim(),
+      rentDescription: String(firstRent.description || "").trim(),
       rentBaseAmount,
-      rentPercentage,
+      rentPercentage: round2(firstRent.percentage || 0),
       rentRetainedAmount,
-      rentPayableAccountCode: String(current.rentPayableAccountCode || (current.taxType === "RENTA" ? current.payableAccountCode : "") || "").trim(),
-      vatCode: String(current.vatCode || (current.taxType === "IVA" ? current.code : "") || "").trim(),
-      vatSriCode: String(current.vatSriCode || (current.taxType === "IVA" ? current.sriCode : "") || "").trim(),
-      vatParameterId: String(current.vatParameterId || (current.taxType === "IVA" ? current.parameterId : "") || "").trim(),
-      vatDescription: String(current.vatDescription || (current.taxType === "IVA" ? current.description : "") || "").trim(),
+      rentPayableAccountCode: String(firstRent.payableAccountCode || "").trim(),
+      vatCode: String(firstVat.code || "").trim(),
+      vatSriCode: String(firstVat.sriCode || "").trim(),
+      vatParameterId: String(firstVat.parameterId || "").trim(),
+      vatDescription: String(firstVat.description || "").trim(),
       vatBaseAmount,
-      vatPercentage,
+      vatPercentage: round2(firstVat.percentage || 0),
       vatRetainedAmount,
-      vatPayableAccountCode: String(current.vatPayableAccountCode || (current.taxType === "IVA" ? current.payableAccountCode : "") || "").trim(),
-      totalRetained: round2(current.totalRetained || rentRetainedAmount + vatRetainedAmount),
+      vatPayableAccountCode: String(firstVat.payableAccountCode || "").trim(),
+      retentionLines,
+      totalRetained: round2(rentRetainedAmount + vatRetainedAmount),
       journalEntryId: String(current.journalEntryId || "").trim(),
       journalEntryNumber: String(current.journalEntryNumber || "").trim(),
       reverseEntryId: String(current.reverseEntryId || "").trim(),
       reverseEntryNumber: String(current.reverseEntryNumber || "").trim(),
+      fullNumber: String(current.fullNumber || current.retentionNumber || "").trim(),
+      establishmentCode: current.establishmentCode ? digits(current.establishmentCode).padStart(3, "0").slice(-3) : "",
+      emissionPointCode: current.emissionPointCode ? digits(current.emissionPointCode).padStart(3, "0").slice(-3) : "",
+      sequential: digits(current.sequential).padStart(current.sequential ? 9 : 0, "0").slice(-9),
+      accessKey: digits(current.accessKey),
+      authorizationNumber: digits(current.authorizationNumber),
+      authorizedAt: String(current.authorizedAt || "").trim(),
+      authorizedXml: String(current.authorizedXml || "").trim(),
+      environment: String(current.environment || "PRUEBAS").trim().toUpperCase(),
+      emissionType: String(current.emissionType || "NORMAL").trim().toUpperCase(),
+      preparedForAuthorizationAt: String(current.preparedForAuthorizationAt || "").trim(),
+      preparedForAuthorizationBy: String(current.preparedForAuthorizationBy || "").trim(),
+      preparedForAuthorizationById: String(current.preparedForAuthorizationById || "").trim(),
+      authorizedBy: String(current.authorizedBy || "").trim(),
+      authorizedById: String(current.authorizedById || "").trim(),
       status: retentionStatuses.includes(String(current.status || "").trim().toUpperCase())
         ? String(current.status || "").trim().toUpperCase()
         : "BORRADOR"
@@ -1000,8 +1769,8 @@
   }
 
   function retentionRequirementForPurchase(purchase) {
-    const typeConfig = purchaseTypeByCode(purchase.purchaseType);
-    return Boolean(typeConfig?.requiresRetentionRent || typeConfig?.requiresRetentionVat);
+    if (!companyAllows("purchases.issueWithholdings")) return false;
+    return normalizePurchase(purchase).retentionDecision === "APLICAR";
   }
 
   function syncPurchaseRetentionState(purchaseId) {
@@ -1024,7 +1793,11 @@
     } else if (allRelated.some(item => item.status === "BORRADOR")) {
       purchase.retentionStatus = "BORRADOR";
     } else {
-      purchase.retentionStatus = retentionRequirementForPurchase(purchase) ? "Pendiente" : "No requerida";
+      purchase.retentionStatus = retentionRequirementForPurchase(purchase)
+        ? "Pendiente de emitir"
+        : purchase.retentionDecision === "NO_SUJETO_332"
+          ? "No sujeta (332)"
+          : "No emite retencion";
     }
 
     purchase.payableId = createOrUpdatePayable(purchase).id;
@@ -1056,10 +1829,16 @@
   function validateRetentionDraftShape(draft) {
     const normalized = normalizeIssuedWithholding(draft);
     const errors = [];
+    const selectedLines = normalized.retentionLines.filter(line => line.code);
     if (!normalized.purchaseId) errors.push("Debe seleccionar una compra relacionada.");
-    if (!normalized.rentCode && !normalized.vatCode) errors.push("Debe seleccionar al menos un codigo de retencion.");
-    if (normalized.rentCode && normalized.rentRetainedAmount <= 0) errors.push("La retencion renta debe tener valor mayor que cero.");
-    if (normalized.vatCode && normalized.vatRetainedAmount <= 0) errors.push("La retencion IVA debe tener valor mayor que cero.");
+    if (!selectedLines.length) errors.push("Debe seleccionar al menos un codigo de retencion.");
+    selectedLines.forEach((line, index) => {
+      if (String(line.sriCode || line.code) === "332") {
+        errors.push(`La linea ${index + 1} usa el codigo 332, que se registra en la compra como no sujeto y no genera comprobante.`);
+      }
+      if (line.baseAmount <= 0) errors.push(`La linea ${index + 1} debe tener una base imponible mayor que cero.`);
+      if (line.retainedAmount <= 0) errors.push(`La linea ${index + 1} debe tener un valor retenido mayor que cero.`);
+    });
     if (normalized.totalRetained <= 0) errors.push("La retencion debe tener valor total mayor que cero.");
     return { retention: normalized, errors };
   }
@@ -1069,19 +1848,24 @@
     const errors = [];
     const payableValidation = validateWithholdingAccount(defaults.accountsPayableSuppliers, "Cuentas por pagar proveedores");
     errors.push(...payableValidation.errors);
-    const rentValidation = retention.rentCode
-      ? validateWithholdingAccount(retention.rentPayableAccountCode || defaultRentPayableAccount(), "Retenciones fuente por pagar")
-      : { account: null, errors: [] };
-    const vatValidation = retention.vatCode
-      ? validateWithholdingAccount(retention.vatPayableAccountCode || defaultVatPayableAccount(), "Retenciones IVA por pagar")
-      : { account: null, errors: [] };
-    errors.push(...rentValidation.errors, ...vatValidation.errors);
+    const selectedLines = retention.retentionLines.filter(line => line.code);
+    const lineValidations = selectedLines.map((line, index) => {
+      const fallbackAccount = line.taxType === "IVA" ? defaultVatPayableAccount() : defaultRentPayableAccount();
+      const validation = validateWithholdingAccount(
+        line.payableAccountCode || fallbackAccount,
+        `${line.taxType === "IVA" ? "Retenciones IVA" : "Retenciones fuente"} por pagar de la linea ${index + 1}`
+      );
+      errors.push(...validation.errors);
+      return { line, account: validation.account };
+    });
     if (retention.totalRetained <= 0) errors.push("La retencion no puede confirmarse con valor cero.");
     if (errors.length) return { ok: false, errors };
 
     const entry = journalService.emptyEntry();
     entry.accountingDate = retention.retentionDate;
-    entry.accountingPeriod = companyService.settings().activePeriod || entry.accountingPeriod;
+    entry.accountingPeriod = journalService.accountingPeriodForDate?.(entry.accountingDate, entry.accountingPeriod)
+      || String(entry.accountingDate || "").slice(0, 7)
+      || entry.accountingPeriod;
     entry.concept = `Retencion emitida ${retention.draftNumber} - ${purchase.documentNumber}`;
     entry.originModule = "RETENCIONES_EMITIDAS";
     entry.sourceDocument = retention.draftNumber;
@@ -1100,58 +1884,59 @@
         documentReference: purchase.documentNumber
       }
     ];
-    if (retention.rentCode && rentValidation.account) {
+    lineValidations.forEach(({ line, account }) => {
+      if (!account) return;
       entry.lines.push({
         id: uid("JLN"),
-        accountCode: rentValidation.account.code,
-        accountName: rentValidation.account.name,
+        accountCode: account.code,
+        accountName: account.name,
         debit: 0,
-        credit: round2(retention.rentRetainedAmount),
+        credit: round2(line.retainedAmount),
         costCenter: "",
         auxiliary: purchase.supplierRuc,
-        lineDescription: `Retencion renta ${retention.rentCode}`,
+        lineDescription: `Retencion ${line.taxType} ${line.sriCode || line.code}`,
         documentReference: retention.draftNumber
       });
-    }
-    if (retention.vatCode && vatValidation.account) {
-      entry.lines.push({
-        id: uid("JLN"),
-        accountCode: vatValidation.account.code,
-        accountName: vatValidation.account.name,
-        debit: 0,
-        credit: round2(retention.vatRetainedAmount),
-        costCenter: "",
-        auxiliary: purchase.supplierRuc,
-        lineDescription: `Retencion IVA ${retention.vatCode}`,
-        documentReference: retention.draftNumber
-      });
-    }
+    });
     return { ok: true, entry };
   }
 
   function saveRetentionDraft(draft) {
+    if (!companyAllows("purchases.issueWithholdings")) return retentionCapabilityError();
     const rows = issuedWithholdings().map(normalizeIssuedWithholding);
-    const { retention: prepared, errors } = validateRetentionDraftShape(draft);
+    const prepared = normalizeIssuedWithholding(draft);
+    const errors = [];
     const purchase = purchases().find(item => item.id === prepared.purchaseId);
     if (!purchase) errors.push("La compra relacionada no existe.");
-
-    let rentValidation = null;
-    if (prepared.rentCode) {
-      rentValidation = taxConfigService.validateRetentionActiveOnDate(prepared.rentCode, prepared.retentionDate || purchase?.accountingDate || today(), {
-        taxType: "RENTA",
-        appliesTo: "compra"
-      });
-      if (!rentValidation.ok) errors.push(...(rentValidation.errors || []));
+    else if (normalizePurchase(purchase).retentionDecision !== "APLICAR") {
+      errors.push("La compra no esta marcada para aplicar retencion. Revise primero su tratamiento tributario.");
     }
 
-    let vatValidation = null;
-    if (prepared.vatCode) {
-      vatValidation = taxConfigService.validateRetentionActiveOnDate(prepared.vatCode, prepared.retentionDate || purchase?.accountingDate || today(), {
-        taxType: "IVA",
-        appliesTo: "compra"
-      });
-      if (!vatValidation.ok) errors.push(...(vatValidation.errors || []));
-    }
+    const validatedLines = prepared.retentionLines.map((line, index) => {
+      if (!line.code) return line;
+      const validation = taxConfigService.validateRetentionActiveOnDate(
+        line.code,
+        prepared.retentionDate || purchase?.accountingDate || today(),
+        { taxType: line.taxType, appliesTo: "compra" }
+      );
+      if (!validation.ok) {
+        (validation.errors || []).forEach(message => errors.push(`Linea ${index + 1}: ${message}`));
+        return line;
+      }
+      const parameter = validation.retention || {};
+      const percentage = round2(parameter.percentage ?? line.percentage ?? 0);
+      return {
+        ...line,
+        parameterId: parameter.id || line.parameterId || "",
+        sriCode: parameter.sriCode || line.sriCode || line.code,
+        description: parameter.description || line.description || "",
+        percentage,
+        retainedAmount: round2(line.baseAmount * percentage / 100),
+        payableAccountCode: parameter.payableAccountCode
+          || line.payableAccountCode
+          || (line.taxType === "IVA" ? defaultVatPayableAccount() : defaultRentPayableAccount())
+      };
+    });
 
     if (errors.length) return { ok: false, errors: [...new Set(errors)] };
 
@@ -1160,20 +1945,11 @@
       supplierName: purchase?.supplierName || prepared.supplierName || "",
       supplierRuc: purchase?.supplierRuc || prepared.supplierRuc || "",
       purchaseDocumentNumber: purchase?.documentNumber || prepared.purchaseDocumentNumber || "",
-      rentParameterId: rentValidation?.retention?.id || prepared.rentParameterId || "",
-      rentSriCode: rentValidation?.retention?.sriCode || prepared.rentSriCode || "",
-      rentDescription: rentValidation?.retention?.description || prepared.rentDescription || "",
-      rentPercentage: round2(rentValidation?.retention?.percentage ?? prepared.rentPercentage ?? 0),
-      rentRetainedAmount: round2(prepared.rentBaseAmount * (rentValidation?.retention?.percentage ?? prepared.rentPercentage ?? 0) / 100),
-      rentPayableAccountCode: rentValidation?.retention?.payableAccountCode || prepared.rentPayableAccountCode || defaultRentPayableAccount(),
-      vatParameterId: vatValidation?.retention?.id || prepared.vatParameterId || "",
-      vatSriCode: vatValidation?.retention?.sriCode || prepared.vatSriCode || "",
-      vatDescription: vatValidation?.retention?.description || prepared.vatDescription || "",
-      vatPercentage: round2(vatValidation?.retention?.percentage ?? prepared.vatPercentage ?? 0),
-      vatRetainedAmount: round2(prepared.vatBaseAmount * (vatValidation?.retention?.percentage ?? prepared.vatPercentage ?? 0) / 100),
-      vatPayableAccountCode: vatValidation?.retention?.payableAccountCode || prepared.vatPayableAccountCode || defaultVatPayableAccount(),
-      status: prepared.status || "BORRADOR"
+      retentionLines: validatedLines,
+      status: ["BORRADOR", "LISTA_PARA_AUTORIZAR"].includes(prepared.status) ? prepared.status : "BORRADOR"
     });
+    const shapeValidation = validateRetentionDraftShape(normalized);
+    if (shapeValidation.errors.length) return { ok: false, errors: [...new Set(shapeValidation.errors)] };
 
     const index = rows.findIndex(item => item.id === normalized.id);
     const before = index >= 0 ? clone(rows[index]) : null;
@@ -1199,6 +1975,7 @@
   }
 
   function confirmRetentionDraft(retentionId) {
+    if (!companyAllows("purchases.issueWithholdings")) return retentionCapabilityError();
     const rows = issuedWithholdings().map(normalizeIssuedWithholding);
     const index = rows.findIndex(item => item.id === retentionId);
     if (index < 0) return { ok: false, errors: ["Retencion emitida no encontrada."] };
@@ -1209,6 +1986,9 @@
     if (target.journalEntryId) return { ok: false, errors: ["La retencion ya tiene asiento contable."] };
     const purchase = purchases().find(item => item.id === target.purchaseId);
     if (!purchase) return { ok: false, errors: ["La compra relacionada no existe."] };
+    if (normalizePurchase(purchase).retentionDecision !== "APLICAR") {
+      return { ok: false, errors: ["La compra no esta marcada para aplicar retencion."] };
+    }
 
     const build = buildIssuedWithholdingJournalEntry(target, purchase);
     if (!build.ok) return build;
@@ -1239,12 +2019,270 @@
     return { ok: true, retention: clone(rows[index]), purchase: clone(syncedPurchase), entry: clone(postedEntry.entry) };
   }
 
-  function annulRetention(retentionId) {
+  function nextRetentionSequential(rows = issuedWithholdings()) {
+    const configured = adminService?.findSequenceByCode?.("RETE") || {};
+    const maximum = rows
+      .map(item => {
+        const full = /^(\d{3})-(\d{3})-(\d{9})$/.exec(String(item.fullNumber || "").trim());
+        if (!full) return 0;
+        if (full[1] !== (configured.establishmentCode || "001")
+          || full[2] !== (configured.emissionPointCode || "002")) return 0;
+        return Number(full[3]) || 0;
+      })
+      .reduce((max, value) => Math.max(max, value), Math.max(0, Number(configured.currentNumber || 0)));
+    if (maximum >= 999999999) throw new Error("El secuencial SRI de retenciones alcanzo el limite de 9 digitos.");
+    return String(maximum + 1).padStart(9, "0");
+  }
+
+  function retentionEmissionCodes() {
+    const settings = companyService.settings() || {};
+    const configured = adminService?.findSequenceByCode?.("RETE") || {};
+    return {
+      establishmentCode: digits(
+        configured.establishmentCode
+        || settings.retentionEstablishmentCode
+        || settings.sriEstablishmentCode
+        || settings.establishmentCode
+        || "001"
+      ).padStart(3, "0").slice(-3),
+      emissionPointCode: digits(
+        configured.emissionPointCode
+        || settings.retentionEmissionPointCode
+        || settings.sriEmissionPointCode
+        || settings.emissionPointCode
+        || "002"
+      ).padStart(3, "0").slice(-3)
+    };
+  }
+
+  function prepareRetentionForAuthorization(retentionId) {
+    if (!companyAllows("purchases.issueWithholdings")) return retentionCapabilityError();
+    const rows = issuedWithholdings().map(normalizeIssuedWithholding);
+    const index = rows.findIndex(item => item.id === retentionId);
+    if (index < 0) return { ok: false, errors: ["Retencion emitida no encontrada."] };
+    const target = rows[index];
+    if (target.status === "LISTA_PARA_AUTORIZAR") return { ok: true, retention: clone(target) };
+    if (target.status !== "CONFIRMADA") {
+      return { ok: false, errors: ["Primero debe confirmar y contabilizar la retencion."] };
+    }
+    if (!target.journalEntryId) return { ok: false, errors: ["La retencion no tiene asiento contable confirmado."] };
+
+    const sequence = nextRetentionSequential(rows);
+    const codes = retentionEmissionCodes();
+    let keyResult;
+    try {
+      const companyKey = BlessERP.sriApi?.activeCompanyKey?.();
+      keyResult = BlessERP.sriApi?.buildTestAccessKey?.({
+        companyKey,
+        documentType: "07",
+        issueDate: target.retentionDate,
+        establishmentCode: codes.establishmentCode,
+        emissionPointCode: codes.emissionPointCode,
+        sequential: sequence
+      });
+    } catch (error) {
+      return { ok: false, errors: [error?.message || "No se pudo construir la clave de acceso de la retencion."] };
+    }
+    if (!keyResult?.accessKey) {
+      return { ok: false, errors: ["El servicio local SRI no esta disponible para preparar la clave de acceso."] };
+    }
+
+    target.establishmentCode = codes.establishmentCode;
+    target.emissionPointCode = codes.emissionPointCode;
+    target.sequential = sequence;
+    target.fullNumber = `${codes.establishmentCode}-${codes.emissionPointCode}-${sequence}`;
+    target.accessKey = keyResult.accessKey;
+    target.environment = keyResult.environment || "PRUEBAS";
+    target.preparedForAuthorizationAt = new Date().toISOString();
+    target.preparedForAuthorizationBy = currentUser().name;
+    target.preparedForAuthorizationById = currentUser().id;
+    target.status = "LISTA_PARA_AUTORIZAR";
+    rows[index] = normalizeIssuedWithholding(target);
+    saveList("issuedWithholdings", rows);
+    syncPurchaseRetentionState(target.purchaseId);
+    adminService?.addAuditLog?.({
+      module: "COMPRAS",
+      action: "PREPARAR_AUTORIZACION_RETENCION",
+      entityType: "issued_withholding",
+      entityId: target.id,
+      entityLabel: target.fullNumber,
+      documentLabel: target.fullNumber,
+      previousStatus: "CONFIRMADA",
+      nextStatus: "LISTA_PARA_AUTORIZAR",
+      description: `Retencion ${target.fullNumber} preparada para autorizacion electronica en ambiente de pruebas.`,
+      after: target,
+      result: "exitoso"
+    });
+    return { ok: true, retention: clone(rows[index]) };
+  }
+
+  function validateRetentionAuthorization(retention, input = {}) {
+    const errors = [];
+    const accessKey = digits(input.accessKey || retention.accessKey);
+    const authorizationNumber = digits(input.authorizationNumber || accessKey);
+    const authorizedAt = String(input.authorizedAt || "").trim();
+    const authorizedXml = String(input.authorizedXml || "").trim();
+    const parsed = BlessERP.sriApi?.parseAccessKey?.(accessKey);
+    if (!/^\d{49}$/.test(accessKey)) errors.push("La clave de acceso debe contener 49 digitos.");
+    if (parsed && !parsed.validModulo11) errors.push("La clave de acceso no supera la validacion modulo 11.");
+    if (parsed && parsed.documentType !== "07") errors.push("La clave de acceso no corresponde a un comprobante de retencion tipo 07.");
+    if (!/^\d{49}$/.test(authorizationNumber)) errors.push("El numero de autorizacion debe contener 49 digitos.");
+    if (!authorizedAt) errors.push("Debe registrar la fecha y hora devuelta por el SRI.");
+    if (!authorizedXml) errors.push("Debe pegar o cargar el XML autorizado devuelto por el SRI.");
+    if (authorizedXml && !authorizedXml.includes(accessKey)) errors.push("El XML autorizado no contiene la clave de acceso preparada.");
+    if (authorizedXml && !authorizedXml.includes(authorizationNumber)) errors.push("El XML autorizado no contiene el numero de autorizacion registrado.");
+    if (authorizedXml && BlessERP.softwareProvider && !BlessERP.softwareProvider.hasRequiredRucField(authorizedXml)) {
+      errors.push(`El XML autorizado no contiene el campo adicional obligatorio RUC Proveedor ${BlessERP.softwareProvider.ruc}.`);
+    }
+    return { errors: [...new Set(errors)], accessKey, authorizationNumber, authorizedAt, authorizedXml };
+  }
+
+  function registerRetentionAuthorization(retentionId, input = {}) {
+    if (!companyAllows("purchases.issueWithholdings")) return retentionCapabilityError();
+    const rows = issuedWithholdings().map(normalizeIssuedWithholding);
+    const index = rows.findIndex(item => item.id === retentionId);
+    if (index < 0) return { ok: false, errors: ["Retencion emitida no encontrada."] };
+    const target = rows[index];
+    if (target.status !== "LISTA_PARA_AUTORIZAR") {
+      return { ok: false, errors: ["La retencion debe estar lista para autorizar antes de registrar la respuesta del SRI."] };
+    }
+    const validation = validateRetentionAuthorization(target, input);
+    if (validation.errors.length) return { ok: false, errors: validation.errors };
+    target.accessKey = validation.accessKey;
+    target.authorizationNumber = validation.authorizationNumber;
+    target.authorizedAt = validation.authorizedAt;
+    target.authorizedXml = validation.authorizedXml;
+    target.environment = String(input.environment || target.environment || "PRUEBAS").trim().toUpperCase();
+    target.authorizedBy = currentUser().name;
+    target.authorizedById = currentUser().id;
+    target.status = "AUTORIZADA";
+    rows[index] = normalizeIssuedWithholding(target);
+    saveList("issuedWithholdings", rows);
+    syncPurchaseRetentionState(target.purchaseId);
+    adminService?.addAuditLog?.({
+      module: "COMPRAS",
+      action: "REGISTRAR_AUTORIZACION_SRI_RETENCION",
+      entityType: "issued_withholding",
+      entityId: target.id,
+      entityLabel: target.fullNumber,
+      documentLabel: target.fullNumber,
+      previousStatus: "LISTA_PARA_AUTORIZAR",
+      nextStatus: "AUTORIZADA",
+      description: `Se registro la autorizacion SRI de la retencion ${target.fullNumber}.`,
+      after: target,
+      result: "exitoso"
+    });
+    return { ok: true, retention: clone(rows[index]) };
+  }
+
+  function syncRemoteRetentionAuthorization(retentionId, detail = {}) {
+    const rows = issuedWithholdings().map(normalizeIssuedWithholding);
+    const index = rows.findIndex(item => item.id === retentionId);
+    if (index < 0) return { ok: false, errors: ["Retencion emitida no encontrada."] };
+    const target = rows[index];
+    const previousStatus = target.status;
+    const document = detail.document || detail || {};
+    const authorization = (detail.authorizations || []).find(item =>
+      String(item.authorization_status || "").toUpperCase() === "AUTORIZADO"
+    ) || (detail.authorizations || [])[0] || {};
+    const remoteStatus = String(document.status || "").trim().toUpperCase();
+    if (String(document.document_type || document.documentType || "07") !== "07") {
+      return { ok: false, errors: ["La respuesta remota no corresponde a una retencion SRI tipo 07."] };
+    }
+    const establishmentCode = digits(document.establishment_code || document.establishmentCode || target.establishmentCode).padStart(3, "0").slice(-3);
+    const emissionPointCode = digits(document.emission_point_code || document.emissionPointCode || target.emissionPointCode).padStart(3, "0").slice(-3);
+    const sequential = digits(document.sequential || target.sequential).padStart(9, "0").slice(-9);
+    target.sriRemoteDocumentId = String(document.id || target.sriRemoteDocumentId || "");
+    target.sriRemoteStatus = remoteStatus || target.sriRemoteStatus || "";
+    target.sriLastError = String(document.last_error || document.lastError || "");
+    target.establishmentCode = establishmentCode;
+    target.emissionPointCode = emissionPointCode;
+    target.sequential = sequential;
+    if (establishmentCode && emissionPointCode && sequential) {
+      target.fullNumber = `${establishmentCode}-${emissionPointCode}-${sequential}`;
+    }
+    target.accessKey = digits(document.access_key || document.accessKey || target.accessKey);
+    target.environment = String(document.environment || target.environment || "PRUEBAS").toUpperCase() === "TEST" ? "PRUEBAS" : String(document.environment || target.environment || "PRUEBAS").toUpperCase();
+    if (remoteStatus === "AUTORIZADO") {
+      target.status = "AUTORIZADA";
+      target.authorizationNumber = digits(
+        document.authorization_number
+        || document.authorizationNumber
+        || authorization.authorization_number
+        || target.accessKey
+      );
+      target.authorizedAt = String(
+        document.authorized_at
+        || document.authorizedAt
+        || authorization.authorization_date
+        || new Date().toISOString()
+      );
+      target.authorizedXml = String(authorization.authorized_xml || target.authorizedXml || "");
+      target.authorizedBy = currentUser().name;
+      target.authorizedById = currentUser().id;
+    } else if (target.status === "CONFIRMADA") {
+      target.status = "LISTA_PARA_AUTORIZAR";
+    }
+    rows[index] = normalizeIssuedWithholding(target);
+    saveList("issuedWithholdings", rows);
+    syncPurchaseRetentionState(target.purchaseId);
+    adminService?.addAuditLog?.({
+      module: "COMPRAS",
+      action: "SINCRONIZAR_RETENCION_SRI",
+      entityType: "issued_withholding",
+      entityId: target.id,
+      entityLabel: target.fullNumber || target.draftNumber,
+      documentLabel: target.fullNumber || target.draftNumber,
+      previousStatus,
+      nextStatus: rows[index].status,
+      description: `Retencion sincronizada con SRI en estado ${remoteStatus || "SIN RESPUESTA"}.`,
+      after: rows[index],
+      result: remoteStatus === "AUTORIZADO" ? "exitoso" : "pendiente"
+    });
+    return { ok: true, retention: clone(rows[index]), remoteStatus };
+  }
+
+  function recordRetentionSriError(retentionId, message = "", technical = {}) {
+    const rows = issuedWithholdings().map(normalizeIssuedWithholding);
+    const index = rows.findIndex(item => item.id === retentionId);
+    if (index < 0) return { ok: false, errors: ["Retencion emitida no encontrada."] };
+    const target = rows[index];
+    const previousStatus = target.status;
+    target.sriLastError = String(message || "No se pudo completar el proceso SRI.").trim();
+    target.sriLastErrorCode = String(technical.code || "").trim();
+    target.sriLastErrorStage = String(technical.stage || "").trim();
+    target.sriLastErrorAt = new Date().toISOString();
+    if (target.journalEntryId && target.status === "CONFIRMADA") target.status = "LISTA_PARA_AUTORIZAR";
+    rows[index] = normalizeIssuedWithholding(target);
+    saveList("issuedWithholdings", rows);
+    adminService?.addAuditLog?.({
+      module: "COMPRAS",
+      action: "ERROR_AUTORIZACION_SRI_RETENCION",
+      entityType: "issued_withholding",
+      entityId: target.id,
+      entityLabel: target.fullNumber || target.draftNumber,
+      documentLabel: target.fullNumber || target.draftNumber,
+      previousStatus,
+      nextStatus: rows[index].status,
+      description: target.sriLastError,
+      after: rows[index],
+      result: "error"
+    });
+    return { ok: true, retention: clone(rows[index]) };
+  }
+
+  function annulRetention(retentionId, reason = "") {
+    if (!companyAllows("purchases.issueWithholdings")) {
+      return { ...retentionCapabilityError(), message: retentionCapabilityError().errors[0] };
+    }
     const rows = issuedWithholdings().map(normalizeIssuedWithholding);
     const index = rows.findIndex(item => item.id === retentionId);
     if (index < 0) return { ok: false, message: "Retencion emitida no encontrada." };
     const target = rows[index];
     if (target.status === "ANULADA") return { ok: false, message: "La retencion ya esta anulada." };
+    const previousStatus = target.status;
+    const annulReason = String(reason || "").trim();
+    if (!annulReason) return { ok: false, message: "Debe indicar el motivo de anulacion." };
     if (target.journalEntryId && issuedWithholdingAffectsPayable(target)) {
       const reversed = journalService.reverseEntry(target.journalEntryId);
       if (!reversed.ok) return { ok: false, message: reversed.message || "No se pudo reversar la retencion emitida." };
@@ -1252,6 +2290,10 @@
       target.reverseEntryNumber = reversed.entry.entryNumber;
     }
     target.status = "ANULADA";
+    target.annulReason = annulReason;
+    target.annulledAt = new Date().toISOString();
+    target.annulledBy = currentUser().name;
+    target.annulledById = currentUser().id;
     rows[index] = normalizeIssuedWithholding(target);
     saveList("issuedWithholdings", rows);
     const syncedPurchase = syncPurchaseRetentionState(target.purchaseId);
@@ -1262,13 +2304,45 @@
       entityId: target.id,
       entityLabel: target.draftNumber,
       documentLabel: target.draftNumber,
-      previousStatus: "CONFIRMADA",
+      previousStatus,
       nextStatus: target.status,
-      description: `Retencion emitida ${target.draftNumber} anulada.`,
+      description: `Retencion emitida ${target.draftNumber} anulada. Motivo: ${annulReason}.`,
       after: target,
       result: "exitoso"
     });
     return { ok: true, retention: clone(rows[index]), purchase: clone(syncedPurchase) };
+  }
+
+  function replacementRetentionDraft(retentionId) {
+    if (!companyAllows("purchases.issueWithholdings")) return retentionCapabilityError();
+    const source = issuedWithholdings().map(normalizeIssuedWithholding).find(item => item.id === retentionId);
+    if (!source) return { ok: false, errors: ["Retencion emitida no encontrada."] };
+    if (source.status !== "ANULADA") return { ok: false, errors: ["Solo una retencion anulada puede originar un reemplazo."] };
+    const draft = normalizeIssuedWithholding({
+      ...source,
+      id: "",
+      draftNumber: `RET-BOR-${String(issuedWithholdings().length + 1).padStart(6, "0")}`,
+      retentionDate: today(),
+      status: "BORRADOR",
+      fullNumber: "",
+      sequential: "",
+      accessKey: "",
+      authorizationNumber: "",
+      authorizedAt: "",
+      authorizedXml: "",
+      journalEntryId: "",
+      journalEntryNumber: "",
+      reverseEntryId: "",
+      reverseEntryNumber: "",
+      replacementOfId: source.id,
+      replacementOfNumber: source.fullNumber || source.draftNumber,
+      annulReason: "",
+      annulledAt: "",
+      annulledBy: "",
+      annulledById: "",
+      retentionLines: (source.retentionLines || []).map(line => ({ ...line, id: uid("RTL") }))
+    });
+    return { ok: true, retention: draft };
   }
 
   function issuedWithholdingSummary() {
@@ -1300,7 +2374,9 @@
     purchaseStatuses,
     importStatuses,
     retentionStatuses,
+    retentionDecisions,
     voucherTypes,
+    paymentMethods,
     lineTypes,
     providers,
     purchases,
@@ -1325,6 +2401,8 @@
     duplicateKeyForPurchase,
     emptyLine,
     emptyPurchase,
+    buildPurchaseJournalEntry,
+    emptyRetentionLine,
     emptyRetentionDraft,
     normalizePurchase,
     calculateTotals,
@@ -1332,13 +2410,30 @@
     validatePurchase,
     savePurchase,
     postPurchase,
+    postPurchaseV2,
+    deleteOrAnnulPurchase,
+    deleteOrAnnulPurchaseV2,
     parseXmlString,
     parseXmlFile,
+    registerProvidersFromXmlBatch,
+    registerProvidersFromXmlBatchV2,
+    detectXmlBatchDuplicates,
+    resolveProvidersFromXmlBatchV2,
     importXmlBatch,
+    purchaseTaxBreakdown,
+    purchaseRetentionReport,
+    accountedPurchaseReportRows,
+    retentionDetailReportRows,
     purchasesPendingRetention,
     saveRetentionDraft,
     confirmRetentionDraft,
+    prepareRetentionForAuthorization,
+    registerRetentionAuthorization,
+    syncRemoteRetentionAuthorization,
+    recordRetentionSriError,
+    validateRetentionAuthorization,
     annulRetention,
+    replacementRetentionDraft,
     issuedWithholdingSummary,
     purchaseDashboardSummary
   };

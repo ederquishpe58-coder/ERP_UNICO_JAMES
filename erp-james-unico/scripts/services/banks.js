@@ -13,6 +13,11 @@
   const movementMediums = ["transferencia", "cheque", "efectivo", "deposito", "debito", "credito", "otro"];
   const movementStates = ["BORRADOR", "CONTABILIZADO", "ANULADO"];
   const movementOrigins = ["manual", "pagos", "cobros", "ajustes", "transferencias"];
+  const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  function isUuid(value) {
+    return UUID_PATTERN.test(String(value || "").trim());
+  }
 
   function round2(value) {
     return Math.round(Number(value || 0) * 100) / 100;
@@ -56,28 +61,61 @@
 
   function normalizeBankAccount(account = {}) {
     const current = clone(account || {});
+    const typeMap = { CHECKING: "corriente", SAVINGS: "ahorros", CREDIT_CARD: "tarjeta", OTHER: "otro" };
+    const statusMap = { ACTIVE: "activa", INACTIVE: "inactiva" };
+    const sourceId = String(current.id || current.bankAccountId || "").trim() || uid("BNK");
+    const canonicalId = [current.bankAccountId, current.canonicalBankAccountId, sourceId].find(isUuid) || "";
+    const legacyId = String(current.legacyId || (!canonicalId ? sourceId : "")).trim();
     return {
-      id: current.id || uid("BNK"),
+      id: canonicalId || sourceId,
+      bankAccountId: canonicalId,
+      canonicalBankAccountId: canonicalId,
+      legacyId,
+      source: canonicalId ? "V2" : "LEGACY",
+      isCanonical: Boolean(canonicalId),
       code: String(current.code || "").trim(),
       bankName: String(current.bankName || current.bank || "").trim(),
       accountNumber: String(current.accountNumber || "").trim(),
-      accountType: String(current.accountType || "corriente").trim().toLowerCase(),
+      accountType: typeMap[String(current.accountType || "").trim().toUpperCase()] || String(current.accountType || "corriente").trim().toLowerCase(),
       holder: String(current.holder || "").trim(),
       currency: String(current.currency || "USD").trim().toUpperCase(),
       linkedAccountCode: String(current.linkedAccountCode || "").trim(),
       openingBalance: round2(current.openingBalance || 0),
       openingBalanceDate: String(current.openingBalanceDate || companyService.settings().periodStart || today()).trim(),
-      status: String(current.status || "activa").trim().toLowerCase(),
-      observation: String(current.observation || "").trim()
+      status: statusMap[String(current.status || "").trim().toUpperCase()] || String(current.status || "activa").trim().toLowerCase(),
+      observation: String(current.observation || "").trim(),
+      syncFlow: String(current.syncFlow || "")
     };
   }
 
   function bankAccounts() {
-    return cloneList("bankAccounts").map(normalizeBankAccount);
+    const canonical = BlessERP.services?.treasuryV2?.bankAccounts?.() || [];
+    const canonicalIds = new Set(canonical.flatMap(item => [item.id,item.legacyId]).filter(Boolean));
+    return [...canonical, ...cloneList("bankAccounts").filter(item => !canonicalIds.has(item.id))].map(normalizeBankAccount);
   }
 
   function findBankAccountById(accountId) {
-    return bankAccounts().find(item => item.id === accountId);
+    const id = String(accountId || "").trim();
+    return bankAccounts().find(item => item.id === id || item.bankAccountId === id || item.legacyId === id);
+  }
+
+  function resolveCanonicalBankAccount(accountId) {
+    const id = String(accountId || "").trim();
+    const canonical = (BlessERP.services?.treasuryV2?.bankAccounts?.() || [])
+      .map(normalizeBankAccount)
+      .find(item => item.bankAccountId === id || item.legacyId === id);
+    if (canonical?.bankAccountId) return { ok:true,source:"V2",bankAccountId:canonical.bankAccountId,legacyId:canonical.legacyId,account:canonical };
+    const account = findBankAccountById(id);
+    return { ok:false,source:"LEGACY",bankAccountId:"",legacyId:account?.legacyId || id,account };
+  }
+
+  async function confirmCanonicalBankAccount(accountId) {
+    const resolved = resolveCanonicalBankAccount(accountId);
+    if (resolved.ok) return { ok:true,confirmed:true,reused:true,account:resolved.account };
+    if (!resolved.account) return { ok:false,errors:["La cuenta bancaria seleccionada no existe."] };
+    const result = await BlessERP.services?.treasuryV2?.confirmBankAccount?.(resolved.account);
+    if (!result?.ok) return { ...(result || {}),ok:false,errors:result?.errors || [result?.message || "No se pudo confirmar la cuenta bancaria en Tesorería V2."] };
+    return { ...result,account:normalizeBankAccount(result.account) };
   }
 
   function findBankAccountByCode(code) {
@@ -94,14 +132,14 @@
     const warnings = [];
     const rows = bankAccounts();
 
-    if (!candidate.code) errors.push("El codigo interno de la cuenta bancaria es obligatorio.");
+    // El codigo definitivo se reserva atomically en PostgreSQL cuando queda vacio.
     if (!candidate.bankName) errors.push("El banco es obligatorio.");
     if (!candidate.holder) errors.push("El titular es obligatorio.");
     if (!candidate.linkedAccountCode) errors.push("Debe seleccionar la cuenta contable asociada.");
     if (!bankAccountTypes.includes(candidate.accountType)) errors.push("El tipo de cuenta bancaria no es valido.");
     if (!bankAccountStates.includes(candidate.status)) errors.push("El estado de la cuenta bancaria no es valido.");
 
-    const duplicateCode = rows.find(item => item.id !== candidate.id && item.code === candidate.code);
+    const duplicateCode = candidate.code && rows.find(item => item.id !== candidate.id && item.code === candidate.code);
     if (duplicateCode) errors.push("No se permite codigo interno duplicado.");
 
     if (candidate.bankName && candidate.accountNumber) {
@@ -126,52 +164,49 @@
     return { account: candidate, errors, warnings };
   }
 
-  function saveBankAccount(account) {
+  async function saveBankAccount(account) {
     const { account: candidate, errors, warnings } = validateBankAccount(account);
     if (errors.length) return { ok: false, errors, warnings };
-    const rows = bankAccounts();
-    if (!candidate.code) candidate.code = nextBankAccountCode(rows);
-    const index = rows.findIndex(item => item.id === candidate.id);
-    const before = index >= 0 ? clone(rows[index]) : null;
-    if (index >= 0) rows[index] = candidate;
-    else rows.unshift(candidate);
-    saveList("bankAccounts", rows);
+    const before = findBankAccountById(candidate.id) || null;
+    const result = await BlessERP.services?.treasuryV2?.upsertBankAccount?.(candidate);
+    if (!result?.ok) return { ok:false,errors:result?.errors || [result?.message || "Supabase no confirmó la cuenta bancaria."],warnings };
+    const confirmed = normalizeBankAccount(result.account);
     adminService?.addAuditLog?.({
       module: "BANCOS",
-      action: index >= 0 ? "EDITAR_CUENTA_BANCARIA" : "CREAR_CUENTA_BANCARIA",
+      action: before ? "EDITAR_CUENTA_BANCARIA" : "CREAR_CUENTA_BANCARIA",
       entityType: "bank_account",
-      entityId: candidate.id,
-      entityLabel: candidate.code,
-      documentLabel: candidate.bankName,
+      entityId: confirmed.id,
+      entityLabel: confirmed.code,
+      documentLabel: confirmed.bankName,
       previousStatus: before?.status || "",
-      nextStatus: candidate.status,
-      description: `${index >= 0 ? "Se actualizo" : "Se creo"} la cuenta bancaria ${candidate.code}.`,
+      nextStatus: confirmed.status,
+      description: `${before ? "Se actualizo" : "Se creo"} la cuenta bancaria ${confirmed.code}.`,
       before,
-      after: candidate,
+      after: confirmed,
       result: "exitoso"
     });
-    return { ok: true, account: clone(candidate), warnings };
+    return { ok: true, account: clone(confirmed), warnings, sync: result };
   }
 
-  function toggleBankAccountStatus(accountId) {
-    const rows = bankAccounts();
-    const index = rows.findIndex(item => item.id === accountId);
-    if (index < 0) return { ok: false, message: "Cuenta bancaria no encontrada." };
-    rows[index].status = rows[index].status === "activa" ? "inactiva" : "activa";
-    saveList("bankAccounts", rows);
+  async function toggleBankAccountStatus(accountId) {
+    const current = findBankAccountById(accountId);
+    if (!current) return { ok: false, message: "Cuenta bancaria no encontrada." };
+    const next = { ...current,status:current.status === "activa" ? "inactiva" : "activa" };
+    const result = await saveBankAccount(next);
+    if (!result.ok) return { ok:false,message:(result.errors || []).join(" ") || "No se confirmó el estado." };
     adminService?.addAuditLog?.({
       module: "BANCOS",
       action: "CAMBIAR_ESTADO_CUENTA_BANCARIA",
       entityType: "bank_account",
-      entityId: rows[index].id,
-      entityLabel: rows[index].code,
-      documentLabel: rows[index].bankName,
-      nextStatus: rows[index].status,
-      description: `Cuenta bancaria ${rows[index].code} cambiada a ${rows[index].status}.`,
-      after: rows[index],
+      entityId: result.account.id,
+      entityLabel: result.account.code,
+      documentLabel: result.account.bankName,
+      nextStatus: result.account.status,
+      description: `Cuenta bancaria ${result.account.code} cambiada a ${result.account.status}.`,
+      after: result.account,
       result: "exitoso"
     });
-    return { ok: true, account: clone(rows[index]) };
+    return result;
   }
 
   function emptyMovement() {
@@ -208,22 +243,31 @@
     };
     const bankAccount = current.bankAccountId ? findBankAccountById(current.bankAccountId) : null;
     const counterAccount = current.counterAccountCode ? chartService.findByCode(current.counterAccountCode) : null;
+    const sourceKind = String(current.sourceKind || "MANUAL").trim().toUpperCase();
+    const sourceId = String(current.sourceId || "").trim();
+    const canonicalSourcePrefix = { COLLECTION:"COB",SUPPLIER_PAYMENT:"PAY",TRANSFER:"TRF",ADJUSTMENT:"AJT" }[sourceKind];
+    const semanticId = String(current.originType || "").toUpperCase() === "EXPECTED" && sourceId && canonicalSourcePrefix
+      ? `${canonicalSourcePrefix}-${sourceId}${sourceKind === "TRANSFER" ? `-${String(current.direction || "").toUpperCase()}` : ""}` : "";
+    const canonicalStatus = ({ CONFIRMED:"CONTABILIZADO", VOIDED:"ANULADO" })[String(current.status || "").toUpperCase()];
+    const inferredType = String(current.direction || "").toUpperCase() === "CREDIT" ? "ingreso"
+      : String(current.direction || "").toUpperCase() === "DEBIT" ? "egreso" : "";
     return {
-      id: current.id || uid("BMV"),
+      id: semanticId || current.id || uid("BMV"),
+      treasuryTransactionId: String(current.id || current.bankTransactionId || "").trim(),
       movementNumber: String(current.movementNumber || nextMovementNumber()).trim(),
       movementDate: String(current.movementDate || today()).trim(),
       bankAccountId: String(current.bankAccountId || "").trim(),
       bankAccountCode: String(bankAccount?.code || current.bankAccountCode || "").trim(),
       bankName: String(bankAccount?.bankName || current.bankName || "").trim(),
       bankAccountLabel: bankAccount ? `${bankAccount.code} · ${bankAccount.bankName}` : String(current.bankAccountLabel || "").trim(),
-      movementType: movementTypes.includes(String(current.movementType || "").toLowerCase()) ? String(current.movementType || "").toLowerCase() : "egreso",
+      movementType: movementTypes.includes(String(current.movementType || inferredType).toLowerCase()) ? String(current.movementType || inferredType).toLowerCase() : "egreso",
       medium: movementMediums.includes(String(current.medium || "").toLowerCase()) ? String(current.medium || "").toLowerCase() : "transferencia",
       reference: String(current.reference || "").trim(),
       beneficiary: String(current.beneficiary || "").trim(),
       concept: String(current.concept || "").trim(),
       incomeValue: round2(current.incomeValue || current.income || 0),
       expenseValue: round2(current.expenseValue || current.expense || 0),
-      status: movementStates.includes(String(current.status || "").toUpperCase()) ? String(current.status || "").toUpperCase() : "BORRADOR",
+      status: canonicalStatus || (movementStates.includes(String(current.status || "").toUpperCase()) ? String(current.status || "").toUpperCase() : "BORRADOR"),
       originModule: movementOrigins.includes(String(current.originModule || "").toLowerCase()) ? String(current.originModule || "").toLowerCase() : "manual",
       sourceDocument: String(current.sourceDocument || "").trim(),
       journalEntryId: String(current.journalEntryId || "").trim(),
@@ -234,20 +278,28 @@
       costCenter: String(current.costCenter || "").trim(),
       auxiliary: String(current.auxiliary || "").trim(),
       lineDescription: String(current.lineDescription || "").trim(),
+      originLabel: String(current.originLabel || current.originModule || "").trim(),
       derived: Boolean(current.derived),
-      sourceKind: String(current.sourceKind || "MANUAL").trim().toUpperCase()
+      sourceKind,
+      sourceId,
+      originType: String(current.originType || "").trim().toUpperCase(),
+      direction: String(current.direction || "").trim().toUpperCase(),
+      syncFlow: String(current.syncFlow || "").trim()
     };
   }
 
   function storedMovements() {
-    return cloneList("bankMovements").map(normalizeMovement);
+    const canonical = BlessERP.services?.treasuryV2?.bankTransactions?.() || [];
+    const ids = new Set(canonical.map(item => item.id));
+    return [...canonical, ...cloneList("bankMovements").filter(item => !ids.has(item.id))].map(normalizeMovement);
   }
 
   function derivedPaymentRows() {
+    const canonical = BlessERP.services?.supplierFinanceV2?.payments?.() || [];
     const service = portfolioService();
-    if (!service) return [];
-    return service.payments()
-      .filter(item => item.status === "CONFIRMADO")
+    const source = canonical.length ? canonical : (service?.payments?.() || []);
+    return source
+      .filter(item => ["CONFIRMADO","CONFIRMED"].includes(String(item.status || "").toUpperCase()))
       .map(payment => {
         const account = findBankAccountByLinkedAccount(payment.paymentAccountCode);
         return normalizeMovement({
@@ -273,6 +325,42 @@
           observation: payment.observation,
           derived: true,
           sourceKind: "PAGO"
+        });
+      });
+  }
+
+  function derivedPayrollPaymentRows() {
+    const payroll = stateApi.state.db.payroll || {};
+    const payments = Array.isArray(payroll.payments) ? payroll.payments : [];
+    const splits = Array.isArray(payroll.paymentSplits) ? payroll.paymentSplits : [];
+    return splits
+      .filter(split => ["TRANSFER", "CHECK"].includes(String(split.method || "").toUpperCase()) && split.status === "CONFIRMADO")
+      .map(split => {
+        const payment = payments.find(item => item.id === split.paymentId);
+        const account = findBankAccountById(split.bankAccountId);
+        return normalizeMovement({
+          id: `ROL-${split.id}`,
+          movementNumber: payment?.number || split.id,
+          movementDate: split.date || payment?.date || today(),
+          bankAccountId: account?.id || split.bankAccountId || "",
+          bankAccountCode: account?.code || "",
+          bankName: account?.bankName || "",
+          bankAccountLabel: account ? `${account.code} · ${account.bankName}` : "",
+          movementType: "egreso",
+          medium: String(split.method || "").toUpperCase() === "CHECK" ? "cheque" : "transferencia",
+          reference: split.reference || split.checkNumber || "",
+          beneficiary: payment?.employeeName || split.beneficiary || "",
+          concept: `Pago de rol ${payment?.number || ""}`,
+          expenseValue: round2(split.amount || 0),
+          incomeValue: 0,
+          status: "CONTABILIZADO",
+          originModule: "pagos",
+          sourceDocument: payment?.number || "",
+          journalEntryId: payment?.journalEntryId || "",
+          journalEntryNumber: payment?.journalEntryNumber || "",
+          observation: split.observation || payment?.observation || "",
+          derived: true,
+          sourceKind: "PAGO_ROL"
         });
       });
   }
@@ -316,10 +404,11 @@
   }
 
   function derivedCollectionRows() {
+    const canonical = BlessERP.services?.financialV2?.collections?.() || [];
     const service = receivableService();
-    if (!service) return [];
-    return service.collections()
-      .filter(item => item.status === "CONFIRMADO")
+    const source = canonical.length ? canonical : (service?.collections?.() || []);
+    return source
+      .filter(item => ["CONFIRMADO","CONFIRMED"].includes(String(item.status || "").toUpperCase()))
       .map(collection => {
         const account = collection.bankAccountId
           ? findBankAccountById(collection.bankAccountId)
@@ -387,6 +476,64 @@
       });
   }
 
+  function derivedJournalRows(existingRows = []) {
+    const representedEntryIds = new Set((existingRows || [])
+      .map(item => String(item.journalEntryId || "").trim())
+      .filter(Boolean));
+    const accountByLedger = new Map(bankAccounts()
+      .filter(item => item.status === "activa" && item.linkedAccountCode)
+      .map(item => [item.linkedAccountCode, item]));
+    if (!accountByLedger.size || !journalService?.impactedEntries) return [];
+
+    const result = [];
+    journalService.impactedEntries({}).forEach(entry => {
+      if (representedEntryIds.has(String(entry.id || ""))) return;
+      (entry.lines || []).forEach((line, lineIndex) => {
+        const account = accountByLedger.get(String(line.accountCode || "").trim());
+        if (!account) return;
+        const debit = round2(line.debit || 0);
+        const credit = round2(line.credit || 0);
+        if (debit <= 0 && credit <= 0) return;
+        const originText = String(entry.originModule || "Manual");
+        const originKey = originText.toLowerCase().includes("cobro")
+          ? "cobros"
+          : originText.toLowerCase().includes("pago")
+            ? "pagos"
+            : originText.toLowerCase().includes("ajuste")
+              ? "ajustes"
+              : originText.toLowerCase().includes("transfer")
+                ? "transferencias"
+                : "manual";
+        result.push(normalizeMovement({
+          id: `JRN-${entry.id}-${line.id || lineIndex + 1}`,
+          movementNumber: entry.entryNumber || entry.id,
+          movementDate: entry.accountingDate,
+          bankAccountId: account.id,
+          bankAccountCode: account.code,
+          bankName: account.bankName,
+          bankAccountLabel: `${account.code} · ${account.bankName}`,
+          movementType: debit > 0 ? "ingreso" : "egreso",
+          medium: "otro",
+          reference: entry.externalReference || entry.sourceDocument || entry.entryNumber || "",
+          beneficiary: line.auxiliary || "",
+          concept: line.lineDescription || entry.concept || "Movimiento de Libro Diario",
+          incomeValue: debit,
+          expenseValue: credit,
+          status: "CONTABILIZADO",
+          originModule: originKey,
+          originLabel: `Libro Diario · ${originText}`,
+          sourceDocument: entry.sourceDocument || "",
+          journalEntryId: entry.id,
+          journalEntryNumber: entry.entryNumber || "",
+          observation: entry.observation || "",
+          derived: true,
+          sourceKind: "LIBRO_DIARIO"
+        }));
+      });
+    });
+    return result;
+  }
+
   function sortMovements(rows = []) {
     return [...rows].sort((a, b) => {
       const aKey = `${a.movementDate || ""}|${a.movementNumber || ""}|${a.createdAt || ""}`;
@@ -396,12 +543,26 @@
   }
 
   function movements(filters = {}) {
-    const rows = sortMovements([
-      ...storedMovements(),
-      ...derivedPaymentRows(),
+    const stored = storedMovements();
+    const confirmedSources = new Set(stored
+      .filter(item => item.sourceId && item.syncFlow === "EXPLICIT_TREASURY_V2")
+      .map(item => `${item.sourceKind}:${item.sourceId}`));
+    const isAlreadyRepresented = item => {
+      if (item.sourceKind === "COBRO") return confirmedSources.has(`COLLECTION:${String(item.id || "").replace(/^COB-/,"")}`);
+      if (item.sourceKind === "PAGO") return confirmedSources.has(`SUPPLIER_PAYMENT:${String(item.id || "").replace(/^PAY-/,"")}`);
+      return false;
+    };
+    const sourceRows = [
+      ...stored,
+      ...derivedPaymentRows().filter(item => !isAlreadyRepresented(item)),
+      ...derivedPayrollPaymentRows(),
       ...derivedBatchRows(),
-      ...derivedCollectionRows(),
+      ...derivedCollectionRows().filter(item => !isAlreadyRepresented(item)),
       ...derivedCollectionBatchRows()
+    ];
+    const rows = sortMovements([
+      ...sourceRows,
+      ...derivedJournalRows(sourceRows)
     ]);
     return rows.filter(item => {
       if (filters.bankAccountId && item.bankAccountId !== filters.bankAccountId) return false;
@@ -508,7 +669,9 @@
     const counter = chartService.findByCode(movement.counterAccountCode);
     const entry = journalService.emptyEntry();
     entry.accountingDate = movement.movementDate;
-    entry.accountingPeriod = companyService.settings().activePeriod || entry.accountingPeriod;
+    entry.accountingPeriod = journalService.accountingPeriodForDate?.(entry.accountingDate, entry.accountingPeriod)
+      || String(entry.accountingDate || "").slice(0, 7)
+      || entry.accountingPeriod;
     entry.concept = movement.concept;
     entry.originModule = "Bancos";
     entry.sourceDocument = movement.movementNumber || movement.reference || "";
@@ -597,37 +760,34 @@
     return { ok: true, movement: clone(candidate) };
   }
 
-  function confirmMovement(movementId) {
+  async function confirmMovement(movementId, movementOverride = null) {
     const rows = storedMovements();
     const index = rows.findIndex(item => item.id === movementId);
-    if (index < 0) return { ok: false, errors: ["Movimiento bancario no encontrado."] };
-    if (rows[index].status !== "BORRADOR") return { ok: false, errors: ["Solo se pueden contabilizar movimientos en borrador."] };
-    const { movement: candidate, errors } = validateMovement(rows[index], { forConfirm: true });
+    const source = movementOverride || rows[index];
+    if (!source) return { ok: false, errors: ["Movimiento bancario no encontrado."] };
+    const { movement: candidate, errors } = validateMovement(source, { forConfirm: true });
     if (errors.length) return { ok: false, errors };
     const entryDraft = buildMovementJournalEntry(candidate);
-    const savedEntry = journalService.saveDraft(entryDraft);
-    if (!savedEntry.ok) return { ok: false, errors: savedEntry.errors || ["No se pudo guardar el asiento bancario."] };
-    const postedEntry = journalService.postEntry(savedEntry.entry.id);
-    if (!postedEntry.ok) return { ok: false, errors: postedEntry.errors || ["No se pudo contabilizar el asiento bancario."] };
-    candidate.status = "CONTABILIZADO";
-    candidate.journalEntryId = postedEntry.entry.id;
-    candidate.journalEntryNumber = postedEntry.entry.entryNumber;
-    rows[index] = candidate;
-    saveList("bankMovements", rows);
+    const result = await BlessERP.services?.treasuryV2?.registerTransaction?.({ ...candidate,accountType:"BANK",accountId:candidate.bankAccountId,
+      amount:Number(candidate.incomeValue || candidate.expenseValue),direction:Number(candidate.incomeValue || 0)>0?"CREDIT":"DEBIT",
+      originType:"EXPECTED",sourceType:"MANUAL",sourceId:candidate.id,journal:entryDraft });
+    if (!result?.ok) return { ok:false,errors:result?.errors || [result?.message || "Supabase no confirmó el movimiento bancario."] };
+    const confirmed = normalizeMovement({ ...result.transaction,status:"CONTABILIZADO" });
+    const entry = (result.records || []).find(row => row.entity === "financial_journal_entries")?.payload || {};
     adminService?.addAuditLog?.({
       module: "BANCOS",
       action: "CONFIRMAR_MOVIMIENTO_BANCARIO",
       entityType: "bank_movement",
-      entityId: candidate.id,
-      entityLabel: candidate.movementNumber,
-      documentLabel: candidate.reference || candidate.movementNumber,
+      entityId: confirmed.id,
+      entityLabel: confirmed.movementNumber,
+      documentLabel: confirmed.reference || confirmed.movementNumber,
       previousStatus: "BORRADOR",
-      nextStatus: candidate.status,
-      description: `Movimiento bancario ${candidate.movementNumber} contabilizado con asiento ${candidate.journalEntryNumber}.`,
-      after: candidate,
+      nextStatus: confirmed.status,
+      description: `Movimiento bancario ${confirmed.movementNumber} confirmado en Supabase.`,
+      after: confirmed,
       result: "exitoso"
     });
-    return { ok: true, movement: clone(candidate), entry: clone(postedEntry.entry) };
+    return { ok: true, movement: clone(confirmed), entry: clone(entry), sync:result };
   }
 
   function annulMovement(movementId) {
@@ -685,9 +845,12 @@
     movementStates,
     movementOrigins,
     bankAccounts,
+    confirmCanonicalBankAccount,
     findBankAccountById,
     findBankAccountByCode,
     findBankAccountByLinkedAccount,
+    isUuid,
+    resolveCanonicalBankAccount,
     saveBankAccount,
     toggleBankAccountStatus,
     accountsWithSummary,

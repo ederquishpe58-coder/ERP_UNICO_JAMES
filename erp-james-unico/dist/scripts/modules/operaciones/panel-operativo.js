@@ -25,10 +25,8 @@
       ["operations-bunch-intake", "Primer escaneo valido crea exactamente un ramo y fija su fecha oficial de ingreso."],
       ["operations-roses-inventory", "Inventario formado solo por ramos escaneados y separado de materiales."],
       ["operations-availability", "Disponibilidad derivada del inventario operativo nacido por escaneo."],
-      ["operations-warehouse", "Ubicacion y edad calculadas desde la fecha real del escaneo."],
       ["operations-yields", "Clasificador desde entregas y embonchador desde escaneos validos."],
-      ["operations-scanner", "Validacion tecnica HID y acceso compacto a los dos escaners operativos."],
-      ["operations-dispatch", "Despacho operativo demo sincronizado visualmente con Pedido Maestro."]
+      ["operations-dispatch", "Cuarto frío: seleccione el pedido, abra una caja y escanee sus ramos con Zebra."]
     ];
 
     return `
@@ -75,7 +73,7 @@
         { label: "Cajas pendientes escaneo", value: utils.number(summary.scannerSummary.pendingBoxes || 0), help: "Pendientes de lectura demo" },
         { label: "Codigos no encontrados", value: utils.number(summary.scannerSummary.notFound), help: "Lecturas demo sin coincidencia" },
         { label: "Duplicados demo", value: utils.number(summary.scannerSummary.duplicates), help: "Codigos repetidos en memoria demo" },
-        { label: "Zebra real pendiente", value: summary.scannerSummary.zebraRealPending ? "Si" : "No", help: "Sin lector ni driver real conectado" },
+        { label: "Zebra HID automatico", value: summary.scannerSummary.zebraAutomaticReady ? "Activo" : "Inactivo", help: "Entrada, busqueda y despacho sin conexion manual" },
         { label: "Consumos demo hoy", value: utils.number(summary.consumptionSummary.todaySimulated || 0), help: "Simulaciones de consumo por despacho" },
         { label: "Ramos consumidos demo", value: utils.number(summary.consumptionSummary.consumedBunches || 0), help: "No afecta inventario real" },
         { label: "Tallos consumidos demo", value: utils.number(summary.consumptionSummary.consumedStems || 0), help: "Solo kardex operativo demo" },
@@ -86,7 +84,7 @@
         <div class="panel-card-head">
           <div>
             <p class="section-kicker">CICLO OPERATIVO DEMO</p>
-            <h3>Inventario -> Disponibilidad -> Demanda -> Bodega -> Despacho -> Consumo -> Kardex</h3>
+            <h3>Inventario -> Disponibilidad -> Demanda -> Despacho -> Consumo -> Kardex</h3>
           </div>
           <span class="status-badge partial">${utils.esc(cycleSummary.part1AdapterStatus || "PENDIENTE_INTEGRACION_REAL")}</span>
         </div>

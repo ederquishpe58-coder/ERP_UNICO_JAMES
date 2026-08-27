@@ -120,10 +120,20 @@
     };
   }
 
-  function resolveSuggestedAccounts() {
+  function resolveSuggestedAccounts(order = {}) {
     const defaults = settings().defaultAccounts || {};
+    const localSale = Boolean(utils?.isLocalOrder?.(order));
+    const receivableCode = localSale
+      ? (defaults.accountsReceivableCustomersLocal || defaults.accountsReceivableCustomers)
+      : (defaults.accountsReceivableCustomersExport || defaults.accountsReceivableCustomers);
+    const salesCode = localSale
+      ? (defaults.localSales || defaults.exportSales)
+      : defaults.exportSales;
     return {
-      receivable: resolveAccountReference(defaults.accountsReceivableCustomers, "Cuentas por cobrar clientes"),
+      market: localSale ? "LOCAL" : "EXPORTACION",
+      receivable: resolveAccountReference(receivableCode, localSale ? "Cuentas por cobrar clientes locales" : "Cuentas por cobrar clientes del exterior"),
+      sales: resolveAccountReference(salesCode, localSale ? "Ventas locales" : "Ventas exportacion"),
+      localSales: resolveAccountReference(defaults.localSales, "Ventas locales"),
       exportSales: resolveAccountReference(defaults.exportSales, "Ventas exportacion"),
       customerAdvances: resolveAccountReference(defaults.customerAdvances, "Anticipos de clientes"),
       withholdingReceivable: resolveAccountReference(defaults.withholdingReceivable, "Retenciones recibidas por cobrar")

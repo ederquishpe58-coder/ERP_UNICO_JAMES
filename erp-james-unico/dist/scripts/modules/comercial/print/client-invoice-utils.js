@@ -27,19 +27,25 @@
   }
 
   function buildInvoiceNumber(order) {
-    if (String(order?.clientInvoiceNumber || "").trim()) return String(order.clientInvoiceNumber).trim();
-    const orderNumber = String(order?.number || "").trim();
-    const match = orderNumber.match(/(\d{4}-\d{4})$/);
-    return match ? `CINV-${match[1]}` : `CINV-${orderNumber || "DEMO"}`;
+    return BlessERP.comercialInvoiceSequence?.visibleInvoiceNumber?.(order) || "";
+  }
+
+  function getInvoiceMetrics(order) {
+    const metrics = utils.getOrderMetrics(order);
+    return BlessERP.comercialPrintUtils?.buildPrintableMetrics
+      ? BlessERP.comercialPrintUtils.buildPrintableMetrics(metrics)
+      : metrics;
   }
 
   function normalizeGroupedRows(lines, order) {
     const groups = new Map();
     (lines || []).forEach(line => {
       const po = String(line.po || order.generalPo || "").trim();
-      const key = [line.variety, line.length, line.stemsPerBunch, Number(line.unitPrice || 0).toFixed(4), po].join("|");
+      const boxType = String(line.boxType || "").trim().toUpperCase() || "-";
+      const key = [boxType, line.variety, line.length, line.stemsPerBunch, Number(line.unitPrice || 0).toFixed(4), po].join("|");
       if (!groups.has(key)) {
         groups.set(key, {
+          type: boxType,
           description: line.variety,
           length: line.length,
           bunches: 0,
@@ -66,6 +72,7 @@
       })
       .map((row, index) => ({
         item: index + 1,
+        type: row.type,
         description: row.description,
         length: row.length,
         bunches: row.bunches,
@@ -81,6 +88,7 @@
   function normalizeDetailedRows(lines, order) {
     return (lines || []).map((line, index) => ({
       item: index + 1,
+      type: String(line.boxType || "").trim().toUpperCase() || "-",
       description: `Caja ${line.boxNumber} ${line.boxType} · ${line.variety}`,
       length: line.length,
       bunches: Number(line.bunches || 0),
@@ -93,8 +101,8 @@
     }));
   }
 
-  function buildRows(order, options) {
-    const metrics = utils.getOrderMetrics(order);
+  function buildRows(order, options, preparedMetrics = null) {
+    const metrics = preparedMetrics || getInvoiceMetrics(order);
     return options.viewMode === "detailed"
       ? normalizeDetailedRows(metrics.lines, order)
       : normalizeGroupedRows(metrics.lines, order);
@@ -115,18 +123,15 @@
     return "BORRADOR";
   }
 
-  function validateDocument(order, appState, rawOptions = {}) {
-    const normalizedOrder = utils.normalizeOrder(order);
-    const options = resolveOptions(appState, rawOptions);
-    const customer = utils.findCustomer(normalizedOrder.customerId);
-    const brand = utils.findBrand(normalizedOrder.brandId);
-    const metrics = utils.getOrderMetrics(normalizedOrder);
+  function validatePrepared(normalizedOrder, options, customer, brand, metrics) {
+    const localSale = utils.isLocalOrder?.(normalizedOrder) || false;
     const errors = [];
     const warnings = [];
 
+    if (!buildInvoiceNumber(normalizedOrder)) errors.push("Falta numero de factura. Guarde el pedido para reservar su secuencial.");
     if (!customer) errors.push("Falta cliente principal.");
-    if (options.showBrand && !brand) errors.push("Falta marca / cliente final.");
-    if ((options.showBrand || normalizedOrder.transportType === "aereo") && !normalizedOrder.destination) {
+    if (!localSale && options.showBrand && !brand) errors.push("Falta marca / cliente final.");
+    if (!localSale && (options.showBrand || normalizedOrder.transportType === "aereo") && !normalizedOrder.destination) {
       errors.push("Falta marca / destino configurado como obligatorio.");
     }
     if (!normalizedOrder.issuedAt) errors.push("Falta fecha emision.");
@@ -135,14 +140,13 @@
     if (metrics.lines.some(line => Number(line.unitPrice || 0) <= 0)) errors.push("Falta precio unitario.");
     if (!String(normalizedOrder.currency || "").trim()) errors.push("Falta moneda.");
 
-    if (!normalizedOrder.awb) warnings.push("Falta AWB.");
-    if (!normalizedOrder.hawb) warnings.push("Falta HAWB.");
-    if (!normalizedOrder.daeNumber) warnings.push("Falta DAE.");
+    if (!localSale && normalizedOrder.transportType === "aereo" && !normalizedOrder.awb) warnings.push("Falta AWB.");
+    if (!localSale && normalizedOrder.transportType === "aereo" && !normalizedOrder.hawb) warnings.push("Falta HAWB.");
+    if (!localSale && normalizedOrder.transportType === "aereo" && !normalizedOrder.daeNumber) warnings.push("Falta DAE.");
     if (!normalizedOrder.flightDate) warnings.push("Falta fecha vuelo.");
     if (!String(customer?.billingEmail || "").trim()) warnings.push("Falta correo cliente.");
     if (!String(normalizedOrder.paymentTerms || "").trim()) warnings.push("Falta condicion de pago.");
-    warnings.push("Documento comercial preliminar. No corresponde a factura electronica autorizada por el SRI.");
-    warnings.push("Formato real de cliente pendiente de confirmacion.");
+    warnings.push("Documento comercial para cliente. No corresponde a factura electronica autorizada por el SRI.");
 
     const state = buildDocumentState(normalizedOrder, { errors, warnings }, options);
 
@@ -155,13 +159,22 @@
     };
   }
 
-  function buildContract(order, appState, rawOptions = {}) {
+  function validateDocument(order, appState, rawOptions = {}) {
     const normalizedOrder = utils.normalizeOrder(order);
     const options = resolveOptions(appState, rawOptions);
     const customer = utils.findCustomer(normalizedOrder.customerId);
     const brand = utils.findBrand(normalizedOrder.brandId);
-    const metrics = utils.getOrderMetrics(normalizedOrder);
-    const validation = validateDocument(normalizedOrder, appState, options);
+    const metrics = getInvoiceMetrics(normalizedOrder);
+    return validatePrepared(normalizedOrder, options, customer, brand, metrics);
+  }
+
+  function buildContract(order, appState, rawOptions = {}, prepared = null) {
+    const normalizedOrder = prepared?.normalizedOrder || utils.normalizeOrder(order);
+    const options = prepared?.options || resolveOptions(appState, rawOptions);
+    const customer = prepared?.customer || utils.findCustomer(normalizedOrder.customerId);
+    const brand = prepared?.brand || utils.findBrand(normalizedOrder.brandId);
+    const metrics = prepared?.metrics || getInvoiceMetrics(normalizedOrder);
+    const validation = prepared?.validation || validatePrepared(normalizedOrder, options, customer, brand, metrics);
 
     return {
       pedido_id: normalizedOrder.id,
@@ -183,7 +196,7 @@
       estado: validation.state,
       es_sri: false,
       sri_estado_futuro: "pendiente",
-      observacion: normalizedOrder.notes || "Factura comercial cliente demo desde Pedido Maestro."
+      observacion: normalizedOrder.notes || "Factura comercial cliente demo desde Crear pedido."
     };
   }
 
@@ -194,10 +207,17 @@
     const brand = utils.findBrand(normalizedOrder.brandId);
     const agency = utils.findAgency(normalizedOrder.agencyId);
     const airline = utils.findAirline(normalizedOrder.airlineId);
-    const metrics = utils.getOrderMetrics(normalizedOrder);
-    const rows = buildRows(normalizedOrder, options);
-    const validation = validateDocument(normalizedOrder, appState, options);
-    const contract = buildContract(normalizedOrder, appState, options);
+    const metrics = getInvoiceMetrics(normalizedOrder);
+    const rows = buildRows(normalizedOrder, options, metrics);
+    const validation = validatePrepared(normalizedOrder, options, customer, brand, metrics);
+    const contract = buildContract(normalizedOrder, appState, options, {
+      normalizedOrder,
+      options,
+      customer,
+      brand,
+      metrics,
+      validation
+    });
 
     return {
       order: normalizedOrder,

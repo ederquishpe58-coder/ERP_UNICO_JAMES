@@ -8,8 +8,7 @@
     administration: "AC",
     "materials-inventory": "IE",
     reports: "RP",
-    settings: "CF",
-    extensions: "MF"
+    settings: "CF"
   };
 
   const MENU_PERMISSIONS = {
@@ -19,8 +18,7 @@
     administration: ["ADMIN", "SOPORTE", "CONTABILIDAD"],
     "materials-inventory": ["ADMIN", "SOPORTE", "BODEGA", "CONTABILIDAD"],
     reports: ["ADMIN", "SOPORTE", "CONTABILIDAD", "COMERCIAL", "OPERACIONES", "BODEGA"],
-    settings: ["ADMIN", "SOPORTE"],
-    extensions: ["ADMIN", "SOPORTE"]
+    settings: ["ADMIN", "SOPORTE"]
   };
 
   const MENU_SUBFOLDERS = {
@@ -30,21 +28,14 @@
         nombre: "Órdenes / Pedidos",
         icono: "OR",
         orden: 20,
-        routes: ["commercial-orders-day", "commercial-order-master", "commercial-order-detail", "commercial-order-history"]
-      },
-      {
-        id: "folder-commercial-documents",
-        nombre: "Documentos comerciales",
-        icono: "DC",
-        orden: 40,
-        routes: ["commercial-invoice-packing", "commercial-client-invoice", "commercial-print-center"]
+        routes: ["commercial-preorders", "commercial-order-master", "commercial-order-detail", "commercial-order-coordination", "commercial-order-history"]
       },
       {
         id: "folder-commercial-administration",
         nombre: "Administración",
         icono: "AD",
         orden: 50,
-        routes: ["commercial-customers-brands", "commercial-brands", "commercial-cargo-agencies", "commercial-destinations", "commercial-daes", "commercial-airlines", "commercial-export-products", "commercial-box-types"]
+        routes: ["commercial-customers-brands", "commercial-brands", "commercial-cargo-agencies", "commercial-countries", "commercial-daes", "commercial-airlines", "commercial-export-products", "commercial-box-types"]
       }
     ]
   };
@@ -52,8 +43,14 @@
   const MENU_ROOT_ROUTE_ORDER = {
     "commercial-panel": 10,
     "commercial-availability-reservations": 30,
+    "commercial-credit-notes": 80,
+    "commercial-senae-liquidation": 85,
     "commercial-sri-authorization": 90
   };
+
+  const MENU_HIDDEN_ROUTES = new Set([
+    "commercial-orders-day"
+  ]);
 
   function normalizeRoleTokens(role) {
     const value = String(role || "")
@@ -138,7 +135,7 @@
           folder.routes.forEach(routeId => routeFolderMap.set(routeId, folder.id));
         });
 
-        section.routes.forEach((route, routeIndex) => {
+        section.routes.filter(route => !MENU_HIDDEN_ROUTES.has(route.id)).forEach((route, routeIndex) => {
           const routeParentId = routeFolderMap.get(route.id) || parentId;
           records.push({
             id: `page-${route.id}`,

@@ -1,0 +1,2 @@
+-- Intencionalmente vacio.
+-- Los datos operativos se crean desde JAEDER SYSTEMS con usuario y empresa auditables.

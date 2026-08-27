@@ -3,10 +3,15 @@
 
   const DISPATCH_STATES = [
     "PENDIENTE",
+    "PEDIDO_INCOMPLETO",
+    "PEDIDO_COMPLETADO",
+    "PEDIDO_ACTUALIZADO",
+    "CARGADO_CAMION",
     "EN_PREPARACION",
     "LISTO_DESPACHO",
     "DESPACHADO_DEMO",
     "OBSERVADO",
+    "ANULADO",
     "ANULADO_DEMO"
   ];
 
@@ -181,7 +186,11 @@
     }
   ];
 
-  let memoryDispatches = clone(seedDispatches);
+  // Los registros de ejemplo históricos se conservan en el código solo como referencia
+  // de compatibilidad, pero nunca se cargan en la bandeja operativa.
+  let memoryDispatches = [];
+  const normalizedDispatchArrays = new WeakSet();
+  const orderListMetricsCache = new WeakMap();
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -209,6 +218,35 @@
     return todayIso().slice(0, 10);
   }
 
+  function orderListMetrics(order) {
+    if (!order || typeof order !== "object") return { totalBoxes: 0, totalFulls: 0 };
+    const lines = Array.isArray(order.lines) ? order.lines : [];
+    const fingerprint = [
+      order.version || 0,
+      order.updatedAt || order.updated_at || "",
+      order.revisionNumber || 0,
+      lines.length,
+      lines.map(line => `${line?.boxNumber ?? line?.numero_caja ?? ""}:${line?.boxType ?? line?.tipo_caja ?? ""}`).join("|")
+    ].join(";");
+    const cached = orderListMetricsCache.get(order);
+    if (cached?.fingerprint === fingerprint) return cached.metrics;
+
+    const uniqueBoxes = new Map();
+    lines.forEach(line => {
+      const boxNumber = toNumber(line?.boxNumber ?? line?.numero_caja, 0);
+      if (boxNumber <= 0 || uniqueBoxes.has(boxNumber)) return;
+      uniqueBoxes.set(boxNumber, normalizeText(line?.boxType || line?.tipo_caja || ""));
+    });
+    let totalFulls = 0;
+    uniqueBoxes.forEach(boxType => {
+      const configured = BlessERP.comercialUtils?.findBoxType?.(boxType)?.fullEquivalent;
+      totalFulls += toNumber(configured, BOX_FULL_EQUIVALENCE[boxType] || 0);
+    });
+    const metrics = { totalBoxes: uniqueBoxes.size, totalFulls };
+    orderListMetricsCache.set(order, { fingerprint, metrics });
+    return metrics;
+  }
+
   function isAppState(value) {
     return Boolean(value && typeof value === "object" && value.db);
   }
@@ -229,26 +267,44 @@
 
   function getOperationsStore(appState) {
     if (!appState?.db) return null;
-    appState.db.operaciones = appState.db.operaciones || {};
-    return appState.db.operaciones;
+    const currentStore = appState.db.operations;
+    const store = currentStore && typeof currentStore === "object"
+      ? currentStore
+      : BlessERP.operacionesState?.getStore
+        ? BlessERP.operacionesState.getStore(appState)
+        : (appState.db.operations = {});
+    const legacyStore = appState.db.operaciones;
+    if (
+      legacyStore
+      && Array.isArray(legacyStore.dispatches)
+      && legacyStore.dispatches.length
+      && (!Array.isArray(store.dispatches) || !store.dispatches.length)
+    ) {
+      store.dispatches = legacyStore.dispatches;
+    }
+    return store;
   }
 
-  function findCustomerName(pedido) {
+  function findCustomerName(pedido, appState) {
     if (pedido?.cliente_principal) return pedido.cliente_principal;
     if (pedido?.cliente_principal_nombre) return pedido.cliente_principal_nombre;
     if (pedido?.customerName) return pedido.customerName;
-    if (pedido?.customerId && BlessERP.comercialUtils?.findCustomer) {
-      return BlessERP.comercialUtils.findCustomer(pedido.customerId)?.commercialName || "";
+    if (pedido?.customerId) {
+      const customer = BlessERP.comercialState?.getCustomerCatalog?.(appState)?.find(item => item.id === pedido.customerId)
+        || BlessERP.comercialUtils?.findCustomer?.(pedido.customerId);
+      return customer?.legalName || customer?.commercialName || customer?.name || "";
     }
     return "";
   }
 
-  function findBrandName(pedido) {
+  function findBrandName(pedido, appState) {
     if (pedido?.marca_cliente_final) return pedido.marca_cliente_final;
     if (pedido?.marca_nombre) return pedido.marca_nombre;
     if (pedido?.brandName) return pedido.brandName;
-    if (pedido?.brandId && BlessERP.comercialUtils?.findBrand) {
-      return BlessERP.comercialUtils.findBrand(pedido.brandId)?.name || "";
+    if (pedido?.brandId) {
+      const brand = BlessERP.comercialState?.getBrandCatalog?.(appState)?.find(item => item.id === pedido.brandId)
+        || BlessERP.comercialUtils?.findBrand?.(pedido.brandId);
+      return brand?.finalClientName || brand?.name || "";
     }
     return "";
   }
@@ -491,6 +547,13 @@
 
   function normalizeDispatchState(value) {
     const state = normalizeText(value);
+    const legacy = {
+      EN_PREPARACION: "PEDIDO_INCOMPLETO",
+      LISTO_DESPACHO: "PEDIDO_COMPLETADO",
+      DESPACHADO_DEMO: "CARGADO_CAMION",
+      ANULADO_DEMO: "ANULADO"
+    };
+    if (legacy[state]) return legacy[state];
     return DISPATCH_STATES.includes(state) ? state : "PENDIENTE";
   }
 
@@ -504,15 +567,25 @@
       draft.etiquetas_generadas,
       boxes.filter(box => box.etiqueta_generada).length
     );
+    const saleType = String(draft.tipo_venta || draft.saleType || draft.sale_type || "").trim();
+    const transportType = String(draft.tipo_transporte || draft.transportType || draft.transport_type || "").trim();
+    const localSale = draft.venta_local === true
+      || String(draft.venta_local || "").toLowerCase() === "true"
+      || ["LOCAL", "VENTA LOCAL", "VENTA_LOCAL"].includes(normalizeText(saleType))
+      || normalizeText(transportType) === "TERRESTRE";
 
     return {
-      dispatch_id: String(draft.dispatch_id || draft.id || createId("DSP-DEMO")).trim(),
+      dispatch_id: String(draft.dispatch_id || draft.id || createId("CF")).trim(),
       pedido_id: String(draft.pedido_id || draft.orderId || "").trim(),
       numero_pedido: String(draft.numero_pedido || draft.relatedOrder || "").trim(),
       cliente_principal: String(draft.cliente_principal || "").trim(),
       marca_cliente_final: String(draft.marca_cliente_final || "").trim(),
       destino: String(draft.destino || "").trim(),
+      fecha_pedido: String(draft.fecha_pedido || draft.orderDate || "").trim(),
       fecha_vuelo: String(draft.fecha_vuelo || "").trim(),
+      tipo_venta: saleType,
+      tipo_transporte: transportType,
+      venta_local: localSale,
       dae: String(draft.dae || "").trim(),
       dae_fecha_caducidad: String(draft.dae_fecha_caducidad || draft.daeExpirationDate || "").trim(),
       awb: String(draft.awb || "").trim(),
@@ -563,7 +636,7 @@
     )) || null;
   }
 
-  function buildDispatchFromPedido(pedido, existing = {}) {
+  function buildDispatchFromPedido(pedido, existing = {}, appState = null) {
     const boxes = buildBoxesFromPedido(pedido);
     const totals = inferTotalsFromBoxes(boxes);
     const reservations = buildReservationsFromPedido(pedido, boxes);
@@ -578,10 +651,14 @@
       ...existing,
       pedido_id: pedido?.id || existing.pedido_id || "",
       numero_pedido: pedido?.number || pedido?.numero_pedido || existing.numero_pedido || "",
-      cliente_principal: findCustomerName(pedido) || existing.cliente_principal || "",
-      marca_cliente_final: findBrandName(pedido) || existing.marca_cliente_final || "",
+      cliente_principal: findCustomerName(pedido, appState) || existing.cliente_principal || "",
+      marca_cliente_final: findBrandName(pedido, appState) || existing.marca_cliente_final || "",
       destino: pedido?.destination || pedido?.destino || existing.destino || "",
+      fecha_pedido: pedido?.issuedAt || pedido?.date || pedido?.createdAt || pedido?.fecha_pedido || existing.fecha_pedido || "",
       fecha_vuelo: pedido?.flightDate || pedido?.fecha_vuelo || existing.fecha_vuelo || "",
+      tipo_venta: pedido?.saleType || pedido?.sale_type || existing.tipo_venta || "",
+      tipo_transporte: pedido?.transportType || pedido?.transport_type || existing.tipo_transporte || "",
+      venta_local: BlessERP.comercialUtils?.isLocalOrder?.(pedido) || false,
       dae: pedido?.daeNumber || pedido?.dae || existing.dae || "",
       dae_fecha_caducidad: pedido?.daeExpirationDate || pedido?.dae_fecha_caducidad || existing.dae_fecha_caducidad || "",
       awb: pedido?.awb || existing.awb || "",
@@ -614,15 +691,21 @@
   function ensureDispatchArray(appState) {
     const operationsStore = getOperationsStore(appState);
     const current = operationsStore ? operationsStore.dispatches : memoryDispatches;
-    const source = Array.isArray(current) && current.length ? current : seedDispatches;
-    const normalized = source.map((record, index) => normalizeDispatch(record, seedDispatches[index] || {}));
+    if (Array.isArray(current) && normalizedDispatchArrays.has(current)) return current;
+    const source = Array.isArray(current) ? current : [];
+    const normalized = source
+      .filter(record => !String(record?.dispatch_id || "").toUpperCase().includes("DEMO"))
+      .filter(record => !String(record?.pedido_id || "").toLowerCase().startsWith("order-demo-"))
+      .map(record => normalizeDispatch(record));
 
     if (operationsStore) {
       operationsStore.dispatches = normalized;
+      normalizedDispatchArrays.add(operationsStore.dispatches);
       return operationsStore.dispatches;
     }
 
     memoryDispatches = normalized;
+    normalizedDispatchArrays.add(memoryDispatches);
     return memoryDispatches;
   }
 
@@ -650,22 +733,22 @@
     let index = findDispatchIndex(dispatches, input);
 
     if (commercialOrder && index > -1) {
-      dispatches[index] = buildDispatchFromPedido(commercialOrder, dispatches[index]);
+      Object.assign(dispatches[index], buildDispatchFromPedido(commercialOrder, dispatches[index], appState));
       return dispatches[index];
     }
 
     if (commercialOrder && index === -1) {
       const built = buildDispatchFromPedido(commercialOrder, {
-        dispatch_id: createId("DSP-DEMO"),
+        dispatch_id: createId("CF"),
         estado_despacho: "PENDIENTE"
-      });
+      }, appState);
       dispatches.push(built);
       saveState();
       return built;
     }
 
     if (index > -1) {
-      dispatches[index] = normalizeDispatch(dispatches[index]);
+      Object.assign(dispatches[index], normalizeDispatch(dispatches[index]));
       return dispatches[index];
     }
 
@@ -673,9 +756,9 @@
       const built = input.dispatch_id || input.estado_despacho || input.cajas
         ? normalizeDispatch(input)
         : buildDispatchFromPedido(input, {
-            dispatch_id: createId("DSP-DEMO"),
+            dispatch_id: createId("CF"),
             estado_despacho: "PENDIENTE"
-          });
+          }, appState);
       dispatches.push(built);
       saveState();
       return built;
@@ -696,12 +779,13 @@
   function suggestedOrderStatusForDispatch(status, currentOrderStatus = "") {
     const dispatchStatus = normalizeText(status);
     const orderStatus = normalizeText(currentOrderStatus);
-    if (dispatchStatus === "LISTO_DESPACHO") return "LISTO_DESPACHO";
-    if (dispatchStatus === "DESPACHADO_DEMO") return "DESPACHADO_DEMO";
-    if (dispatchStatus === "EN_PREPARACION") return orderStatus === "VALIDADO_COMERCIAL" ? "VALIDADO_COMERCIAL" : "LISTO_BODEGA";
+    if (dispatchStatus === "PEDIDO_COMPLETADO") return "LISTO_DESPACHO";
+    if (dispatchStatus === "CARGADO_CAMION") return "DESPACHADO_DEMO";
+    if (dispatchStatus === "PEDIDO_INCOMPLETO") return orderStatus || "VALIDADO_COMERCIAL";
+    if (dispatchStatus === "PEDIDO_ACTUALIZADO") return orderStatus || "VALIDADO_COMERCIAL";
     if (dispatchStatus === "PENDIENTE") return ["VALIDADO_COMERCIAL", "LISTO_BODEGA", "LISTO_DESPACHO"].includes(orderStatus) ? orderStatus : "VALIDADO_COMERCIAL";
     if (dispatchStatus === "OBSERVADO") return orderStatus || "LISTO_BODEGA";
-    if (dispatchStatus === "ANULADO_DEMO") return orderStatus || "ANULADO";
+    if (dispatchStatus === "ANULADO") return orderStatus || "ANULADO";
     return orderStatus || "";
   }
 
@@ -713,7 +797,7 @@
       actionLabel: action.replaceAll("_", " "),
       previousStatus: order.status,
       nextStatus: order.status,
-      description: `Despacho demo ${previousState || "-"} -> ${nextState || "-"} para ${dispatch.numero_pedido || dispatch.pedido_id}.`,
+      description: `Despacho operativo ${previousState || "-"} -> ${nextState || "-"} para ${dispatch.numero_pedido || dispatch.pedido_id}.`,
       result,
       reason: motivo || dispatch.observacion || ""
     });
@@ -766,7 +850,20 @@
       return result;
     }
 
-    const transition = BlessERP.comercialState.changeOrderStatusById(appState, order.id, suggested, "Sincronizacion visual de estado desde despacho demo.");
+    const workflow = BlessERP.comercialWorkflow;
+    const transitionAllowed = !workflow?.isTransitionAllowed
+      || workflow.isTransitionAllowed(order.status, suggested);
+    const transitionReview = transitionAllowed && workflow?.buildTransitionValidation
+      ? workflow.buildTransitionValidation(order, suggested, appState)
+      : null;
+    if (!transitionAllowed || transitionReview?.errors?.length) {
+      result.observacion = `Despacho operativo registrado; el pedido comercial permanece en ${order.status || "su estado actual"} hasta completar su propio flujo.`;
+      dispatch.estado_pedido = order.status;
+      dispatch.sincronizacion_pedido = result;
+      return result;
+    }
+
+    const transition = BlessERP.comercialState.changeOrderStatusById(appState, order.id, suggested, "Sincronizacion de estado desde despacho operativo.");
     if (transition?.ok) {
       result.sincronizado = true;
       result.observacion = `Pedido sincronizado visualmente a ${suggested}.`;
@@ -779,6 +876,9 @@
   }
 
   function buildChecklist(dispatch) {
+    const localSale = dispatch.venta_local === true
+      || ["LOCAL", "VENTA LOCAL", "VENTA_LOCAL"].includes(normalizeText(dispatch.tipo_venta))
+      || normalizeText(dispatch.tipo_transporte) === "TERRESTRE";
     const missingMaterials = dispatch.materiales_requeridos.filter(item => toNumber(item.faltante, 0) > 0 || normalizeText(item.estado) === "FALTANTE");
     const partialMaterials = dispatch.materiales_requeridos.filter(item => normalizeText(item.estado) === "PARCIAL");
     const unusedReservations = dispatch.reservas_relacionadas.filter(item => toNumber(item.diferencia, 0) > 0);
@@ -801,7 +901,7 @@
       : [];
     const activeConsumption = consumptionRows.filter(item => normalizeText(item.estado_consumo) === "SIMULADO");
     const revertedConsumption = consumptionRows.filter(item => normalizeText(item.estado_consumo) === "REVERTIDO_DEMO");
-    const consumptionChecklistStatus = normalizeText(dispatch.estado_despacho) !== "DESPACHADO_DEMO"
+    const consumptionChecklistStatus = normalizeText(dispatch.estado_despacho) !== "CARGADO_CAMION"
       ? "PENDIENTE"
       : activeConsumption.length
         ? "OK"
@@ -819,8 +919,8 @@
       {
         id: "marca",
         label: "Marca / cliente final definida",
-        status: dispatch.marca_cliente_final ? "OK" : "ERROR",
-        detail: dispatch.marca_cliente_final ? "Marca registrada." : "Falta marca."
+        status: localSale || dispatch.marca_cliente_final ? "OK" : "ERROR",
+        detail: localSale ? "No aplica en venta local." : dispatch.marca_cliente_final ? "Marca registrada." : "Falta marca."
       },
       {
         id: "destino",
@@ -831,14 +931,16 @@
       {
         id: "dae",
         label: "DAE registrada",
-        status: dispatch.dae ? "OK" : "ERROR",
-        detail: dispatch.dae ? "DAE registrada." : "Falta DAE."
+        status: localSale || dispatch.dae ? "OK" : "ERROR",
+        detail: localSale ? "No aplica en venta local." : dispatch.dae ? "DAE registrada." : "Falta DAE."
       },
       {
         id: "dae_vigente",
         label: "DAE vigente",
-        status: !dispatch.dae ? "PENDIENTE" : isExpired(dispatch.dae_fecha_caducidad) ? "ERROR" : "OK",
-        detail: !dispatch.dae
+        status: localSale ? "OK" : !dispatch.dae ? "PENDIENTE" : isExpired(dispatch.dae_fecha_caducidad) ? "ERROR" : "OK",
+        detail: localSale
+          ? "No aplica en venta local."
+          : !dispatch.dae
           ? "No se puede validar vigencia sin DAE."
           : isExpired(dispatch.dae_fecha_caducidad)
             ? "DAE caducada."
@@ -964,9 +1066,9 @@
       },
       {
         id: "scanner",
-        label: "Scanner real pendiente",
-        status: "ADVERTENCIA",
-        detail: "Scanner real no conectado."
+        label: "Scanner Zebra HID",
+        status: "OK",
+        detail: "Lectura automatica activa para ramos en la caja seleccionada."
       },
       {
         id: "inventario",
@@ -978,7 +1080,7 @@
         id: "consumo_demo_simulado",
         label: "Consumo demo simulado",
         status: consumptionChecklistStatus,
-        detail: normalizeText(dispatch.estado_despacho) !== "DESPACHADO_DEMO"
+          detail: normalizeText(dispatch.estado_despacho) !== "CARGADO_CAMION"
           ? "Se habilita cuando el pedido este despachado demo."
           : activeConsumption.length
             ? `Consumo demo simulado con ${activeConsumption.length} movimiento(s).`
@@ -991,7 +1093,7 @@
 
   function validateDispatchReadinessDemo(first, second) {
     const { appState, input } = resolveArgs(first, second);
-    const dispatch = getMutableDispatch(appState, input);
+    let dispatch = getMutableDispatch(appState, input);
 
     if (!dispatch) {
       return {
@@ -1005,12 +1107,15 @@
     const errors = [];
     const warnings = [];
     const checklist = buildChecklist(dispatch);
+    const localSale = dispatch.venta_local === true
+      || ["LOCAL", "VENTA LOCAL", "VENTA_LOCAL"].includes(normalizeText(dispatch.tipo_venta))
+      || normalizeText(dispatch.tipo_transporte) === "TERRESTRE";
 
-    if (!dispatch.marca_cliente_final) errors.push("Falta marca.");
+    if (!localSale && !dispatch.marca_cliente_final) errors.push("Falta marca.");
     if (!dispatch.destino) errors.push("Falta destino.");
-    if (!dispatch.dae) errors.push("Falta DAE.");
+    if (!localSale && !dispatch.dae) errors.push("Falta DAE.");
     if (toNumber(dispatch.total_cajas, 0) <= 0 || !dispatch.cajas.length) errors.push("Pedido sin cajas.");
-    if (isExpired(dispatch.dae_fecha_caducidad)) errors.push("DAE caducada.");
+    if (!localSale && isExpired(dispatch.dae_fecha_caducidad)) errors.push("DAE caducada.");
     if (normalizeText(dispatch.estado_pedido) === "ANULADO") errors.push("Pedido anulado.");
 
     if (!dispatch.awb) warnings.push("Falta AWB.");
@@ -1031,7 +1136,7 @@
     const consumptionRows = BlessERP.operacionesConsumptionDemo?.getConsumptionsByOrderDemo
       ? BlessERP.operacionesConsumptionDemo.getConsumptionsByOrderDemo(appState, dispatch.pedido_id || dispatch.numero_pedido)
       : [];
-    if (normalizeText(dispatch.estado_despacho) === "DESPACHADO_DEMO" && !consumptionRows.some(item => normalizeText(item.estado_consumo) === "SIMULADO")) {
+    if (normalizeText(dispatch.estado_despacho) === "CARGADO_CAMION" && !consumptionRows.some(item => normalizeText(item.estado_consumo) === "SIMULADO")) {
       warnings.push("Despacho demo sin consumo simulado.");
     }
     warnings.push("Scanner real no conectado.");
@@ -1045,13 +1150,199 @@
     };
   }
 
+  function getDispatchResponsiblesDemo(first) {
+    return ["DESPACHO GENERAL"];
+  }
+
+  function getDefaultDispatchResponsibleDemo(first) {
+    return "DESPACHO GENERAL";
+  }
+
+  function getDispatchProgressDemo(first, second) {
+    const { appState, input } = resolveArgs(first, second);
+    const dispatch = getMutableDispatch(appState, input);
+    if (!dispatch) {
+      return {
+        ok: false,
+        status: "PENDIENTE",
+        allBoxesComplete: false,
+        totalBoxes: 0,
+        completeBoxes: 0,
+        pendingBunches: 0,
+        pendingChanges: 0
+      };
+    }
+    const orderId = dispatch.pedido_id || dispatch.numero_pedido || dispatch.dispatch_id;
+    const fulfillment = BlessERP.comercialOrderFulfillment?.getOrderFulfillment?.(appState, orderId) || null;
+    const pendingChanges = BlessERP.comercialOrderFulfillment?.getPendingOrderChanges?.(appState, orderId) || [];
+    const current = normalizeDispatchState(dispatch.estado_despacho);
+    let status = "PENDIENTE";
+    if (pendingChanges.length && ["PEDIDO_COMPLETADO", "PEDIDO_ACTUALIZADO", "CARGADO_CAMION"].includes(current)) {
+      status = "PEDIDO_ACTUALIZADO";
+    } else if (current === "CARGADO_CAMION") {
+      status = "CARGADO_CAMION";
+    } else if (fulfillment?.allBoxesComplete) {
+      status = "PEDIDO_COMPLETADO";
+    } else if (toNumber(fulfillment?.scannedBunches, 0) > 0 || toNumber(fulfillment?.completeBoxes, 0) > 0) {
+      status = "PEDIDO_INCOMPLETO";
+    }
+    return {
+      ok: true,
+      status,
+      allBoxesComplete: Boolean(fulfillment?.allBoxesComplete),
+      totalBoxes: toNumber(fulfillment?.totalBoxes, dispatch.total_cajas),
+      completeBoxes: toNumber(fulfillment?.completeBoxes, 0),
+      pendingBunches: toNumber(fulfillment?.pendingBunches, 0),
+      pendingChanges: pendingChanges.length,
+      fulfillment
+    };
+  }
+
+  function refreshDispatchProgressDemo(first, second, third = {}) {
+    const { appState, input } = resolveArgs(first, second);
+    const options = isAppState(first) ? (third || {}) : {};
+    let dispatch = getMutableDispatch(appState, input);
+    if (!dispatch) return { ok: false, error: "Despacho no encontrado." };
+    const progress = getDispatchProgressDemo(appState, dispatch.pedido_id || dispatch.numero_pedido || dispatch.dispatch_id);
+    dispatch = getMutableDispatch(appState, input);
+    if (!progress.ok || progress.status === dispatch.estado_despacho) {
+      return { ...progress, dispatch: clone(dispatch) };
+    }
+    const previousState = dispatch.estado_despacho;
+    dispatch.estado_despacho = progress.status;
+    dispatch.observacion = progress.status === "PEDIDO_COMPLETADO"
+      ? "Todas las cajas quedaron completas mediante escaneo."
+      : progress.status === "PEDIDO_ACTUALIZADO"
+        ? "El pedido fue actualizado después de completar sus cajas."
+        : progress.status === "PEDIDO_INCOMPLETO"
+          ? "El pedido conserva cajas o ramos pendientes."
+          : "Pedido pendiente de iniciar armado.";
+    const sync = touchDispatch(
+      dispatch,
+      appState,
+      options.action || "ACTUALIZAR_AVANCE_CAJAS",
+      previousState,
+      dispatch.observacion
+    );
+    saveState();
+    return { ...progress, dispatch: clone(dispatch), sync };
+  }
+
+  function setDispatchResponsibleDemo(first, second, third) {
+    const { appState, input } = resolveArgs(first, second);
+    const responsible = String(isAppState(first) ? third : second || "").trim();
+    const dispatch = getMutableDispatch(appState, input);
+    if (!dispatch) return { ok: false, error: "Despacho no encontrado." };
+    const options = getDispatchResponsiblesDemo(appState);
+    if (!responsible || !options.includes(responsible)) {
+      return { ok: false, error: "Seleccione un responsable activo de Parametros de Poscosecha." };
+    }
+    const previousResponsible = dispatch.responsable_demo || "";
+    dispatch.responsable_demo = responsible;
+    dispatch.actualizado_en_demo = todayIso();
+    recordDispatchEvent(
+      appState,
+      dispatch,
+      "ASIGNAR_RESPONSABLE_DESPACHO",
+      dispatch.estado_despacho,
+      dispatch.estado_despacho,
+      "exitoso",
+      `${previousResponsible || "Sin responsable"} -> ${responsible}`
+    );
+    saveState();
+    return { ok: true, responsible, dispatch: clone(dispatch) };
+  }
+
+  function getDispatchListDemo(first) {
+    const { appState } = resolveArgs(first);
+    const commercialOrders = BlessERP.comercialState?.getOrders ? BlessERP.comercialState.getOrders(appState) : [];
+    const dispatches = ensureDispatchArray(appState);
+    const dispatchByOrderId = new Map();
+    const dispatchByNumber = new Map();
+    dispatches.forEach(dispatch => {
+      if (dispatch.pedido_id) dispatchByOrderId.set(String(dispatch.pedido_id), dispatch);
+      if (dispatch.numero_pedido) dispatchByNumber.set(String(dispatch.numero_pedido), dispatch);
+    });
+    const customers = BlessERP.comercialState?.getCustomerCatalog?.(appState) || [];
+    const brands = BlessERP.comercialState?.getBrandCatalog?.(appState) || [];
+    const customerById = new Map(customers.map(item => [String(item.id || ""), item]));
+    const brandById = new Map(brands.map(item => [String(item.id || ""), item]));
+
+    return commercialOrders
+      .filter(order => normalizeText(order.status) !== "ANULADO")
+      .map(order => {
+        const metrics = orderListMetrics(order);
+        return { order, metrics };
+      })
+      .filter(({ metrics }) => metrics ? toNumber(metrics.totalBoxes, 0) > 0 : true)
+      .map(({ order, metrics }) => {
+        const existing = dispatchByOrderId.get(String(order.id || ""))
+          || dispatchByNumber.get(String(order.number || order.numero_pedido || ""))
+          || {};
+        const customer = customerById.get(String(order.customerId || order.customer_id || ""));
+        const brand = brandById.get(String(order.brandId || order.brand_id || ""));
+        return {
+          dispatch_id: existing.dispatch_id || "",
+          pedido_id: order.id || existing.pedido_id || "",
+          numero_pedido: order.number || order.numero_pedido || existing.numero_pedido || "",
+          cliente_principal: order.cliente_principal || order.cliente_principal_nombre || order.customerName
+            || customer?.legalName || customer?.commercialName || customer?.name || existing.cliente_principal || "",
+          marca_cliente_final: order.marca_cliente_final || order.marca_nombre || order.brandName
+            || brand?.finalClientName || brand?.name || existing.marca_cliente_final || "",
+          destino: order.destination || order.destino || existing.destino || "",
+          fecha_pedido: order.issuedAt || order.date || order.createdAt || order.fecha_pedido || existing.fecha_pedido || "",
+          fecha_vuelo: order.flightDate || order.fecha_vuelo || existing.fecha_vuelo || "",
+          tipo_venta: order.saleType || order.sale_type || existing.tipo_venta || "",
+          tipo_transporte: order.transportType || order.transport_type || existing.tipo_transporte || "",
+          venta_local: BlessERP.comercialUtils?.isLocalOrder?.(order) || false,
+          dae: order.daeNumber || order.dae || existing.dae || "",
+          awb: order.awb || existing.awb || "",
+          hawb: order.hawb || existing.hawb || "",
+          total_cajas: toNumber(order.total_cajas, toNumber(metrics?.totalBoxes, existing.total_cajas)),
+          total_fulls: toNumber(order.total_fulls, toNumber(metrics?.totalFulls, existing.total_fulls)),
+          estado_pedido: order.status || order.estado_pedido || existing.estado_pedido || "BORRADOR",
+          estado_despacho: normalizeDispatchState(existing.estado_despacho || order.estado_despacho || "PENDIENTE"),
+          actualizado_en_demo: existing.actualizado_en_demo || order.updatedAt || order.updated_at || ""
+        };
+      });
+  }
+
   function getDispatchesDemo(first) {
     const { appState } = resolveArgs(first);
     const commercialOrders = BlessERP.comercialState?.getOrders ? BlessERP.comercialState.getOrders(appState) : [];
+    const dispatches = ensureDispatchArray(appState);
+    const byOrderId = new Map();
+    const byOrderNumber = new Map();
+    dispatches.forEach((dispatch, index) => {
+      if (dispatch.pedido_id) byOrderId.set(String(dispatch.pedido_id), index);
+      if (dispatch.numero_pedido) byOrderNumber.set(String(dispatch.numero_pedido), index);
+    });
+    let added = false;
     commercialOrders
-      .filter(order => String(order.warehouseStatus || "NO_LIBERADO").toUpperCase() !== "NO_LIBERADO")
-      .forEach(order => getMutableDispatch(appState, order));
-    return ensureDispatchArray(appState).map(item => clone(item));
+      .filter(order => normalizeText(order.status) !== "ANULADO")
+      .filter(order => {
+        const metrics = BlessERP.comercialUtils?.getOrderMetrics?.(order);
+        return metrics ? toNumber(metrics.totalBoxes, 0) > 0 : true;
+      })
+      .forEach(order => {
+        const index = byOrderId.get(String(order.id || ""))
+          ?? byOrderNumber.get(String(order.number || order.numero_pedido || ""));
+        if (Number.isInteger(index)) {
+          Object.assign(dispatches[index], buildDispatchFromPedido(order, dispatches[index], appState));
+          return;
+        }
+        const built = buildDispatchFromPedido(order, {
+          dispatch_id: createId("CF"),
+          estado_despacho: "PENDIENTE"
+        }, appState);
+        dispatches.push(built);
+        const newIndex = dispatches.length - 1;
+        if (built.pedido_id) byOrderId.set(String(built.pedido_id), newIndex);
+        if (built.numero_pedido) byOrderNumber.set(String(built.numero_pedido), newIndex);
+        added = true;
+      });
+    if (added) saveState();
+    return dispatches.map(item => clone(item));
   }
 
   function getDispatchByOrderDemo(first, second) {
@@ -1073,9 +1364,9 @@
     }
 
     const previousState = dispatch.estado_despacho;
-    dispatch.estado_despacho = "EN_PREPARACION";
-    dispatch.responsable_demo = dispatch.responsable_demo || "Usuario demo";
-    dispatch.observacion = "Despacho demo en preparacion.";
+    dispatch.estado_despacho = "PEDIDO_INCOMPLETO";
+    dispatch.responsable_demo = "DESPACHO GENERAL";
+    dispatch.observacion = "Pedido en armado; las cajas se completan mediante escaneo.";
     const sync = touchDispatch(dispatch, appState, "DESPACHO_PREPARADO", previousState);
     saveState();
 
@@ -1090,24 +1381,13 @@
       return { ok: false, error: "Despacho demo no encontrado." };
     }
 
-    if (!["PENDIENTE", "EN_PREPARACION"].includes(dispatch.estado_despacho)) {
-      return { ok: false, error: "Marcar listo despacho solo se permite desde PENDIENTE o EN_PREPARACION." };
+    const progress = refreshDispatchProgressDemo(appState, dispatch.pedido_id || dispatch.numero_pedido || dispatch.dispatch_id, {
+      action: "VALIDAR_AVANCE_CAJAS"
+    });
+    if (!progress.allBoxesComplete) {
+      return { ok: false, error: "El pedido sigue incompleto; termine de escanear los ramos de todas las cajas.", progress };
     }
-
-    const review = validateDispatchReadinessDemo(appState, dispatch.pedido_id || dispatch.numero_pedido || dispatch.dispatch_id);
-    if (review.errors.length) {
-      return { ok: false, error: review.errors[0], validation: review };
-    }
-
-    // Validation normalizes the shared dispatch array; reacquire the current object before mutating it.
-    dispatch = getMutableDispatch(appState, input);
-    const previousState = dispatch.estado_despacho;
-    dispatch.estado_despacho = "LISTO_DESPACHO";
-    dispatch.observacion = "Despacho demo listo para confirmacion.";
-    const sync = touchDispatch(dispatch, appState, "DESPACHO_LISTO", previousState);
-    saveState();
-
-    return { ok: true, dispatch: clone(dispatch), validation: review, sync };
+    return { ok: true, dispatch: progress.dispatch, progress };
   }
 
   function confirmDispatchDemo(first, second, third) {
@@ -1115,22 +1395,31 @@
     const appState = context.appState;
     const input = context.input;
     const payload = isAppState(first) ? (third || {}) : (second && typeof second === "object" && !isAppState(second) ? second : {});
-    const dispatch = getMutableDispatch(appState, input);
+    let dispatch = getMutableDispatch(appState, input);
 
     if (!dispatch) {
       return { ok: false, error: "Despacho demo no encontrado." };
     }
 
-    if (dispatch.estado_despacho !== "LISTO_DESPACHO") {
-      return { ok: false, error: "confirmDispatchDemo solo permite confirmar desde LISTO_DESPACHO." };
+    const progress = getDispatchProgressDemo(appState, dispatch.pedido_id || dispatch.numero_pedido || dispatch.dispatch_id);
+    dispatch = getMutableDispatch(appState, input);
+    if (!progress.allBoxesComplete || progress.pendingChanges > 0) {
+      return { ok: false, error: progress.pendingChanges > 0
+        ? "El pedido fue actualizado; revise nuevamente sus cajas antes de confirmar la carga."
+        : "El pedido esta incompleto; termine todas las cajas antes de confirmar la carga." };
     }
-
+    const responsible = String(
+      payload.responsable_demo
+      || payload.responsable
+      || dispatch.responsable_demo
+      || getDefaultDispatchResponsibleDemo(appState)
+    ).trim();
     const previousState = dispatch.estado_despacho;
-    dispatch.estado_despacho = "DESPACHADO_DEMO";
-    dispatch.responsable_demo = String(payload.responsable_demo || payload.responsable || dispatch.responsable_demo || "Usuario demo").trim();
+    dispatch.estado_despacho = "CARGADO_CAMION";
+    dispatch.responsable_demo = responsible || "DESPACHO GENERAL";
     dispatch.fecha_hora_despacho = String(payload.fecha_hora_despacho || todayIso()).trim();
-    dispatch.observacion = String(payload.observacion || "Despacho demo confirmado.").trim();
-    const sync = touchDispatch(dispatch, appState, "DESPACHO_CONFIRMADO_DEMO", previousState, dispatch.observacion);
+    dispatch.observacion = String(payload.observacion || "Carga confirmada en camion.").trim();
+    const sync = touchDispatch(dispatch, appState, "CONFIRMAR_CARGA_CAMION", previousState, dispatch.observacion);
     saveState();
 
     return { ok: true, dispatch: clone(dispatch), sync };
@@ -1147,8 +1436,8 @@
       return { ok: false, error: "Despacho demo no encontrado." };
     }
 
-    if (dispatch.estado_despacho === "ANULADO_DEMO") {
-      return { ok: false, error: "No se puede observar un despacho ANULADO_DEMO. Reabrir primero." };
+    if (dispatch.estado_despacho === "ANULADO") {
+      return { ok: false, error: "No se puede observar un despacho anulado. Reabrir primero." };
     }
 
     const previousState = dispatch.estado_despacho;
@@ -1172,8 +1461,8 @@
     }
 
     const previousState = dispatch.estado_despacho;
-    dispatch.estado_despacho = "ANULADO_DEMO";
-    dispatch.observacion = String(motivo || "Despacho demo anulado.").trim();
+    dispatch.estado_despacho = "ANULADO";
+    dispatch.observacion = String(motivo || "Despacho anulado.").trim();
     if (BlessERP.operacionesConsumptionDemo?.getConsumptionsByOrderDemo?.(appState, dispatch.pedido_id)?.some(item => normalizeText(item.estado_consumo) === "SIMULADO")) {
       BlessERP.operacionesConsumptionDemo.reverseConsumptionDemo(appState, dispatch.pedido_id, `Reverso demo por anulacion de despacho. ${dispatch.observacion}`.trim());
     }
@@ -1194,13 +1483,13 @@
       return { ok: false, error: "Despacho demo no encontrado." };
     }
 
-    if (!["OBSERVADO", "ANULADO_DEMO"].includes(dispatch.estado_despacho)) {
-      return { ok: false, error: "Reabrir despacho solo se permite desde OBSERVADO o ANULADO_DEMO." };
+    if (!["OBSERVADO", "ANULADO"].includes(dispatch.estado_despacho)) {
+      return { ok: false, error: "Reabrir despacho solo se permite desde OBSERVADO o ANULADO." };
     }
 
     const previousState = dispatch.estado_despacho;
-    dispatch.estado_despacho = "EN_PREPARACION";
-    dispatch.observacion = String(motivo || "Despacho demo reabierto para revision.").trim();
+    dispatch.estado_despacho = "PEDIDO_INCOMPLETO";
+    dispatch.observacion = String(motivo || "Pedido reabierto para revision de cajas.").trim();
     if (BlessERP.operacionesConsumptionDemo?.getConsumptionsByOrderDemo?.(appState, dispatch.pedido_id)?.some(item => normalizeText(item.estado_consumo) === "SIMULADO")) {
       BlessERP.operacionesConsumptionDemo.reverseConsumptionDemo(appState, dispatch.pedido_id, `Reverso demo por reapertura de despacho. ${dispatch.observacion}`.trim());
     }
@@ -1211,8 +1500,14 @@
   }
 
   BlessERP.operacionesDispatchDemo = {
+    getDispatchListDemo,
     getDispatchesDemo,
     getDispatchByOrderDemo,
+    getDispatchProgressDemo,
+    refreshDispatchProgressDemo,
+    getDispatchResponsiblesDemo,
+    getDefaultDispatchResponsibleDemo,
+    setDispatchResponsibleDemo,
     prepareDispatchFromOrderDemo,
     validateDispatchReadinessDemo,
     markDispatchReadyDemo,

@@ -4,6 +4,7 @@
   const chartService = BlessERP.services.chartOfAccounts;
   const companyService = BlessERP.services.companySettings;
   const adminService = BlessERP.services.adminConfig;
+  const accountingRules = BlessERP.accountingRules;
   const { clone, uid } = BlessERP.utils;
 
   const originModules = [
@@ -13,6 +14,7 @@
     "Bancos",
     "Inventario",
     "Retenciones",
+    "Rol de pagos",
     "Pagos",
     "Cobros",
     "Ajustes",
@@ -31,7 +33,13 @@
   }
 
   function all() {
-    return clone(stateApi.state.db.journalEntries || []);
+    const legacy = clone(stateApi.state.db.journalEntries || []);
+    const confirmed = BlessERP.services?.financialV2?.journalEntries?.() || [];
+    const replacedDrafts = new Set(confirmed.map(entry => String(entry.legacyDraftId || "")).filter(Boolean));
+    const byId = new Map();
+    legacy.filter(entry => !replacedDrafts.has(String(entry.id || ""))).forEach(entry => byId.set(String(entry.id || ""), entry));
+    confirmed.forEach(entry => byId.set(String(entry.id || ""), entry));
+    return clone(Array.from(byId.values()));
   }
 
   function sortEntries(entries = all(), direction = "desc") {
@@ -48,14 +56,17 @@
   }
 
   function linesTotal(lines = []) {
-    return lines.reduce((totals, line) => ({
-      debit: totals.debit + Number(line.debit || 0),
-      credit: totals.credit + Number(line.credit || 0)
-    }), { debit: 0, credit: 0 });
+    const totals = accountingRules.entryTotals(lines);
+    return { debit: totals.debit, credit: totals.credit };
   }
 
   function round2(value) {
-    return Math.round(Number(value || 0) * 100) / 100;
+    return accountingRules.round2(value);
+  }
+
+  function accountingPeriodForDate(accountingDate = "", fallbackPeriod = currentPeriod()) {
+    const match = String(accountingDate || "").trim().match(/^(\d{4})-(0[1-9]|1[0-2])/);
+    return match ? `${match[1]}-${match[2]}` : String(fallbackPeriod || "").trim();
   }
 
   function difference(lines = []) {
@@ -134,8 +145,8 @@
   }
 
   function normalizeEntry(entry = {}) {
-    const period = entry.accountingPeriod || currentPeriod();
     const date = entry.accountingDate || new Date().toISOString().slice(0, 10);
+    const period = accountingPeriodForDate(date, entry.accountingPeriod || currentPeriod());
     return {
       id: entry.id || uid("JNL"),
       entryNumber: String(entry.entryNumber || nextEntryNumber(date, period)).trim(),
@@ -167,35 +178,21 @@
 
     if (!candidate.accountingDate) errors.push("La fecha contable es obligatoria.");
     if (!candidate.concept) errors.push("El concepto es obligatorio.");
-    if ((candidate.lines || []).length < 2) errors.push("Debe existir al menos dos líneas.");
-
-    candidate.lines.forEach((line, index) => {
-      const row = index + 1;
-      if (!line.accountCode) {
-        errors.push(`La línea ${row} debe tener cuenta contable.`);
-        return;
-      }
-      const account = chartService.findByCode(line.accountCode);
-      if (!account) {
-        errors.push(`La cuenta de la línea ${row} no existe.`);
-        return;
-      }
-      if (account.status !== "Activa") errors.push(`La cuenta ${account.code} está inactiva.`);
-      if (!account.isMovement) errors.push(`La cuenta ${account.code} no es de movimiento.`);
-      if (Number(line.debit || 0) > 0 && Number(line.credit || 0) > 0) errors.push(`La línea ${row} no puede tener debe y haber al mismo tiempo.`);
-      if (Number(line.debit || 0) <= 0 && Number(line.credit || 0) <= 0) errors.push(`La línea ${row} debe tener valor en debe o haber.`);
-    });
-
-    if (round2(linesTotal(candidate.lines).debit) !== round2(linesTotal(candidate.lines).credit)) {
-      errors.push("El total debe debe ser igual al total haber.");
+    if (!candidate.accountingPeriod) errors.push("El periodo contable es obligatorio.");
+    if (candidate.accountingDate && candidate.accountingPeriod && candidate.accountingDate.slice(0, 7) !== candidate.accountingPeriod) {
+      errors.push("La fecha contable debe pertenecer al periodo seleccionado.");
     }
+    const duplicateNumber = all().find(item => item.entryNumber === candidate.entryNumber && item.id !== candidate.id);
+    if (duplicateNumber) errors.push("El numero de asiento ya existe.");
 
-    return { entry: candidate, errors };
+    const lineValidation = accountingRules.validateEntryLines(candidate.lines, chartService.all());
+    errors.push(...lineValidation.errors);
+    return { entry: candidate, errors: [...new Set(errors)], totals: lineValidation.totals };
   }
 
   function saveDraft(entry) {
     const { entry: normalized, errors } = validateEntry(entry);
-    const contentErrors = errors.filter(error => !error.includes("igual al total haber"));
+    const contentErrors = errors.filter(error => !/total debe.*total haber/i.test(error));
     if (!normalized.accountingDate) contentErrors.push("La fecha contable es obligatoria.");
     if (!normalized.concept) contentErrors.push("El concepto es obligatorio.");
     if (contentErrors.length) return { ok: false, errors: [...new Set(contentErrors)] };
@@ -351,6 +348,10 @@
         credit: line.debit
       }))
     });
+    const reverseValidation = validateEntry(reverse);
+    if (reverseValidation.errors.length) {
+      return { ok: false, message: reverseValidation.errors.join(" "), errors: reverseValidation.errors };
+    }
     target.status = "REVERSADO";
     target.reversedById = reverse.id;
     target.reversedAt = new Date().toISOString();
@@ -373,6 +374,31 @@
       result: "exitoso"
     });
     return { ok: true, entry: clone(reverse), source: clone(target) };
+  }
+
+  async function postEntryV2(entryOrId, options = {}) {
+    const candidate = typeof entryOrId === "string"
+      ? all().find(item => item.id === entryOrId)
+      : entryOrId;
+    if (!candidate) return { ok: false, errors: ["Asiento no encontrado."] };
+    if (String(candidate.syncFlow || "") === "FINANCIAL_V2" && candidate.status === "CONTABILIZADO") {
+      return { ok: true, entry: clone(candidate), reused: true, confirmed: true };
+    }
+    const validation = validateEntry(candidate);
+    if (validation.errors.length) return { ok: false, errors: validation.errors };
+    const result = await BlessERP.services?.financialV2?.postJournal?.(validation.entry, options);
+    if (!result) return { ok: false, errors: ["Servicio financiero V2 no disponible."] };
+    return result.ok ? result : { ...result, errors: result.errors || [result.message || "Supabase no confirmó el asiento."] };
+  }
+
+  async function reverseEntryV2(entryId, reason, options = {}) {
+    const candidate = all().find(item => item.id === entryId);
+    if (!candidate) return { ok: false, message: "Asiento no encontrado." };
+    if (String(candidate.syncFlow || "") !== "FINANCIAL_V2") {
+      return { ok: false, message: "El asiento histórico aún usa el flujo anterior; no se modificó automáticamente." };
+    }
+    const result = await BlessERP.services?.financialV2?.reverseJournal?.(entryId, reason, options);
+    return result || { ok: false, message: "Servicio financiero V2 no disponible." };
   }
 
   function impactedEntries(filters = {}) {
@@ -426,10 +452,22 @@
     };
   }
 
+  function auditEntries(filters = {}) {
+    return accountingRules.auditEntries(
+      impactedEntries(filters),
+      chartService.all(),
+      { deferredSourceModules: accountingRules.DEFERRED_SOURCE_MODULES }
+    );
+  }
+
   function ledgerByAccount(accountCode, filters = {}) {
     const account = chartService.findByCode(accountCode);
     if (!account) return null;
-    const allEntries = impactedEntries({ ...filters, accountCode });
+    const allEntries = impactedEntries({
+      ...filters,
+      accountCode,
+      dateFrom: ""
+    });
     const from = filters.dateFrom || "";
     const beforeRange = from ? allEntries.filter(entry => entry.accountingDate < from) : [];
     const inRange = from ? allEntries.filter(entry => entry.accountingDate >= from) : allEntries;
@@ -517,14 +555,18 @@
     difference,
     saveDraft,
     postEntry,
+    postEntryV2,
     cancelDraft,
     deleteDraft,
     reverseEntry,
+    reverseEntryV2,
     validateEntry,
     journalSummaries,
+    auditEntries,
     impactedEntries,
     ledgerByAccount,
     ledgerSummary,
-    nextEntryNumber
+    nextEntryNumber,
+    accountingPeriodForDate
   };
 })();

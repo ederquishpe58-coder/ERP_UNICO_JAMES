@@ -55,7 +55,7 @@
 
   function getParte1IntegrationWarnings() {
     return [
-      "No importar app.js completo de Parte 1 dentro del ERP unico.",
+      "No importar app.js completo de Parte 1 dentro de JAEDER SYSTEMS.",
       "No depender de variables globales ni localStorage legado de Parte 1.",
       "No conectar Supabase ni inventario real en esta fase.",
       "El adapter solo prepara contratos, mapeos y validaciones demo.",

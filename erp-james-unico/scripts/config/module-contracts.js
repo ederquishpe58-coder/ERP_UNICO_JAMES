@@ -127,7 +127,7 @@
       destination: "Ingreso de ramos por escaner / Inventario operativo / Trazabilidad",
       description: "Define etiquetas individuales numericas; la etiqueta identifica al ramo pero no crea inventario hasta su primer escaneo valido.",
       status: "documentado",
-      implementationStatus: "activo demo/local / pendiente Zebra real",
+      implementationStatus: "activo local / Zebra HID automatico",
       primaryFields: [
         "label_id",
         "codigo_10_digitos",
@@ -150,7 +150,7 @@
         "Generar o imprimir una etiqueta no crea inventario.",
         "Solo el primer escaneo valido crea un ramo y usa la fecha/hora del escaneo.",
         "Un escaneo duplicado no crea otro ramo.",
-        "Barcode real y Zebra real siguen pendientes."
+        "El lector Zebra USB o Bluetooth opera como teclado HID y procesa automaticamente al completar el codigo esperado."
       ]
     },
     {
@@ -195,10 +195,10 @@
       id: "scannerEventContract",
       name: "Eventos de scanner",
       origin: "Operaciones / Poscosecha",
-      destination: "Core / Auditoria / Despacho operativo / Zebra futuro",
-      description: "Define el evento demo de lectura para etiquetas de ramos, cajas, pedidos, despacho o materiales dentro del frente operativo.",
+      destination: "Core / Auditoria / Despacho operativo / Zebra HID",
+      description: "Define el evento de lectura para etiquetas de ramos, cajas, pedidos, despacho o materiales dentro del frente operativo.",
       status: "documentado",
-      implementationStatus: "activo demo / pendiente Zebra real",
+      implementationStatus: "activo local / Zebra HID automatico",
       primaryFields: [
         "event_id",
         "fecha_hora",
@@ -218,10 +218,10 @@
       summarizedRules: [
         "tipo_codigo permitido: RAMO, CAJA, PEDIDO, DESPACHO, MATERIAL o DESCONOCIDO.",
         "resultado permitido: LEIDO_DEMO, VALIDADO_DEMO, NO_ENCONTRADO, DUPLICADO o ERROR_DEMO.",
-        "El escaneo demo no descuenta inventario real.",
-        "El escaneo demo no confirma despacho real.",
-        "El escaneo demo solo registra eventos visuales.",
-        "La conexion Zebra real queda pendiente para fase posterior."
+        "El ingreso valido crea inventario y rendimiento en una sola operacion.",
+        "El escaneo de despacho asigna el ramo a una caja y recalcula disponibilidad.",
+        "Los codigos duplicados o inexistentes no generan movimientos.",
+        "El lector Zebra USB o Bluetooth opera automaticamente como teclado HID."
       ]
     },
     {
@@ -331,12 +331,13 @@
       id: "boxLabelContract",
       name: "Etiquetas de caja",
       origin: "Comercial / Exportaciones",
-      destination: "Centro de impresion / Zebra futuro / Reportes",
-      description: "Define la estructura demo de una etiqueta por caja para impresion comercial, reimpresion individual y futura salida Zebra.",
+      destination: "Centro de impresion / Impresion masiva / Reportes",
+      description: "Define una etiqueta aduanera por caja, vinculada al pedido, Packing List, DAE y factura autorizada por el SRI.",
       status: "documentado",
-      implementationStatus: "demo activo / pendiente Zebra real",
+      implementationStatus: "activo local / impresion masiva",
       primaryFields: [
         "pedido_id",
+        "pedido_numero",
         "box_id",
         "numero_caja",
         "total_cajas",
@@ -345,6 +346,9 @@
         "po",
         "destino",
         "dae",
+        "dae_barcode",
+        "packing_list_no",
+        "invoice_no",
         "awb",
         "hawb",
         "fecha_vuelo",
@@ -353,14 +357,15 @@
         "vuelo",
         "contenido_resumido",
         "codigo_aduana",
-        "barcode_value_futuro",
-        "qr_value_futuro",
+        "barcode_value",
         "estado"
       ],
       summarizedRules: [
-        "Cada caja genera una etiqueta demo independiente.",
-        "El codigo aduana actual es placeholder y no es oficial.",
-        "Barcode, QR y Zebra real quedan reservados para una fase posterior."
+        "Cada caja genera una etiqueta independiente con numeracion BOX # consecutiva.",
+        "El codigo de barras Code 128 representa los digitos del DAE del pedido.",
+        "La etiqueta usa la factura comercial para agencia y no depende de autorizacion SRI.",
+        "No se permite imprimir si faltan el secuencial del pedido, Packing List, DAE, guias o cajas completas.",
+        "La seleccion masiva genera todas las cajas de uno o varios pedidos en una sola vista de impresion."
       ]
     },
     {
@@ -404,7 +409,7 @@
       name: "Flujo comercial del pedido",
       origin: "Comercial / Exportaciones",
       destination: "Core / Auditoria / Centro de impresion",
-      description: "Define el estado comercial del pedido, sus transiciones, alertas y documentos habilitados dentro del ERP unico.",
+        description: "Define el estado comercial del pedido, sus transiciones, alertas y documentos habilitados dentro de JAEDER SYSTEMS.",
       status: "documentado",
       implementationStatus: "demo activo",
       primaryFields: [
@@ -428,12 +433,12 @@
     },
     {
       id: "salesAccountingContract",
-      name: "Contabilidad de ventas futura",
+      name: "Contabilidad de ventas autorizadas",
       origin: "Comercial / Exportaciones",
       destination: "Contabilidad / Cartera / Reportes",
-      description: "Prepara la salida comercial-contable demo para futura cuenta por cobrar, asiento de venta y reportes sin tocar libros reales.",
-      status: "documentado",
-      implementationStatus: "demo preparado / pendiente implementacion real",
+      description: "Conecta la factura SRI autorizada con cliente contable, cuenta por cobrar y asiento de venta sin duplicar registros.",
+      status: "operativo",
+      implementationStatus: "activo local con confirmacion e idempotencia",
       primaryFields: [
         "pedido_id",
         "numero_pedido",
@@ -466,8 +471,10 @@
       ],
       summarizedRules: [
         "Invoice / Packing carguera no genera contabilidad.",
-        "Factura Comercial Cliente demo no genera contabilidad real en esta fase.",
-        "Solo se prepara preview contable sin tocar Libro Diario, Cartera ni ATS."
+        "Solo una factura SRI AUTORIZADA genera la cuenta por cobrar y el asiento de venta.",
+        "La venta local usa cuentas locales y la exportacion usa cuentas de exterior configuradas.",
+        "Las notas de credito autorizadas disminuyen cartera y generan su asiento inverso.",
+        "Reintentar una operacion confirmada reutiliza el asiento existente y no lo duplica."
       ]
     },
     {
@@ -518,11 +525,75 @@
       ]
     },
     {
+      id: "employeeIdentityContract",
+      name: "Identidad laboral",
+      origin: "Rol de pagos / Parámetros de empleados",
+      destination: "Operaciones / Comercial / Usuarios",
+      description: "Define la identidad estable que evita relacionar trabajadores, usuarios y vendedores únicamente por nombre.",
+      status: "documentado",
+      implementationStatus: "activo demo/local",
+      primaryFields: ["company_id", "employee_id", "user_id", "seller_id", "codigo_interno", "identificacion", "nombre_visible", "area", "estado"],
+      summarizedRules: [
+        "employee_id es la relación obligatoria de horas y rendimientos.",
+        "seller_id es la relación obligatoria para comisiones.",
+        "El nombre se conserva solo como snapshot visible.",
+        "La identificación y el código son únicos por empresa."
+      ]
+    },
+    {
+      id: "performancePayrollContract",
+      name: "Rendimiento para rol",
+      origin: "Operaciones / Poscosecha",
+      destination: "Rol de pagos",
+      description: "Acumula rendimientos operativos por empleado, fecha, actividad y unidad dentro del periodo del rol.",
+      status: "documentado",
+      implementationStatus: "activo demo/local",
+      primaryFields: ["performance_id", "company_id", "employee_id", "fecha", "actividad", "unidad", "cantidad", "tarifa", "total", "origen", "usuario"],
+      summarizedRules: [
+        "El total es cantidad por tarifa.",
+        "La tarifa se guarda como snapshot.",
+        "Solo se acumulan fechas dentro del periodo.",
+        "Un rol aprobado no cambia si luego se modifica la tarifa."
+      ]
+    },
+    {
+      id: "salesCommissionContract",
+      name: "Ventas para comisiones",
+      origin: "Comercial / Exportaciones",
+      destination: "Rol de pagos",
+      description: "Relaciona pedidos, facturas, embarques y cobros con el vendedor responsable y congela la base al aprobar.",
+      status: "documentado",
+      implementationStatus: "activo demo/local",
+      primaryFields: ["sale_id", "company_id", "seller_id", "fecha", "cliente", "valor_venta", "cajas", "tallos", "estado_venta", "estado_cobro", "base", "tarifa", "comision"],
+      summarizedRules: [
+        "La regla puede usar venta generada, facturada, embarcada o cobrada.",
+        "Una exclusión exige justificación.",
+        "El rol aprobado conserva snapshot de las ventas.",
+        "Cambios comerciales posteriores no alteran la comisión aprobada."
+      ]
+    },
+    {
+      id: "payrollAccountingContract",
+      name: "Contabilización del rol",
+      origin: "Rol de pagos",
+      destination: "Libro diario / Bancos / Caja",
+      description: "Genera asientos balanceados y separados para devengo, pagos y reversos usando cuentas configuradas.",
+      status: "documentado",
+      implementationStatus: "activo demo/local",
+      primaryFields: ["payroll_id", "period_id", "employee_id", "journal_entry_id", "payment_id", "company_id", "tipo_movimiento"],
+      summarizedRules: [
+        "El devengo y el pago son asientos distintos.",
+        "No se contabiliza dos veces el mismo rol.",
+        "Los anticipos descontados no vuelven a ser gasto.",
+        "La anulación de un contabilizado genera reverso."
+      ]
+    },
+    {
       id: "auditEventContract",
       name: "Auditoria",
       origin: "Todos los modulos",
       destination: "Core / Auditoria",
-      description: "Define el evento minimo de auditoria para cualquier accion relevante del ERP unico.",
+        description: "Define el evento minimo de auditoria para cualquier accion relevante de JAEDER SYSTEMS.",
       status: "documentado",
       implementationStatus: "pendiente integracion",
       primaryFields: [
@@ -560,6 +631,10 @@
     operationalInventoryContract: { affectsAccounting: "no", affectsRealInventory: "preparado / pendiente conexion real", requiresFutureSupabase: true },
     bunchLabelContract: { affectsAccounting: "no", affectsRealInventory: "no", requiresFutureSupabase: true },
     operationalConsumptionContract: { affectsAccounting: "no", affectsRealInventory: "simulado solamente", requiresFutureSupabase: true },
+    employeeIdentityContract: { affectsAccounting: "no directo", affectsRealInventory: "no", requiresFutureSupabase: true },
+    performancePayrollContract: { affectsAccounting: "si al aprobar/contabilizar rol", affectsRealInventory: "no", requiresFutureSupabase: true },
+    salesCommissionContract: { affectsAccounting: "si al aprobar/contabilizar rol", affectsRealInventory: "no", requiresFutureSupabase: true },
+    payrollAccountingContract: { affectsAccounting: "si", affectsRealInventory: "no", requiresFutureSupabase: true },
     auditEventContract: { affectsAccounting: "no directo", affectsRealInventory: "no directo", requiresFutureSupabase: true }
   };
 

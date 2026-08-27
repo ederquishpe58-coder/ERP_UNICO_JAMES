@@ -94,7 +94,7 @@
         "Supabase global: desactivado",
         "Core Supabase: desactivado",
         "Comercial catalogos: desactivado",
-        "Pedido Maestro: desactivado",
+        "Crear pedido: desactivado",
         "Operaciones: desactivado",
         "Scanner: desactivado",
         "Inventario materiales: desactivado",

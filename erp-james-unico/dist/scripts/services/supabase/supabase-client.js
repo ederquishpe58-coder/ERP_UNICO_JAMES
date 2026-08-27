@@ -1,5 +1,6 @@
 (function(){
   const BlessERP = window.BlessERP = window.BlessERP || {};
+  let cachedClient = null;
 
   function envConfig() {
     return BlessERP.getEnvConfig ? BlessERP.getEnvConfig() : {
@@ -22,6 +23,24 @@
     return Boolean(config.supabaseEnabled && config.supabaseUrl && config.supabaseAnonKey);
   }
 
+  function measuredFetch(input, init) {
+    const url = typeof input === "string" ? input : input?.url || "";
+    let operation = "solicitud";
+    try {
+      const parsed = new URL(url);
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      const restIndex = parts.findIndex((part, index) => part === "v1" && parts[index - 1] === "rest");
+      const table = restIndex >= 0 ? parts[restIndex + 1] : "";
+      operation = table ? `rest/${table}` : (parts.slice(0, 3).join("/") || parsed.hostname);
+    } catch {
+      operation = "solicitud";
+    }
+    const execute = () => window.fetch(input, init);
+    return BlessERP.performance?.measureAsync?.(`supabase:${operation}`, execute, {
+      method: String(init?.method || "GET").toUpperCase()
+    }) || execute();
+  }
+
   function getSupabaseStatus() {
     const config = envConfig();
     const enabled = Boolean(config.supabaseEnabled);
@@ -32,8 +51,8 @@
       return {
         enabled: false,
         configured: false,
-        mode: "DISABLED_DEMO",
-        message: "Supabase desactivado. ERP usando modo local/demo.",
+        mode: "DISABLED_LOCAL",
+        message: "Supabase desactivado. JAEDER SYSTEMS usa almacenamiento local.",
         appEnv: config.appEnv || "demo",
         authEnabled: Boolean(config.authEnabled),
         rlsEnabled: Boolean(config.rlsEnabled),
@@ -46,7 +65,7 @@
         enabled: true,
         configured: false,
         mode: "MISCONFIGURED_DEMO",
-        message: "Supabase habilitado en variables, pero faltan URL o ANON KEY. ERP sigue en modo local/demo.",
+        message: "Supabase habilitado en variables, pero faltan URL o ANON KEY. ERP sigue usando almacenamiento local.",
         appEnv: config.appEnv || "demo",
         authEnabled: Boolean(config.authEnabled),
         rlsEnabled: Boolean(config.rlsEnabled),
@@ -59,7 +78,7 @@
         enabled: true,
         configured: true,
         mode: "PENDING_CLIENT_LIBRARY",
-        message: "Supabase configurado, pero la libreria cliente no esta cargada. ERP sigue en modo local/demo.",
+        message: "Supabase configurado, pero la libreria cliente no esta cargada. ERP sigue usando almacenamiento local.",
         appEnv: config.appEnv || "demo",
         authEnabled: Boolean(config.authEnabled),
         rlsEnabled: Boolean(config.rlsEnabled),
@@ -71,7 +90,7 @@
       enabled: true,
       configured: true,
       mode: "READY_NOT_CONNECTED",
-      message: "Cliente Supabase preparado. La conexion real debera activarse en una fase posterior.",
+        message: "Cliente Supabase preparado para los modulos habilitados.",
       appEnv: config.appEnv || "demo",
       authEnabled: Boolean(config.authEnabled),
       rlsEnabled: Boolean(config.rlsEnabled),
@@ -92,7 +111,19 @@
     if (!status.enabled || !status.configured || !status.hasRuntimeFactory) return null;
     const config = envConfig();
     try {
-      return runtimeFactory()(config.supabaseUrl, config.supabaseAnonKey);
+      if (!cachedClient) {
+        cachedClient = runtimeFactory()(config.supabaseUrl, config.supabaseAnonKey, {
+          auth: {
+            persistSession: true,
+            autoRefreshToken: true,
+            detectSessionInUrl: true
+          },
+          global: {
+            fetch: measuredFetch
+          }
+        });
+      }
+      return cachedClient;
     } catch (error) {
       return null;
     }

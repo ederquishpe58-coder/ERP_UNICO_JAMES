@@ -37,6 +37,125 @@
     return String(value || "").trim().toUpperCase();
   }
 
+  function migrateRetentionCatalog2026() {
+    const version = "RETENCIONES-2026-08-PLAN-CUENTAS-BLESS-V2-332";
+    if (stateApi.state.db.taxCatalogVersion === version) return;
+    const defaults = settingsDefaults();
+    const payableAccountCode = defaults.incomeTaxWithholdingPayable || "";
+    const receivableAccountCode = defaults.withholdingReceivable || "";
+    const rows = cloneList("retentionParameters");
+    let changed = false;
+
+    const replaceLegacy = (internalCode, expectedSriCode, patch, predicate = () => true) => {
+      const item = rows.find(row => row.internalCode === internalCode && row.sriCode === expectedSriCode);
+      if (!item || !predicate(item)) return;
+      Object.assign(item, patch);
+      changed = true;
+    };
+    const addIfMissing = record => {
+      if (rows.some(row => row.taxType === record.taxType && row.sriCode === record.sriCode && row.status === "activo")) return;
+      const accountLinks = BlessERP.accountingPlanBlessV1?.retentionAccountCodes?.(record) || {
+        payableAccountCode,
+        receivableAccountCode
+      };
+      rows.push({
+        id: uid("WHT"),
+        appliesTo: "compra",
+        ...accountLinks,
+        effectiveFrom: "2026-03-01",
+        effectiveTo: "",
+        status: "activo",
+        observation: "Tarifa vigente segun Resolucion NAC-DGERCGC26-00000009.",
+        ...record
+      });
+      changed = true;
+    };
+
+    replaceLegacy("RET_304", "304", {
+      description: "Servicios donde predomina el intelecto",
+      percentage: 10,
+      effectiveFrom: "2026-03-01",
+      observation: "Tarifa vigente segun Resolucion NAC-DGERCGC26-00000009."
+    }, item => Number(item.percentage || 0) === 2 && String(item.description || "") === "Servicios");
+    replaceLegacy("RET_312", "312", {
+      description: "Transferencia de bienes muebles de naturaleza corporal",
+      percentage: 2,
+      effectiveFrom: "2026-03-01",
+      observation: "Tarifa vigente segun Resolucion NAC-DGERCGC26-00000009."
+    }, item => Number(item.percentage || 0) === 1.75 && String(item.description || "") === "Transferencia de bienes");
+    replaceLegacy("RET_AGRICOLA_1", "AGRICOLA_1", {
+      internalCode: "RET_312A",
+      sriCode: "312A",
+      description: "Compras directas al productor de bienes de origen agricola y similares",
+      percentage: 1,
+      effectiveFrom: "2026-03-01",
+      observation: "Tarifa vigente segun Resolucion NAC-DGERCGC26-00000009."
+    });
+    replaceLegacy("RET_IVA_30", "IVA_30", { sriCode: "1", category: "bienes", observation: "Codigo SRI de comprobante electronico: 1." });
+    replaceLegacy("RET_IVA_70", "IVA_70", { sriCode: "2", observation: "Codigo SRI de comprobante electronico: 2." });
+    replaceLegacy("RET_IVA_100", "IVA_100", { sriCode: "3", observation: "Codigo SRI de comprobante electronico: 3." });
+    replaceLegacy("RET_EXTERIOR_25", "EXTERIOR_25", {
+      internalCode: "RET_520",
+      sriCode: "520",
+      description: "Pago al exterior - otros conceptos de ingresos gravados",
+      percentage: 25,
+      category: "exterior",
+      effectiveFrom: "2026-03-01",
+      observation: "Codigo SRI 520. Verificar convenio para evitar doble imposicion, residencia fiscal y naturaleza del pago antes de emitir."
+    });
+    const code332 = rows.find(row => row.taxType === "RENTA" && row.sriCode === "332" && row.status === "activo")
+      || rows.find(row => row.taxType === "RENTA" && row.sriCode === "332");
+    if (code332) {
+      Object.assign(code332, {
+        internalCode: "RET_332",
+        description: "Otras compras de bienes y servicios no sujetas a retencion",
+        percentage: 0,
+        appliesTo: "compra",
+        category: "otros",
+        payableAccountCode: "",
+        receivableAccountCode: "",
+        effectiveFrom: "2026-01-01",
+        effectiveTo: "",
+        status: "activo",
+        observation: "Se reporta en AIR con base, porcentaje 0 y valor retenido 0; no genera comprobante."
+      });
+      changed = true;
+    }
+
+    [
+      { internalCode: "RET_307", sriCode: "307", description: "Servicios donde predomina la mano de obra", taxType: "RENTA", percentage: 3, category: "servicios" },
+      { internalCode: "RET_310", sriCode: "310", description: "Transporte privado de pasajeros o transporte publico/privado de carga", taxType: "RENTA", percentage: 1, category: "transporte" },
+      { internalCode: "RET_311", sriCode: "311", description: "Pagos mediante liquidacion de compra", taxType: "RENTA", percentage: 3, category: "bienes" },
+      { internalCode: "RET_312A", sriCode: "312A", description: "Compras directas al productor de bienes de origen agricola y similares", taxType: "RENTA", percentage: 1, category: "agricola" },
+      { internalCode: "RET_312C", sriCode: "312C", description: "Compras a comercializador de bienes de origen agricola y similares", taxType: "RENTA", percentage: 1.75, category: "agricola" },
+      { internalCode: "RET_303A", sriCode: "303A", description: "Servicios profesionales prestados por sociedades residentes", taxType: "RENTA", percentage: 5, category: "profesional" },
+      { internalCode: "RET_3482", sriCode: "3482", description: "Comisiones pagadas a sociedades residentes y establecimientos permanentes", taxType: "RENTA", percentage: 5, category: "servicios" },
+      { internalCode: "RET_340", sriCode: "340", description: "Otras retenciones aplicables el 3% (casillero 3440)", taxType: "RENTA", percentage: 3, category: "otros", observation: "El codigo electronico es 340; 3440 corresponde al casillero del Formulario 103." },
+      { internalCode: "RET_501", sriCode: "501", description: "Pago al exterior - beneficios empresariales", taxType: "RENTA", percentage: 25, category: "exterior", observation: "Verificar convenio para evitar doble imposicion y residencia fiscal antes de emitir." },
+      { internalCode: "RET_502", sriCode: "502", description: "Pago al exterior - servicios empresariales", taxType: "RENTA", percentage: 25, category: "exterior", observation: "Verificar convenio para evitar doble imposicion y residencia fiscal antes de emitir." },
+      { internalCode: "RET_511", sriCode: "511", description: "Pago al exterior - servicios profesionales independientes", taxType: "RENTA", percentage: 25, category: "exterior", observation: "Verificar convenio para evitar doble imposicion y residencia fiscal antes de emitir." },
+      { internalCode: "RET_520", sriCode: "520", description: "Pago al exterior - otros conceptos de ingresos gravados", taxType: "RENTA", percentage: 25, category: "exterior", observation: "Verificar convenio para evitar doble imposicion, residencia fiscal y naturaleza del pago antes de emitir." },
+      { internalCode: "RET_332", sriCode: "332", description: "Otras compras de bienes y servicios no sujetas a retencion", taxType: "RENTA", percentage: 0, category: "otros", effectiveFrom: "2026-01-01", observation: "Se reporta en AIR con base, porcentaje 0 y valor retenido 0; no genera comprobante." },
+      { internalCode: "RET_IVA_20", sriCode: "10", description: "Retencion IVA 20%", taxType: "IVA", percentage: 20, category: "servicios", observation: "Codigo SRI de comprobante electronico: 10." },
+      { internalCode: "RET_IVA_30", sriCode: "1", description: "Retencion IVA 30%", taxType: "IVA", percentage: 30, category: "bienes", observation: "Codigo SRI de comprobante electronico: 1." },
+      { internalCode: "RET_IVA_70", sriCode: "2", description: "Retencion IVA 70%", taxType: "IVA", percentage: 70, category: "servicios", observation: "Codigo SRI de comprobante electronico: 2." },
+      { internalCode: "RET_IVA_100", sriCode: "3", description: "Retencion IVA 100%", taxType: "IVA", percentage: 100, category: "servicios", observation: "Codigo SRI de comprobante electronico: 3." }
+    ].forEach(addIfMissing);
+
+    rows.forEach(record => {
+      const accountLinks = BlessERP.accountingPlanBlessV1?.retentionAccountCodes?.(record);
+      if (!accountLinks) return;
+      if (record.payableAccountCode !== accountLinks.payableAccountCode || record.receivableAccountCode !== accountLinks.receivableAccountCode) {
+        Object.assign(record, accountLinks);
+        changed = true;
+      }
+    });
+
+    if (changed) stateApi.state.db.retentionParameters = rows;
+    stateApi.state.db.taxCatalogVersion = version;
+    stateApi.saveDb();
+  }
+
   function taxes(filters = {}) {
     const search = normalizedText(filters.search);
     return cloneList("taxParameters").filter(item => {
@@ -335,7 +454,13 @@
   }
 
   function validateRetentionActiveOnDate(codeOrRecord, date, options = {}) {
-    const record = typeof codeOrRecord === "string" ? findRetentionByCode(codeOrRecord) : normalizeRetention(codeOrRecord);
+    const normalizedCode = typeof codeOrRecord === "string" ? normalizeCode(codeOrRecord) : "";
+    const matchingRecords = normalizedCode
+      ? retentions().filter(item => item.internalCode === normalizedCode || item.sriCode === normalizedCode)
+      : [];
+    const record = normalizedCode
+      ? matchingRecords.find(item => isRecordActiveOnDate(item, date)) || matchingRecords.find(item => item.status === "activo") || matchingRecords[0]
+      : normalizeRetention(codeOrRecord);
     if (!record) return { ok: false, errors: ["Codigo de retencion no encontrado."] };
     const errors = [];
     if (options.taxType && record.taxType !== options.taxType) {
@@ -345,14 +470,19 @@
       errors.push("El codigo de retencion no aplica para este origen.");
     }
     if (!isRecordActiveOnDate(record, date)) {
-      errors.push("El codigo de retencion no esta activo o vigente para la fecha indicada.");
+      const targetDate = String(date || "").trim() || today();
+      const range = `${record.effectiveFrom || "sin fecha inicial"}${record.effectiveTo ? ` a ${record.effectiveTo}` : " en adelante"}`;
+      errors.push(`El codigo de retencion no esta activo o vigente para ${targetDate}. Estado: ${record.status || "sin estado"}; vigencia configurada: ${range}.`);
     }
-    errors.push(...validateLinkedAccount(record.payableAccountCode, "por pagar"));
-    errors.push(...validateLinkedAccount(record.receivableAccountCode, "por cobrar"));
+    if (!options.skipLinkedAccounts) {
+      errors.push(...validateLinkedAccount(record.payableAccountCode, "por pagar"));
+      errors.push(...validateLinkedAccount(record.receivableAccountCode, "por cobrar"));
+    }
     return { ok: !errors.length, errors, retention: clone(record), warnings: retentionWarnings(record) };
   }
 
   BlessERP.services = BlessERP.services || {};
+  migrateRetentionCatalog2026();
   BlessERP.services.taxConfig = {
     taxTypes,
     taxScopes,

@@ -16,13 +16,13 @@
         id: "step-1",
         title: "PASO 1: Revisar diagnostico",
         module: "Core del sistema",
-        action: "Abrir Core -> Diagnostico / Estado del ERP.",
+      action: "Abrir Core -> Diagnostico / Estado de JAEDER SYSTEMS.",
         routeId: "core-diagnostics",
-        routeLabel: "Core -> Diagnostico / Estado del ERP",
+      routeLabel: "Core -> Diagnostico / Estado de JAEDER SYSTEMS",
         expected: [
           "Supabase desactivado",
-          "Servicios reales pendientes",
-          "ERP en modo local/demo"
+          "Almacenamiento local activo",
+          "SRI limitado al ambiente de pruebas"
         ]
       },
       {
@@ -33,18 +33,18 @@
         routeId: "commercial-panel",
         routeLabel: "Comercial / Exportaciones -> Panel comercial",
         expected: [
-          "Pedidos demo visibles",
-          "Documentos demo disponibles",
-          "Preview contable demo"
+          "Pedidos visibles",
+          "Documentos comerciales disponibles",
+          "Vista previa contable disponible"
         ]
       },
       {
         id: "step-3",
-        title: "PASO 3: Revisar Pedido Maestro",
+        title: "PASO 3: Revisar Crear pedido",
         module: "Comercial / Exportaciones",
-        action: "Abrir Pedido Maestro y revisar cliente/marca, logistica, DAE y cajas.",
+        action: "Abrir Crear pedido y revisar cliente/marca, logistica, DAE y cajas.",
         routeId: "commercial-order-master",
-        routeLabel: "Comercial / Exportaciones -> Pedido Maestro",
+        routeLabel: "Comercial / Exportaciones -> Crear pedido",
         expected: [
           "Cliente / marca visible",
           "Logistica visible",
@@ -69,81 +69,80 @@
         id: "step-5",
         title: "PASO 5: Revisar documentos comerciales",
         module: "Comercial / Exportaciones",
-        action: "Revisar Invoice / Packing carguera, Factura Comercial Cliente, HR, MP y Etiquetas.",
-        routeId: "commercial-print-center",
-        routeLabel: "Comercial / Exportaciones -> Centro de impresion",
+        action: "Abrir Pedidos / Historial y revisar Factura Comercial, Factura Cliente, Packing, HR, MP y Etiquetas.",
+        routeId: "commercial-order-history",
+        routeLabel: "Comercial / Exportaciones -> Pedidos / Historial",
         expected: [
-          "Documentos demo/preliminares visibles",
-          "No factura SRI",
-          "No XML real"
+          "Documentos comerciales disponibles",
+          "Impresion concentrada en el historial",
+          "SRI de produccion bloqueado"
         ]
       },
       {
         id: "step-6",
-        title: "PASO 6: Probar Despacho demo",
+        title: "PASO 6: Probar despacho operativo",
         module: "Comercial / Exportaciones / Operaciones",
-        action: "Abrir Pedido Maestro -> Despacho, preparar despacho demo, marcar listo y confirmar despacho demo.",
+        action: "Abrir Despacho operativo, seleccionar el pedido, escanear sus cajas y confirmar el resultado.",
         routeId: "operations-dispatch",
         routeLabel: "Operaciones / Poscosecha -> Despacho operativo",
         expected: [
-          "Estado DESPACHADO_DEMO visual",
-          "Despacho operativo refleja estado demo",
-          "No descuenta inventario real"
+          "Estado del pedido actualizado",
+          "Cajas completas o incompletas identificadas",
+          "Consumo operativo trazable"
         ]
       },
       {
         id: "step-7",
-        title: "PASO 7: Probar Scanner / Zebra demo",
+        title: "PASO 7: Probar escaneo automatico en Despacho",
         module: "Operaciones / Poscosecha",
-        action: "Ir a Scanner / Zebra y escanear BOX-60334-001, BUNCH-EXP-50-001, PED-60334 y DSP-60334.",
-        routeId: "operations-scanner",
-        routeLabel: "Operaciones / Poscosecha -> Scanner / Zebra",
+        action: "Ir a Despacho operativo y escanear las cajas del pedido con el lector Zebra HID.",
+        routeId: "operations-dispatch",
+        routeLabel: "Operaciones / Poscosecha -> Despacho operativo",
         expected: [
-          "Codigos leidos demo",
+          "Cajas leidas automaticamente",
           "Duplicados detectados si se repiten",
-          "No hay lector Zebra real conectado"
+          "Estado actualizado dentro del despacho"
         ]
       },
       {
         id: "step-8",
-        title: "PASO 8: Probar Consumo demo / Kardex demo",
+        title: "PASO 8: Revisar consumo e inventario",
         module: "Operaciones / Poscosecha",
-        action: "Ir a Despacho operativo, simular consumo demo y revisar Inventario de rosas / Kardex operativo demo.",
+        action: "Ir a Despacho operativo y revisar el consumo en Inventario de rosas.",
         routeId: "operations-roses-inventory",
         routeLabel: "Operaciones / Poscosecha -> Inventario de rosas",
         expected: [
-          "Consumo demo registrado",
-          "Kardex demo visible",
-          "No inventario real afectado"
+          "Consumo registrado",
+          "Kardex operativo visible",
+          "Trazabilidad por pedido y caja"
         ]
       },
       {
         id: "step-9",
-        title: "PASO 9: Revisar Contabilidad local/demo",
+        title: "PASO 9: Revisar contabilidad local",
         module: "Administracion / Contabilidad",
         action: "Abrir Libro Diario, Mayor General y revisar Preview contable comercial.",
         routeId: "accounting-journal",
         routeLabel: "Administracion / Contabilidad -> Libro diario",
         expected: [
-          "Comercial no genera asiento real",
-          "Preview contable sigue como preview",
-          "Libro Diario real/local no cambia por factura comercial demo"
+          "Libro Diario separado por empresa",
+          "Vista previa comercial identificada antes de contabilizar",
+          "No se contabiliza dos veces el mismo documento"
         ]
       },
       {
         id: "step-10",
         title: "PASO 10: Confirmacion final",
         module: "Core del sistema",
-        action: "Confirmar que no se conecto nada real y que el ERP sigue en modo local/demo.",
+        action: "Confirmar los límites del entorno local y del ambiente tributario de pruebas.",
         routeId: "core-diagnostics",
-        routeLabel: "Core -> Diagnostico / Estado del ERP",
+        routeLabel: "Core -> Diagnostico / Estado de JAEDER SYSTEMS",
         expected: [
           "Supabase no conectado",
-          "SRI no activado",
-          "Scanner real no conectado",
-          "Inventario real no descontado",
-          "Contabilidad real de ventas no generada",
-          "ERP sigue modo local/demo"
+          "SRI de produccion bloqueado",
+          "Firmas P12 fuera del navegador",
+          "Empresas separadas por pestaña",
+          "Disponibilidad fisica propiedad de Bless Flower"
         ]
       }
     ].map(step => ({
@@ -185,8 +184,8 @@
         <article class="summary-card"><span>Pasos revisados</span><strong>${esc(String(stats.reviewed))}</strong><small>Marcados como revisado</small></article>
         <article class="summary-card"><span>Pasos observados</span><strong>${esc(String(stats.observed))}</strong><small>Con hallazgo manual</small></article>
         <article class="summary-card"><span>Pendientes</span><strong>${esc(String(stats.pending))}</strong><small>Sin confirmar por usuario</small></article>
-        <article class="summary-card"><span>Servicios reales conectados</span><strong>0</strong><small>Debe mantenerse en cero</small></article>
-        <article class="summary-card"><span>Modo actual</span><strong>demo/local</strong><small>Sin Supabase, SRI ni inventario real</small></article>
+        <article class="summary-card"><span>Servicios remotos</span><strong>0</strong><small>Supabase permanece desactivado</small></article>
+        <article class="summary-card"><span>Modo actual</span><strong>Local / TEST</strong><small>Persistencia local y SRI de pruebas</small></article>
       </section>
     `;
   }
@@ -246,18 +245,18 @@
           <p>${esc(route.description)}</p>
         </div>
         <div class="page-header-side">
-          <span class="status-badge authorized">Guia demo activa</span>
+          <span class="status-badge authorized">Guia local activa</span>
         </div>
       </section>
       <div class="subnav-tabs">
         <button class="subnav-tab" data-route-link="dashboard-home">Panel general</button>
-        <button class="subnav-tab" data-route-link="core-diagnostics">Diagnostico / Estado del ERP</button>
-        <button class="subnav-tab active" data-route-link="core-guided-demo">Prueba guiada demo</button>
+        <button class="subnav-tab" data-route-link="core-diagnostics">Diagnostico / Estado del sistema</button>
+        <button class="subnav-tab active" data-route-link="core-guided-demo">Prueba guiada local</button>
       </div>
       <section class="hero-banner">
         <div>
-          <strong>Prueba guiada demo/local del ERP unico</strong>
-          <span>Esta prueba recorre el ERP en modo demo/local. No conecta Supabase, no genera SRI, no descuenta inventario real y no genera contabilidad real.</span>
+          <strong>Prueba guiada local de JAEDER SYSTEMS multiempresa</strong>
+          <span>Recorre las funciones disponibles en este navegador, valida la separación entre empresas y mantiene bloqueado el ambiente SRI de producción.</span>
         </div>
         <button class="secondary-button" data-route-link="core-diagnostics">Ver diagnostico</button>
       </section>
@@ -271,12 +270,10 @@
           <span class="status-badge ${guidedState.started ? "authorized" : "pending"}">${esc(guidedState.started ? "Iniciada" : "Pendiente")}</span>
         </div>
         <div class="table-actions-inline">
-          <button class="primary-button" data-guided-control="start">Iniciar prueba demo</button>
+          <button class="primary-button" data-guided-control="start">Iniciar prueba</button>
           <button class="secondary-button" data-guided-control="pending-all">Marcar todo como pendiente</button>
           <button class="secondary-button" data-guided-control="reset">Reiniciar prueba</button>
-          <button class="secondary-button" data-guided-control="export">Exportar reporte demo</button>
           <button class="secondary-button" data-route-link="core-diagnostics">Ver diagnostico</button>
-          <button class="secondary-button" data-guided-control="checklist-phase5a">Ver checklist funcional FASE 5A</button>
         </div>
         <ul class="checklist-list">
           <li>La prueba es manual y guiada; no automatiza el flujo.</li>
@@ -290,17 +287,17 @@
       <section class="panel-card">
         <div class="panel-card-head">
           <div>
-            <p class="section-kicker">CONFIRMACION DE NO IMPACTO REAL</p>
-            <h3>Lo que no debe ocurrir durante esta prueba</h3>
+            <p class="section-kicker">LIMITES DEL ENTORNO</p>
+            <h3>Controles que deben mantenerse</h3>
           </div>
         </div>
         <ul class="checklist-list">
           <li>Supabase no debe conectarse.</li>
-          <li>SRI no debe activarse.</li>
-          <li>Scanner real no debe conectarse.</li>
-          <li>Inventario real de rosas no debe descontarse.</li>
-          <li>Contabilidad real de ventas no debe generarse.</li>
-          <li>Los servicios demo/locales deben seguir siendo la fuente activa.</li>
+          <li>El ambiente SRI de produccion no debe activarse.</li>
+          <li>Las firmas P12 no deben almacenarse en el navegador.</li>
+          <li>Imperio Flowers no debe crear inventario fisico propio.</li>
+          <li>Los libros, secuenciales y documentos deben permanecer separados por empresa.</li>
+          <li>El almacenamiento local debe seguir siendo la fuente activa.</li>
         </ul>
       </section>
     `;
@@ -326,7 +323,7 @@
       const action = button.dataset.guidedControl;
       if (action === "start") {
         guidedState.started = true;
-        BlessERP.layout.toast("Prueba guiada demo iniciada.");
+        BlessERP.layout.toast("Prueba guiada iniciada.");
         rerender();
         return;
       }
@@ -338,16 +335,9 @@
       }
       if (action === "reset") {
         resetState();
-        BlessERP.layout.toast("Prueba guiada demo reiniciada.");
+        BlessERP.layout.toast("Prueba guiada reiniciada.");
         rerender();
         return;
-      }
-      if (action === "export") {
-        BlessERP.layout.toast("Exportacion de reporte pendiente fase futura.");
-        return;
-      }
-      if (action === "checklist-phase5a") {
-        BlessERP.layout.toast("Revise docs/FASE_5A_CHECKLIST_FUNCIONAL_GENERAL.md como base de la prueba manual.");
       }
     }));
 

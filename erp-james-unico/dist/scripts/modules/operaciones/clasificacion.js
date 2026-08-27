@@ -11,14 +11,141 @@
     return String(value || "").trim().toUpperCase();
   }
 
+  function nationalBreakdown(item = {}) {
+    const nationalOidioStems = utils.parseNumber(item.nationalOidioStems);
+    const nationalVellosoStems = utils.parseNumber(item.nationalVellosoStems);
+    const nationalBotrytisStems = utils.parseNumber(item.nationalBotrytisStems);
+    const nationalMaltratoStems = utils.parseNumber(item.nationalMaltratoStems);
+    const detailedNationalStems = nationalOidioStems
+      + nationalVellosoStems
+      + nationalBotrytisStems
+      + nationalMaltratoStems;
+    const nationalStems = utils.parseNumber(item.nationalStems);
+    const nationalGeneralStems = item.nationalGeneralStems === undefined
+      ? Math.max(nationalStems - detailedNationalStems, 0)
+      : utils.parseNumber(item.nationalGeneralStems);
+    return {
+      nationalStems,
+      nationalGeneralStems,
+      nationalOidioStems,
+      nationalVellosoStems,
+      nationalBotrytisStems,
+      nationalMaltratoStems,
+      classificationResultObservation: item.classificationResultObservation || ""
+    };
+  }
+
+  function buildClassificationHistoryRows(assignments) {
+    const groups = new Map();
+    (assignments || []).filter(item => item.status !== "ANULADO").forEach(item => {
+      const key = item.deliveryGroupId || `LEGACY:${item.id}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(item);
+    });
+    const deliveredRows = [...groups.values()].map(group => {
+      const first = group[0];
+      const totals = group.reduce((result, item) => {
+        const national = nationalBreakdown(item);
+        result.meshCount += utils.parseNumber(item.meshCount);
+        result.extraStems += utils.parseNumber(item.extraStems);
+        result.totalStems += utils.parseNumber(item.totalStems);
+        result.nationalStems += national.nationalStems;
+        result.nationalGeneralStems += national.nationalGeneralStems;
+        result.nationalOidioStems += national.nationalOidioStems;
+        result.nationalVellosoStems += national.nationalVellosoStems;
+        result.nationalBotrytisStems += national.nationalBotrytisStems;
+        result.nationalMaltratoStems += national.nationalMaltratoStems;
+        return result;
+      }, {
+        meshCount: 0,
+        extraStems: 0,
+        totalStems: 0,
+        nationalStems: 0,
+        nationalGeneralStems: 0,
+        nationalOidioStems: 0,
+        nationalVellosoStems: 0,
+        nationalBotrytisStems: 0,
+        nationalMaltratoStems: 0
+      });
+      const completedNational = group.some(item => (
+        item.status === "COMPLETADO"
+        || item.status === "ENTREGADO + REGISTRADO NACIONAL"
+        || utils.parseNumber(item.nationalStems) > 0
+      ));
+      const receptionIds = [...new Set(group.map(item => item.receptionId).filter(Boolean))];
+      return {
+        ...first,
+        ...totals,
+        id: first.id,
+        deliveryGroupId: first.deliveryGroupId || "",
+        assignmentIds: group.map(item => item.id),
+        receptionIds,
+        receptionCount: receptionIds.length,
+        meshCount: first.deliveryRequestedMeshes === undefined ? totals.meshCount : utils.parseNumber(first.deliveryRequestedMeshes),
+        extraStems: first.deliveryRequestedExtraStems === undefined ? totals.extraStems : utils.parseNumber(first.deliveryRequestedExtraStems),
+        status: completedNational ? "ENTREGADO + REGISTRADO NACIONAL" : "ENTREGADO"
+      };
+    });
+    return deliveredRows
+      .sort((left, right) => String(right.dateTime || "").localeCompare(String(left.dateTime || "")));
+  }
+
+  function getClassificationHistoryRows(appState) {
+    const store = stateApi.getStore(appState);
+    return buildClassificationHistoryRows(store.classifierAssignments || [], stateApi.getReceptionQueue(appState));
+  }
+
   function exportClassificationXlsx(appState, rows) {
     const escapeXml = value => String(value ?? "")
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
-    const cells = row => row.map(value => `<c t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`).join("");
+    const cells = row => row.map(value => Number.isFinite(value)
+      ? `<c t="n"><v>${value}</v></c>`
+      : `<c t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`
+    ).join("");
+    const totals = rows.reduce((result, item) => ({
+      meshCount: result.meshCount + utils.parseNumber(item.meshCount),
+      extraStems: result.extraStems + utils.parseNumber(item.extraStems),
+      totalStems: result.totalStems + utils.parseNumber(item.totalStems),
+      nationalStems: result.nationalStems + utils.parseNumber(item.nationalStems),
+      nationalGeneralStems: result.nationalGeneralStems + utils.parseNumber(item.nationalGeneralStems),
+      nationalOidioStems: result.nationalOidioStems + utils.parseNumber(item.nationalOidioStems),
+      nationalVellosoStems: result.nationalVellosoStems + utils.parseNumber(item.nationalVellosoStems),
+      nationalBotrytisStems: result.nationalBotrytisStems + utils.parseNumber(item.nationalBotrytisStems),
+      nationalMaltratoStems: result.nationalMaltratoStems + utils.parseNumber(item.nationalMaltratoStems)
+    }), {
+      meshCount: 0,
+      extraStems: 0,
+      totalStems: 0,
+      nationalStems: 0,
+      nationalGeneralStems: 0,
+      nationalOidioStems: 0,
+      nationalVellosoStems: 0,
+      nationalBotrytisStems: 0,
+      nationalMaltratoStems: 0
+    });
     const sheetRows = [
-      ["Fecha y hora", "Bloque", "Proveedor", "Variedad", "Clasificador", "Mallas", "Tallos extras", "Total tallos", "Estado"],
-      ...rows.map(item => [item.dateTime, item.block, item.supplier, item.variety, item.classifier, item.meshCount, item.extraStems, item.totalStems, item.status])
+      ["Fecha y hora", "Bloque", "Proveedor", "Variedad", "Tipo de tallo", "Clasificador", "Mallas", "Tallos extras", "Total tallos", "Total nacional", "Nacional general", "O", "V", "B", "M", "Estado", "Observacion"],
+      ...rows.map(item => [
+        item.dateTime,
+        item.block,
+        item.supplier,
+        item.variety,
+        item.stemType || "",
+        item.classifier,
+        utils.parseNumber(item.meshCount),
+        utils.parseNumber(item.extraStems),
+        utils.parseNumber(item.totalStems),
+        utils.parseNumber(item.nationalStems),
+        utils.parseNumber(item.nationalGeneralStems),
+        utils.parseNumber(item.nationalOidioStems),
+        utils.parseNumber(item.nationalVellosoStems),
+        utils.parseNumber(item.nationalBotrytisStems),
+        utils.parseNumber(item.nationalMaltratoStems),
+        item.status,
+        item.classificationResultObservation || ""
+      ]),
+      ["TOTALES", "", "", "", "", "", totals.meshCount, totals.extraStems, totals.totalStems, totals.nationalStems, totals.nationalGeneralStems, totals.nationalOidioStems, totals.nationalVellosoStems, totals.nationalBotrytisStems, totals.nationalMaltratoStems, "", ""]
     ].map(row => `<row>${cells(row)}</row>`).join("");
     const files = {
       "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
@@ -44,6 +171,9 @@
   }
 
   function render(appState, route) {
+    const search = BlessERP.operacionesReceptionClassificationSearch;
+    if (search?.isOpen?.("classificationReceipts")) return search.renderClassificationReceipts(route);
+    if (search?.isOpen?.("classificationDeliveries")) return search.renderClassificationDeliveries(route);
     const store = stateApi.getStore(appState);
     const ui = stateApi.getUi(appState);
     const assignmentDraft = ui.classificationAssignmentDraft;
@@ -59,38 +189,76 @@
         block: reception.block,
         receptionStatus: reception.status
       })));
-    const assignmentBlocks = [...new Set(receptionItems.map(item => item.block))];
+    const assignmentBlockMap = new Map();
+    receptionItems.forEach(item => {
+      const key = normalize(item.block);
+      if (key && !assignmentBlockMap.has(key)) {
+        assignmentBlockMap.set(key, {
+          block: item.block,
+          supplier: item.supplier,
+          pending: true
+        });
+      }
+    });
+    (store.masterData?.suppliers || [])
+      .filter(item => item.active !== false && item.assignedBlock)
+      .forEach(item => {
+        const key = normalize(item.assignedBlock);
+        if (!assignmentBlockMap.has(key)) {
+          assignmentBlockMap.set(key, {
+            block: item.assignedBlock,
+            supplier: item.name,
+            pending: false
+          });
+        }
+      });
+    const assignmentBlockOptions = [...assignmentBlockMap.values()].sort((left, right) => (
+      Number(right.pending) - Number(left.pending)
+      || String(left.block || "").localeCompare(String(right.block || ""))
+    ));
     const assignmentVarieties = [...new Set(receptionItems.filter(item => normalize(item.block) === normalize(assignmentDraft.block)).map(item => item.variety))];
-    const selectedReceptionItem = receptionItems.find(item => item.block === assignmentDraft.block && item.variety === assignmentDraft.variety);
-    const pendingResults = assignments.filter(item => item.status === "ENTREGADO").slice().sort((left, right) => String(right.dateTime || "").localeCompare(String(left.dateTime || "")));
-    const resultBlocks = [...new Set(pendingResults.map(item => item.block))];
+    const selectedReceptionItem = receptionItems.find(item => normalize(item.block) === normalize(assignmentDraft.block) && normalize(item.variety) === normalize(assignmentDraft.variety));
+    const compatibleReceptionItems = selectedReceptionItem
+      ? receptionItems.filter(item => (
+          normalize(item.block) === normalize(selectedReceptionItem.block)
+          && normalize(item.supplier) === normalize(selectedReceptionItem.supplier)
+          && normalize(item.variety) === normalize(selectedReceptionItem.variety)
+          && normalize(item.stemType || "LARGO") === normalize(selectedReceptionItem.stemType || "LARGO")
+          && utils.parseNumber(item.stemsPerMesh) === utils.parseNumber(selectedReceptionItem.stemsPerMesh)
+        ))
+      : [];
+    const compatibleReceptionCount = new Set(compatibleReceptionItems.map(item => item.receptionId).filter(Boolean)).size;
+    const accumulatedAvailableStems = compatibleReceptionItems.reduce((sum, item) => sum + utils.parseNumber(item.pendingStems), 0);
+    const selectedStemsPerMesh = utils.parseNumber(selectedReceptionItem?.stemsPerMesh);
+    const accumulatedAvailableMeshes = selectedStemsPerMesh > 0 ? Math.floor(accumulatedAvailableStems / selectedStemsPerMesh) : 0;
+    const accumulatedAvailableExtras = selectedStemsPerMesh > 0 ? accumulatedAvailableStems % selectedStemsPerMesh : accumulatedAvailableStems;
+    const resultAssignments = assignments.filter(item => item.status !== "ANULADO").slice().sort((left, right) => String(right.dateTime || "").localeCompare(String(left.dateTime || "")));
+    const resultBlocks = [...new Set(resultAssignments.map(item => item.block))];
     const resultClassifiers = store.catalogs.classifiers || [];
-    const resultVarieties = [...new Set(pendingResults.filter(item => item.block === resultDraft.block && item.classifier === resultDraft.classifier).map(item => item.variety))];
-    const selectedAssignment = pendingResults.find(item => item.id === resultDraft.assignmentId) || pendingResults.find(item => item.supplier === resultDraft.supplier && item.classifier === resultDraft.classifier && item.variety === resultDraft.variety);
-    const totalAssigned = assignments.reduce((sum, item) => sum + utils.parseNumber(item.totalStems), 0);
-    const totalNational = assignments.reduce((sum, item) => sum + utils.parseNumber(item.nationalStems), 0);
+    const resultVarieties = [...new Set(resultAssignments.filter(item => item.block === resultDraft.block && item.classifier === resultDraft.classifier).map(item => item.variety))];
+    const resultCauseTotal = [
+      resultDraft.nationalOidioStems,
+      resultDraft.nationalVellosoStems,
+      resultDraft.nationalBotrytisStems,
+      resultDraft.nationalMaltratoStems
+    ].reduce((sum, value) => sum + utils.parseNumber(value), 0);
 
     return `
-      ${utils.renderPageHeader(route, "Clasificacion operativa activa demo", "authorized", "Controla flor entregada al clasificador y nacional/rechazo. No genera inventario.")}
+      ${utils.renderPageHeader(route, "Clasificacion operativa activa", "authorized", "Controla la flor entregada al clasificador y el resultado nacional/rechazo sin crear inventario.")}
       ${utils.renderTabs(route)}
-      ${utils.renderNotice(ui)}
-      <section class="hero-banner"><div><strong>Clasificacion controla trabajo, no inventario</strong><span>Los datos de proveedor, variedad y tallos por malla se reutilizan desde la recepcion seleccionada.</span></div></section>
-      ${utils.renderSummaryCards([
-        { label: "Entregas", value: utils.number(assignments.length), help: "Trabajo entregado" },
-        { label: "Tallos entregados", value: utils.number(totalAssigned), help: "Desde recepciones" },
-        { label: "Nacional / rechazo", value: utils.number(totalNational), help: "Resultado registrado" },
-        { label: "Pendientes", value: utils.number(assignments.filter(item => item.status === "ENTREGADO").length), help: "Por completar" }
-      ])}
+      ${utils.renderNotice(ui, { hideNationalResult: true })}
+      <div class="table-actions-inline ops-search-first-access"><button class="secondary-button" data-ops-search-action="open" data-view="classificationReceipts">Recepciones de flor</button><button class="secondary-button" data-ops-search-action="open" data-view="classificationDeliveries">Trabajo entregado</button></div>
       <section class="placeholder-grid ops-classification-grid">
         <article class="panel-card ops-classification-compact">
           <div class="panel-card-head"><div><p class="section-kicker">INGRESO AL CLASIFICADOR</p><h3>Entregar flor</h3></div><span class="status-badge partial">Sin inventario</span></div>
           <div class="ops-form-grid">
-            <label class="compact-inline-field"><span>Numero de bloque</span><input list="ops-classification-blocks" autocomplete="off" value="${utils.esc(assignmentDraft.block || "")}" data-ops-bind="classificationAssignmentDraft" data-field="block"><datalist id="ops-classification-blocks">${assignmentBlocks.map(value => `<option value="${utils.esc(value)}"></option>`).join("")}</datalist></label>
-            <label class="compact-inline-field"><span>Proveedor reconocido</span><input readonly value="${utils.esc(assignmentDraft.supplier || "Seleccione un bloque")}"></label>
+            <label class="compact-inline-field ops-classification-block-autocomplete"><span>Bloque / proveedor</span><input autocomplete="off" value="${utils.esc(assignmentDraft.block || "")}" placeholder="Escriba bloque o proveedor" data-ops-classification-block-input aria-autocomplete="list" aria-label="Buscar bloque o proveedor"><div class="ops-classification-block-menu" data-ops-classification-block-menu role="listbox">${assignmentBlockOptions.map(item => `<button type="button" role="option" data-ops-classification-block-option data-block="${utils.esc(item.block)}" data-supplier="${utils.esc(item.supplier)}"><strong>${utils.esc(item.block)}</strong><span>${utils.esc(item.supplier)}</span><small>${item.pending ? "FLOR PENDIENTE" : "PARAMETRIZADO"}</small></button>`).join("") || `<p>No existen bloques parametrizados.</p>`}</div></label>
+            <label class="compact-inline-field"><span>Proveedor reconocido</span><input readonly data-ops-classification-supplier-display value="${utils.esc(assignmentDraft.supplier || "Seleccione un bloque")}"></label>
             <label class="compact-inline-field"><span>Variedad</span><select data-ops-bind="classificationAssignmentDraft" data-field="variety">${valueOptions(assignmentVarieties, assignmentDraft.variety)}</select></label>
             <label class="compact-inline-field"><span>Clasificador</span><select data-ops-bind="classificationAssignmentDraft" data-field="classifier">${store.catalogs.classifiers.map(item => `<option ${item === assignmentDraft.classifier ? "selected" : ""}>${utils.esc(item)}</option>`).join("")}</select></label>
-            <label class="compact-inline-field"><span>Numero de mallas</span><input type="number" min="1" value="${utils.esc(assignmentDraft.meshCount)}" data-ops-bind="classificationAssignmentDraft" data-field="meshCount"></label>
-            <label class="compact-inline-field"><span>Tallos extras</span><input type="number" min="0" value="${utils.esc(assignmentDraft.extraStems)}" data-ops-bind="classificationAssignmentDraft" data-field="extraStems"></label>
+            <label class="compact-inline-field"><span>Numero de mallas</span><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-ops-numeric-only value="${utils.esc(assignmentDraft.meshCount)}" data-ops-bind="classificationAssignmentDraft" data-field="meshCount"></label>
+            <label class="compact-inline-field"><span>Tallos extras</span><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-ops-numeric-only value="${utils.esc(assignmentDraft.extraStems)}" data-ops-bind="classificationAssignmentDraft" data-field="extraStems"></label>
+            <label class="compact-inline-field ops-classification-availability"><span>Disponible acumulado</span><input readonly value="${utils.esc(selectedReceptionItem ? `${accumulatedAvailableMeshes} mallas + ${accumulatedAvailableExtras} tallos (${compatibleReceptionCount} recepcion(es))` : "Sin saldo compatible")}"><small>Se aplica por orden de llegada.</small></label>
           </div>
           <div class="table-actions-inline"><button class="primary-button" data-ops-action="classification-assignment-save">Registrar entrega</button><button class="secondary-button" data-ops-action="classification-assignment-reset">Limpiar</button></div>
         </article>
@@ -98,34 +266,31 @@
           <div class="panel-card-head"><div><p class="section-kicker">RESULTADO</p><h3>Nacional o rechazo</h3></div><span class="status-badge pending">Cierre del clasificador</span></div>
           <div class="ops-form-grid">
             <label class="compact-inline-field"><span>Numero de bloque</span><input list="ops-result-blocks" autocomplete="off" value="${utils.esc(resultDraft.block || "")}" data-ops-bind="classificationResultDraft" data-field="block"><datalist id="ops-result-blocks">${resultBlocks.map(value => `<option value="${utils.esc(value)}"></option>`).join("")}</datalist></label>
-            <label class="compact-inline-field"><span>Proveedor reconocido</span><input readonly value="${utils.esc(resultDraft.supplier || "Seleccione un bloque")}"></label>
             <label class="compact-inline-field"><span>Clasificador</span><select data-ops-bind="classificationResultDraft" data-field="classifier">${valueOptions(resultClassifiers, resultDraft.classifier)}</select></label>
             <label class="compact-inline-field"><span>Variedad</span><select data-ops-bind="classificationResultDraft" data-field="variety">${valueOptions(resultVarieties, resultDraft.variety)}</select></label>
-            <label class="compact-inline-field"><span>Cantidad nacional / rechazo</span><input type="number" min="0" value="${utils.esc(resultDraft.nationalStems)}" data-ops-bind="classificationResultDraft" data-field="nationalStems"></label>
-            <label class="compact-inline-field"><span>Entrega aplicada</span><input readonly value="${utils.esc(selectedAssignment ? `${String(selectedAssignment.dateTime || "").slice(0, 10)} · ${selectedAssignment.totalStems} tallos` : "Sin entrega pendiente")}"></label>
-            <label class="compact-inline-field ops-form-span-2"><span>Observacion</span><textarea rows="2" data-ops-bind="classificationResultDraft" data-field="observation">${utils.esc(resultDraft.observation)}</textarea></label>
+            <label class="compact-inline-field"><span>Cantidad nacional / rechazo (general)</span><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-ops-numeric-only value="${utils.esc(resultDraft.nationalStems)}" data-ops-bind="classificationResultDraft" data-field="nationalStems"></label>
+            <fieldset class="ops-national-causes ops-national-causes-wide">
+              <legend>Nacional por causa (tallos)</legend>
+              <div class="ops-national-cause-grid">
+                <label title="Oidio"><span>O</span><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-ops-numeric-only aria-label="Tallos nacionales por oidio" value="${utils.esc(resultDraft.nationalOidioStems)}" data-ops-bind="classificationResultDraft" data-field="nationalOidioStems"></label>
+                <label title="Velloso"><span>V</span><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-ops-numeric-only aria-label="Tallos nacionales por velloso" value="${utils.esc(resultDraft.nationalVellosoStems)}" data-ops-bind="classificationResultDraft" data-field="nationalVellosoStems"></label>
+                <label title="Botritis"><span>B</span><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-ops-numeric-only aria-label="Tallos nacionales por botritis" value="${utils.esc(resultDraft.nationalBotrytisStems)}" data-ops-bind="classificationResultDraft" data-field="nationalBotrytisStems"></label>
+                <label title="Maltrato"><span>M</span><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-ops-numeric-only aria-label="Tallos nacionales por maltrato" value="${utils.esc(resultDraft.nationalMaltratoStems)}" data-ops-bind="classificationResultDraft" data-field="nationalMaltratoStems"></label>
+                <div class="ops-national-cause-total"><span>Total</span><strong data-ops-national-cause-total>${utils.number(resultCauseTotal)}</strong></div>
+              </div>
+              <small>Use O, V, B y M, o registre solamente la cantidad general.</small>
+            </fieldset>
           </div>
           <div class="table-actions-inline"><button class="primary-button" data-ops-action="classification-result-save">Registrar resultado</button><button class="secondary-button" data-ops-action="classification-result-reset">Limpiar</button></div>
         </article>
       </section>
-      <section class="panel-card">
-        <div class="panel-card-head"><div><p class="section-kicker">HISTORIAL</p><h3>Trabajo entregado a clasificadores</h3></div><button class="secondary-button" data-ops-action="classification-export-xlsx">Descargar Excel</button></div>
-        <div class="ops-form-grid ops-filter-grid">
-          <label class="compact-inline-field"><span>Desde</span><input type="date" data-ops-ui-field="classificationHistoryFrom" value="${utils.esc(ui.classificationHistoryFrom || "")}"></label>
-          <label class="compact-inline-field"><span>Hasta</span><input type="date" data-ops-ui-field="classificationHistoryTo" value="${utils.esc(ui.classificationHistoryTo || "")}"></label>
-          <label class="compact-inline-field"><span>Variedad</span><select data-ops-ui-field="classificationHistoryVariety"><option value="">Todas</option>${valueOptions([...new Set(assignments.map(item => item.variety))], ui.classificationHistoryVariety)}</select></label>
-        </div>
-        <div class="compact-table-wrap"><table class="compact-table">
-          <thead><tr><th>Fecha y hora</th><th>Bloque</th><th>Clasificador</th><th>Proveedor</th><th>Variedad</th><th>Mallas</th><th>Extras</th><th>Total tallos</th><th>Estado</th></tr></thead>
-          <tbody>${assignments.filter(item => (!ui.classificationHistoryFrom || String(item.dateTime).slice(0, 10) >= ui.classificationHistoryFrom) && (!ui.classificationHistoryTo || String(item.dateTime).slice(0, 10) <= ui.classificationHistoryTo) && (!ui.classificationHistoryVariety || item.variety === ui.classificationHistoryVariety)).map(item => `<tr>
-            <td>${utils.esc(item.dateTime)}</td><td>${utils.esc(item.block)}</td><td>${utils.esc(item.classifier)}</td><td>${utils.esc(item.supplier)}</td><td>${utils.esc(item.variety)}</td>
-            <td>${utils.number(item.meshCount)}</td><td>${utils.number(item.extraStems)}</td><td>${utils.number(item.totalStems)}</td>
-            <td><span class="status-badge ${utils.badgeClass(item.status)}">${utils.esc(item.status)}</span></td>
-          </tr>`).join("") || `<tr><td colspan="9">Sin entregas al clasificador con estos filtros.</td></tr>`}</tbody>
-        </table></div>
-      </section>
     `;
   }
 
-  BlessERP.operacionesClasificacion = { render, exportClassificationXlsx };
+  BlessERP.operacionesClasificacion = {
+    buildClassificationHistoryRows,
+    exportClassificationXlsx,
+    getClassificationHistoryRows,
+    render
+  };
 })();

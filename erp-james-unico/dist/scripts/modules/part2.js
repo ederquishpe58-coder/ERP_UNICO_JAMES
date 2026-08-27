@@ -142,24 +142,36 @@
   function renderDashboard(container, route, appState) {
     const alerts = appState.db.session?.alerts || [];
     const modules = BlessERP.moduleRegistry?.modules || [];
+    const companyContext = BlessERP.services?.companyContext;
+    const activeCompany = companyContext?.activeCompany?.() || {};
+    const activeCompanyName = activeCompany.commercialName || appState.db.meta?.companyName || "Bless Flower";
+    const quickAccess = [
+      ["operations-postharvest", "Operaciones"],
+      ["commercial-panel", "Comercial"],
+      ["accounting-chart", "Contabilidad"],
+      ["purchases-invoices", "Compras"],
+      ["inventory-summary", "Inventario"],
+      ["reports-dashboard", "Reportes"],
+      ["settings-company", "Configuración"]
+    ].filter(([routeId]) => companyContext?.canAccessRoute?.(routeId) !== false);
     container.innerHTML = `
       <section class="page-header">
         <div>
-          <p class="section-kicker">ERP JAMES UNICO</p>
+          <p class="section-kicker">JAEDER SYSTEMS</p>
           <h1>${esc(route.title)}</h1>
           <p>${esc(route.description)}</p>
         </div>
         <div class="page-header-side">
-          <span class="status-badge authorized">Shell base activo</span>
+          <span class="status-badge authorized">${esc(activeCompanyName)}</span>
         </div>
       </section>
       ${renderTabs(route)}
       <section class="hero-banner">
         <div>
-          <strong>Base tecnica del ERP unico creada desde Parte 2</strong>
-          <span>Contabilidad, compras, bancos, cartera, reportes e inventario administrativo siguen activos. Operaciones ya opera en modo demo visual preparado y Comercial sigue integrado en modo demo, sin mover todavia la logica pesada de Parte 1 ni Parte 3.</span>
+          <strong>Espacio de trabajo de ${esc(activeCompanyName)}</strong>
+          <span>La empresa de esta pestaña mantiene sus propios pedidos, contabilidad, bancos, cartera, secuenciales y documentos. La disponibilidad física se comparte desde Bless Flower según las reglas multiempresa.</span>
         </div>
-        <button class="secondary-button" data-route-link="core-diagnostics">Ver diagnostico del ERP</button>
+          <button class="secondary-button" data-route-link="core-diagnostics">Ver diagnostico del sistema</button>
       </section>
       <section class="summary-grid">
         ${modules.map(module => `
@@ -190,13 +202,7 @@
             </div>
           </div>
           <div class="module-chip-grid">
-            <button class="module-chip" data-route-link="operations-postharvest">Operaciones</button>
-            <button class="module-chip" data-route-link="commercial-panel">Comercial</button>
-            <button class="module-chip" data-route-link="accounting-chart">Contabilidad</button>
-            <button class="module-chip" data-route-link="purchases-invoices">Compras</button>
-            <button class="module-chip" data-route-link="inventory-summary">Inventario</button>
-            <button class="module-chip" data-route-link="reports-dashboard">Reportes</button>
-            <button class="module-chip" data-route-link="settings-company">Configuración</button>
+            ${quickAccess.map(([routeId, label]) => `<button class="module-chip" data-route-link="${esc(routeId)}">${esc(label)}</button>`).join("")}
           </div>
         </article>
       </section>
@@ -208,10 +214,8 @@
     const modules = registry.modules || [];
     const diagnostics = registry.diagnostics || { technicalSources: [], warnings: [] };
     const contracts = BlessERP.moduleContracts?.contracts || [];
-    const activeModules = modules.filter(module => ["activo", "activo demo/local"].includes(module.status));
-    const placeholderModules = modules.filter(module => module.status === "placeholder");
-    const demoModules = modules.filter(module => module.status === "demo avanzado");
-    const futureModules = modules.filter(module => module.group === "Módulos futuros" || String(module.status || "").includes("futuro"));
+    const activeModules = modules.filter(module => String(module.status || "").startsWith("activo"));
+    const connectedModules = modules.filter(module => Array.isArray(module.contracts) && module.contracts.length);
     const generalStatus = diagnostics.generalStatus || null;
     const operationsStatus = diagnostics.operationsStatus || null;
     const commercialStatus = diagnostics.commercialExportStatus || null;
@@ -250,22 +254,22 @@
         <article class="summary-card">
           <span>Modulos activos</span>
           <strong>${activeModules.length}</strong>
-          <small>Base funcional disponible hoy</small>
+          <small>Funciones disponibles en el entorno local</small>
         </article>
         <article class="summary-card">
-          <span>Placeholders</span>
-          <strong>${placeholderModules.length}</strong>
-          <small>Esperando fase aprobada</small>
+          <span>Modulos conectados</span>
+          <strong>${connectedModules.length}</strong>
+            <small>Con contratos entre áreas de JAEDER SYSTEMS</small>
         </article>
         <article class="summary-card">
-          <span>Modulos demo</span>
-          <strong>${demoModules.length}</strong>
-          <small>Integracion visual y funcional controlada</small>
+          <span>Empresas</span>
+          <strong>${BlessERP.companyCapabilities?.listCompanies?.().length || 1}</strong>
+          <small>Contextos separados por pestaña</small>
         </article>
         <article class="summary-card">
-          <span>Modulos futuros</span>
-          <strong>${futureModules.length}</strong>
-          <small>Reservados fuera de esta fase</small>
+          <span>Persistencia</span>
+          <strong>Local</strong>
+          <small>Supabase permanece desactivado</small>
         </article>
       </section>
       <section class="placeholder-grid">
@@ -294,7 +298,7 @@
             </div>
             <div class="info-stack">
               <div class="info-row"><strong>Origen</strong><span>${esc(operationsStatus.origin)}</span></div>
-              <div class="info-row"><strong>Tipo</strong><span>${esc(operationsStatus.moduleType || "Demo visual preparado")}</span></div>
+                <div class="info-row"><strong>Tipo</strong><span>${esc(operationsStatus.moduleType || "Flujo operativo local")}</span></div>
             </div>
             <ul class="checklist-list">
               ${(operationsStatus.lines || []).map(item => `<li>${esc(item)}</li>`).join("")}
@@ -331,7 +335,7 @@
             ` : ""}
             ${Array.isArray(commercialStatus.printables) ? `
               <div class="info-stack">
-                <div class="info-row"><strong>Documentos demo</strong><span>${esc(commercialStatus.printables.join(" · "))}</span></div>
+                <div class="info-row"><strong>Documentos comerciales</strong><span>${esc(commercialStatus.printables.join(" · "))}</span></div>
               </div>
             ` : ""}
             ${Array.isArray(commercialStatus.warehousePackaging) ? `
@@ -402,10 +406,10 @@
             </ul>
             ${supabaseRuntimeStatus ? `
               <div class="info-stack">
-                <div class="info-row"><strong>Modo runtime</strong><span>${esc(supabaseRuntimeStatus.mode || "DISABLED_DEMO")}</span></div>
+                <div class="info-row"><strong>Modo runtime</strong><span>${esc(supabaseRuntimeStatus.mode || "DISABLED_LOCAL")}</span></div>
                 <div class="info-row"><strong>Habilitado</strong><span>${esc(supabaseRuntimeStatus.enabled ? "Si" : "No")}</span></div>
                 <div class="info-row"><strong>Configurado</strong><span>${esc(supabaseRuntimeStatus.configured ? "Si" : "No")}</span></div>
-                <div class="info-row"><strong>Mensaje</strong><span>${esc(supabaseRuntimeStatus.message || "Supabase desactivado. ERP usando modo local/demo.")}</span></div>
+          <div class="info-row"><strong>Mensaje</strong><span>${esc(supabaseRuntimeStatus.message || "Supabase desactivado. JAEDER SYSTEMS usa almacenamiento local.")}</span></div>
               </div>
             ` : ""}
           </article>
@@ -450,7 +454,7 @@
               <div class="info-stack">
                 <div class="info-row"><strong>Core</strong><span>${esc(featureFlagsReadiness.modules.core.activeSource)} · ${esc(featureFlagsReadiness.modules.core.reason)}</span></div>
                 <div class="info-row"><strong>Comercial catalogos</strong><span>${esc(featureFlagsReadiness.modules.commercialCatalogs.activeSource)} · ${esc(featureFlagsReadiness.modules.commercialCatalogs.reason)}</span></div>
-                <div class="info-row"><strong>Pedido Maestro</strong><span>${esc(featureFlagsReadiness.modules.commercialOrders.activeSource)} · ${esc(featureFlagsReadiness.modules.commercialOrders.reason)}</span></div>
+                <div class="info-row"><strong>Crear pedido</strong><span>${esc(featureFlagsReadiness.modules.commercialOrders.activeSource)} · ${esc(featureFlagsReadiness.modules.commercialOrders.reason)}</span></div>
                 <div class="info-row"><strong>Operaciones</strong><span>${esc(featureFlagsReadiness.modules.operations.activeSource)} · ${esc(featureFlagsReadiness.modules.operations.reason)}</span></div>
                 <div class="info-row"><strong>Scanner</strong><span>${esc(featureFlagsReadiness.modules.scanner.activeSource)} · ${esc(featureFlagsReadiness.modules.scanner.reason)}</span></div>
                 <div class="info-row"><strong>Inventario materiales</strong><span>${esc(featureFlagsReadiness.modules.materialInventory.activeSource)} · ${esc(featureFlagsReadiness.modules.materialInventory.reason)}</span></div>
@@ -479,7 +483,7 @@
             <div class="panel-card-head">
               <div>
                 <p class="section-kicker">REVISION FUNCIONAL FASE 5A</p>
-                <h3>Estado demo/local del ERP</h3>
+          <h3>Estado demo/local de JAEDER SYSTEMS</h3>
               </div>
               <span class="status-badge partial">${esc(functionalReviewStatus.status)}</span>
             </div>
@@ -663,7 +667,7 @@
   }
 
   function isSettingsRoute(routeId) {
-    return ["settings-users", "settings-audit", "settings-sequences", "settings-cost-centers"].includes(routeId);
+    return ["settings-users", "settings-audit", "settings-sequences", "settings-cost-centers", "settings-synchronization"].includes(routeId);
   }
 
   function isReceivablesRoute(routeId) {
@@ -681,11 +685,6 @@
       renderDiagnostics(container, route);
       return;
     }
-    if (routeId === "core-guided-demo") {
-      container.innerHTML = BlessERP.coreGuidedDemo.render(appState, route);
-      BlessERP.coreGuidedDemo.bind(container, appState);
-      return;
-    }
     if (routeId === "commercial-panel") {
       renderCommercialPanel(container, route);
       return;
@@ -698,16 +697,28 @@
       BlessERP.modules.comercial.render(container, route, appState);
       return;
     }
+    if (routeId.startsWith("payroll-")) {
+      BlessERP.modules.payroll.render(container, route, appState);
+      return;
+    }
     if (routeId === "settings-company") {
       BlessERP.modules.part2Foundation.renderCompany(container, route, appState);
       return;
     }
     if (isSettingsRoute(routeId)) {
+      if (routeId === "settings-synchronization") {
+        BlessERP.modules.part2Synchronization.render(container, route, appState);
+        return;
+      }
       BlessERP.modules.part2Settings.render(container, route, appState);
       return;
     }
     if (routeId === "accounting-chart") {
       BlessERP.modules.part2Foundation.renderChartPage(container, route, appState);
+      return;
+    }
+    if (routeId === "accounting-sales") {
+      BlessERP.modules.part2SalesAccounting.render(container, route, appState);
       return;
     }
     if (routeId === "accounting-journal") {
@@ -716,6 +727,10 @@
     }
     if (routeId === "accounting-ledger") {
       BlessERP.modules.part2Accounting.renderLedger(container, route, appState);
+      return;
+    }
+    if (routeId === "accounting-financials") {
+      BlessERP.modules.part2Reports.renderAccounting(container, route, appState);
       return;
     }
     if (routeId.startsWith("purchases-")) {
@@ -736,6 +751,10 @@
     }
     if (routeId.startsWith("inventory-")) {
       BlessERP.modules.part2Inventory.render(container, route, appState);
+      return;
+    }
+    if (routeId === "reports-commercial") {
+      BlessERP.modules.commercialReports.render(container, route, appState);
       return;
     }
     if (routeId.startsWith("reports-")) {

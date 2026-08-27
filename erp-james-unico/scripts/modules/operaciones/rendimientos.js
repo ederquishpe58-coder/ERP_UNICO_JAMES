@@ -2,245 +2,204 @@
   const BlessERP = window.BlessERP = window.BlessERP || {};
   const stateApi = BlessERP.operacionesState;
   const utils = BlessERP.operacionesUtils;
+  let clockTimer = 0;
+  let mountedRoot = null;
+  let mountedAppState = null;
 
-  function renderTransitionView(store) {
-    const yieldUtils = BlessERP.operacionesRendimientosUtils;
-    const rows = yieldUtils.buildTransitionRows(store);
+  function formatDuration(durationMs) {
+    const totalSeconds = Math.max(0, Math.floor(Number(durationMs || 0) / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  function formatDateTime(value) {
+    const normalized = String(value || "").trim();
+    if (!normalized) return "-";
+    const date = new Date(normalized.includes("T") ? normalized : normalized.replace(" ", "T"));
+    if (Number.isNaN(date.getTime())) return normalized;
+    return new Intl.DateTimeFormat("es-EC", { dateStyle: "medium", timeStyle: "medium" }).format(date);
+  }
+
+  function renderWorkdayControl(store) {
+    const workday = store.yieldWorkday || {};
+    const status = workday.status || "SIN_INICIAR";
+    const isOpen = ["ACTIVA", "PAUSADA"].includes(status);
+    const statusLabel = {
+      SIN_INICIAR: "Sin iniciar",
+      ACTIVA: "Activa",
+      PAUSADA: "Pausada",
+      FINALIZADA: "Finalizada"
+    }[status] || status;
+    const statusMessage = status === "ACTIVA"
+      ? `Jornada activa desde: ${formatDateTime(workday.startedAt)}`
+      : status === "PAUSADA"
+        ? `Jornada pausada. Inicio: ${formatDateTime(workday.startedAt)}`
+        : status === "FINALIZADA"
+          ? `Ultima jornada finalizada: ${formatDateTime(workday.endedAt)}`
+          : "Inicie la jornada para habilitar los registros de rendimiento.";
+    const primaryAction = status === "ACTIVA"
+      ? { action: "yield-workday-pause", label: "Pausar jornada" }
+      : status === "PAUSADA"
+        ? { action: "yield-workday-resume", label: "Reanudar jornada" }
+        : { action: "yield-workday-start", label: "Iniciar jornada" };
+    const summary = workday.summary;
     return `
-      <section class="placeholder-grid">
-        ${rows.map(item => `
-          <article class="panel-card subtle-card">
-            <div class="panel-card-head">
-              <div>
-                <p class="section-kicker">TRANSICION OPERATIVA</p>
-                <h3>${utils.esc(item.step)}</h3>
-              </div>
-              <span class="status-badge ${utils.badgeClass(item.status)}">${utils.esc(item.status)}</span>
-            </div>
-            <div class="info-stack">
-              <div class="info-row"><strong>Cantidad</strong><span>${utils.esc(item.countLabel)}</span></div>
-              <div class="info-row"><strong>Detalle</strong><span>${utils.esc(item.detail)}</span></div>
-            </div>
-          </article>
-        `).join("")}
+      <section class="ops-workday-control" data-yield-workday-control aria-label="Control de jornada laboral">
+        <div class="ops-workday-title">
+          <span class="ops-workday-status ${utils.esc(status.toLowerCase())}">${utils.esc(statusLabel)}</span>
+          <div><strong>Control de jornada laboral</strong><small>${utils.esc(statusMessage)}</small></div>
+        </div>
+        <div class="ops-workday-time-block">
+          <span data-yield-workday-date>${utils.esc(new Intl.DateTimeFormat("es-EC", { dateStyle: "medium" }).format(new Date()))}</span>
+          <strong data-yield-workday-clock>${utils.esc(new Intl.DateTimeFormat("es-EC", { timeStyle: "medium" }).format(new Date()))}</strong>
+          <small>Tiempo laborado <b data-yield-workday-time>${utils.esc(formatDuration(BlessERP.operacionesWorkdayCore.elapsedMs(workday)))}</b></small>
+        </div>
+        <div class="ops-workday-actions">
+          <button class="primary-button" type="button" data-ops-action="${utils.esc(primaryAction.action)}">${utils.esc(primaryAction.label)}</button>
+          ${isOpen ? `<button class="danger-button" type="button" data-ops-action="yield-workday-close">Finalizar</button>` : ""}
+          <button class="secondary-button" type="button" data-ops-action="yield-view-screen" title="Abrir presentacion de rendimientos">Pantalla completa</button>
+        </div>
+        ${summary ? `<div class="ops-workday-summary" aria-label="Resumen de la jornada finalizada"><span><b>${utils.esc(utils.number(summary.totalBunches))}</b> ramos</span><span><b>${utils.esc(utils.number(summary.totalMeshes))}</b> mallas</span><span><b>${utils.esc(formatDuration(summary.activeDurationMs))}</b> efectivos</span></div>` : ""}
       </section>
     `;
   }
 
-  function renderWorkdayPanel(store) {
-    const yieldUtils = BlessERP.operacionesRendimientosUtils;
-    const status = yieldUtils.buildWorkdayStatus(store);
+  function renderProgress(row) {
+    const width = Math.min(100, Math.max(0, row.progress));
+    const tone = row.progress >= 100 ? "complete" : row.progress >= 60 ? "steady" : "starting";
     return `
-      <section class="panel-card">
-        <div class="panel-card-head">
-          <div>
-            <p class="section-kicker">BLESS FLOWER</p>
-            <h3>Control de jornada</h3>
-          </div>
-          <span class="status-badge ${utils.badgeClass(status.status)}">${utils.esc(status.status)}</span>
-        </div>
-        <div class="placeholder-grid">
-          <article class="panel-card subtle-card">
-            <div class="info-stack">
-              <div class="info-row"><strong>Fecha</strong><span>${utils.esc(utils.dateLabel(status.date))}</span></div>
-              <div class="info-row"><strong>Inicio</strong><span>${utils.esc(status.startedAt)}</span></div>
-              <div class="info-row"><strong>Pausa</strong><span>${utils.esc(status.pausedAt)}</span></div>
-              <div class="info-row"><strong>Cierre</strong><span>${utils.esc(status.endedAt)}</span></div>
-            </div>
-          </article>
-          <article class="panel-card subtle-card">
-            <div class="info-stack">
-              <div class="info-row"><strong>Meta clasificador</strong><span>${utils.esc(utils.number(status.classifierDailyGoal))} mallas/dia</span></div>
-              <div class="info-row"><strong>Meta clasificador/hora</strong><span>${utils.esc(status.classifierHourlyGoal.toFixed(1))} mallas/hora</span></div>
-              <div class="info-row"><strong>Meta embonchador/hora</strong><span>${utils.esc(utils.number(status.buncherHourlyGoal))} bonches/hora</span></div>
-              <div class="info-row"><strong>Jornada base</strong><span>${utils.esc(utils.number(status.workdayHours))} horas</span></div>
-            </div>
-          </article>
-        </div>
-        <p class="panel-note">${utils.esc(status.observation)} No modifica rol de pagos; solo prepara los parametros operativos que despues se revisaran.</p>
-        <div class="button-row">
-          <button class="secondary-button" type="button" data-ops-action="yield-workday-start">Iniciar jornada</button>
-          <button class="secondary-button" type="button" data-ops-action="yield-workday-pause">Pausar</button>
-          <button class="secondary-button" type="button" data-ops-action="yield-workday-resume">Reanudar</button>
-          <button class="primary-button" type="button" data-ops-action="yield-workday-close">Cerrar jornada demo</button>
-        </div>
-      </section>
+      <div class="ops-yield-progress ${tone}" aria-label="Avance ${utils.esc(row.progress.toFixed(1))}%">
+        <div class="ops-yield-progress-track"><span style="width:${utils.esc(width)}%"></span></div>
+        <strong>${utils.esc(row.progress.toFixed(1))}%</strong>
+      </div>
     `;
   }
 
-  function renderInventoryRelation(store) {
-    const yieldUtils = BlessERP.operacionesRendimientosUtils;
-    const rows = yieldUtils.buildInventoryRelationRows(store);
+  function renderWorkerPanel(options) {
+    const hourLabels = options.hourLabels;
     return `
-      <section class="panel-card">
-        <div class="panel-card-head">
+      <article class="panel-card ops-worker-yield-panel ${utils.esc(options.mode)}" data-yield-panel="${utils.esc(options.mode)}">
+        <div class="ops-worker-yield-head">
           <div>
-            <p class="section-kicker">RELACION CON INVENTARIO OPERATIVO</p>
-            <h3>Ramos ingresados reflejados en inventario demo</h3>
+            <p class="section-kicker">${utils.esc(options.eyebrow)}</p>
+            <h3>${utils.esc(options.title)}</h3>
           </div>
-          <span class="status-badge partial">Demo visual</span>
-        </div>
-        <p class="panel-note">Esta tabla muestra el puente operativo: un ramo leido en Rendimientos puede reflejarse en Inventario de rosas demo. No descuenta ni modifica inventario real.</p>
-        <div class="compact-table-wrap">
-          <table class="compact-table">
-            <thead>
-              <tr>
-                <th>Codigo ramo</th>
-                <th>Variedad</th>
-                <th>Longitud</th>
-                <th>Embonchador</th>
-                <th>Inventario demo</th>
-                <th>Bodega</th>
-                <th>Ubicacion</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows.map(item => `
-                <tr>
-                  <td>${utils.esc(item.code)}</td>
-                  <td>${utils.esc(item.variety)}</td>
-                  <td>${utils.esc(`${utils.number(item.length)} cm`)}</td>
-                  <td>${utils.esc(item.buncher)}</td>
-                  <td>${utils.esc(item.inventoryId)}</td>
-                  <td>${utils.esc(item.warehouse)}</td>
-                  <td>${utils.esc(item.location)}</td>
-                  <td><span class="status-badge ${utils.badgeClass(item.state)}">${utils.esc(item.state)}</span></td>
-                </tr>
-              `).join("") || `<tr><td colspan="8" class="empty-row">Sin ramos relacionados con inventario demo.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    `;
-  }
-
-  function renderRegistrosView(store) {
-    return `
-      <section class="panel-card">
-        <div class="panel-card-head">
-          <div>
-            <p class="section-kicker">REGISTROS DE RENDIMIENTO</p>
-            <h3>Resumen consolidado por actividad</h3>
+          <div class="ops-worker-yield-goals" aria-label="Metas de rendimiento">
+            <span>Meta por hora <strong>${utils.esc(utils.number(options.hourlyGoal))} ${utils.esc(options.unit)}</strong></span>
+            <span>Meta diaria <strong>${utils.esc(utils.number(options.dailyGoal))} ${utils.esc(options.unit)}</strong></span>
+            <span>Jornada <strong>8 horas</strong></span>
           </div>
         </div>
-        <div class="compact-table-wrap">
-          <table class="compact-table">
+        <div class="compact-table-wrap ops-worker-yield-table-wrap">
+          <table class="compact-table ops-worker-yield-table">
+            <caption class="sr-only">${utils.esc(options.title)}</caption>
             <thead>
               <tr>
                 <th>Fecha</th>
-                <th>Trabajador</th>
-                <th>Actividad</th>
-                <th>Variedad</th>
-                <th>Ramos</th>
-                <th>Tallos</th>
-                <th>Rendimiento hora</th>
-                <th>Observacion</th>
+                <th>${utils.esc(options.workerLabel)}</th>
+                ${hourLabels.map((label, index) => `<th><span>H${index + 1}</span><small>${utils.esc(label.replace(":00", "").replace(":00", ""))}</small></th>`).join("")}
+                <th>Total del d&iacute;a</th>
+                <th>Avance</th>
               </tr>
             </thead>
             <tbody>
-              ${store.performances.map(item => `
+              ${options.rows.map(row => `
                 <tr>
-                  <td>${utils.esc(utils.dateLabel(item.date))}</td>
-                  <td>${utils.esc(item.worker)}</td>
-                  <td>${utils.esc(item.activity)}</td>
-                  <td>${utils.esc(item.variety)}</td>
-                  <td>${utils.esc(utils.number(item.bunches))}</td>
-                  <td>${utils.esc(utils.number(item.stems))}</td>
-                  <td>${utils.esc(utils.number(item.performancePerHour))}</td>
-                  <td>${utils.esc(item.observation || "-")}</td>
+                  <td>${utils.esc(row.date === "SIN_FECHA" ? "-" : utils.dateLabel(row.date))}</td>
+                  <td><strong>${utils.esc(row.worker)}</strong></td>
+                  ${row.hourly.map(value => `<td class="ops-yield-hour-value">${utils.esc(utils.number(value))}</td>`).join("")}
+                  <td class="ops-yield-day-total"><strong>${utils.esc(utils.number(row.total))}</strong><span>de ${utils.esc(utils.number(row.dailyGoal))}</span></td>
+                  <td>${renderProgress(row)}</td>
                 </tr>
-              `).join("")}
+              `).join("") || `<tr><td colspan="12" class="empty-row">Sin registros de rendimiento todav&iacute;a.</td></tr>`}
             </tbody>
           </table>
         </div>
-      </section>
+      </article>
     `;
   }
 
-  function renderOverview(appState, store) {
-    const yieldUtils = BlessERP.operacionesRendimientosUtils;
-    const summary = yieldUtils.buildYieldSummary(store);
-    const classifierRows = yieldUtils.buildClassifierRanking(store);
-    const buncherRows = yieldUtils.buildBuncherRanking(store);
-    return `
-      ${renderWorkdayPanel(store)}
-      <section class="hero-banner">
-        <div>
-          <strong>Rendimientos reestructurados con flujo operativo</strong>
-          <span>Clasificadores se miden desde entregas/cierres y embonchadores desde ramos efectivamente escaneados. Imprimir etiquetas no suma rendimiento.</span>
-        </div>
-      </section>
-      <section class="hero-banner">
-        <div>
-          <strong>Despacho y contabilidad siguen separados</strong>
-          <span>Datos demo. No conecta inventario real, Supabase ni scanner real.</span>
-        </div>
-      </section>
-      ${utils.renderSummaryCards([
-        { label: "Mallas procesadas", value: utils.number(summary.totalMeshes), help: "Ingreso separado por clasificador" },
-        { label: "Tallos por mallas", value: utils.number(summary.totalMeshStems), help: "25 tallos por malla + extras" },
-        { label: "Ramos ingresados", value: utils.number(summary.totalBunches), help: "Lectura separada dentro de Rendimientos" },
-        { label: "Tallos ingresados", value: utils.number(summary.totalBunchStems), help: "Base visual para inventario operativo" },
-        { label: "Clasificadores activos", value: utils.number(summary.classifierWorkers), help: "Con mallas procesadas en el dia" },
-        { label: "Embonchadores activos", value: utils.number(summary.buncherWorkers), help: "Con ramos ingresados en el dia" },
-        { label: "Duplicados detectados", value: utils.number(summary.duplicateEvents), help: "Lecturas repetidas en demo" },
-        { label: "Avance clasificacion", value: `${utils.number(summary.classifierProgress)}%`, help: `${utils.number(summary.classifierDailyGoal)} mallas/dia meta demo` },
-        { label: "Avance embonchado", value: `${utils.number(summary.buncherProgress)}%`, help: `${utils.number(summary.buncherDailyGoal)} bonches/dia meta demo` }
-      ])}
-      ${BlessERP.operacionesPlanOperativo.render(appState)}
-      <section class="placeholder-grid">
-        ${yieldUtils.renderRankingTable("Rendimiento de clasificadores", "MALLAS / HORA", classifierRows, "classifier")}
-        ${yieldUtils.renderRankingTable("Rendimiento de embonchadores", "BONCHES / HORA", buncherRows, "buncher")}
-      </section>
-      ${renderInventoryRelation(store)}
-    `;
-  }
-
-  function render(appState, route) {
+  function render(appState) {
     const store = stateApi.getStore(appState);
     const ui = stateApi.getUi(appState);
     const yieldUtils = BlessERP.operacionesRendimientosUtils;
-    const activeView = yieldUtils.getYieldsView(ui);
-    const views = [
-      ["rendimientos", "RENDIMIENTOS"],
-      ["mallas", "MALLAS PRC"],
-      ["ramos", "RAMOS ING"],
-      ["registros", "REGISTROS"],
-      ["transiciones", "TRANSICIONES"]
-    ];
-
-    let body = "";
-    if (activeView === "mallas") {
-      body = BlessERP.operacionesMallasProcesadas.render(appState);
-    } else if (activeView === "ramos") {
-      body = BlessERP.operacionesRamosIngresados.render(appState);
-    } else if (activeView === "registros") {
-      body = renderRegistrosView(store);
-    } else if (activeView === "transiciones") {
-      body = renderTransitionView(store);
-    } else {
-      body = renderOverview(appState, store);
-    }
+    const classifierRows = yieldUtils.buildClassifierHourlyPerformance(store);
+    const buncherRows = yieldUtils.buildBuncherHourlyPerformance(store);
+    const activeView = ui.yieldsView === "records" ? "records" : "rendimientos";
+    const workday = yieldUtils.getVisibleWorkday(store);
+    const hourLabels = yieldUtils.buildWorkHourLabels(yieldUtils.workdayStartHour(workday));
 
     return `
-      ${utils.renderPageHeader(route, "Rendimientos operativos demo", "partial", "Base operativa inspirada en Parte 1 con mallas procesadas, ramos ingresados y registros separados.")}
-      ${utils.renderTabs(route)}
-      ${utils.renderNotice(ui)}
-      <section class="hero-banner">
-        <div>
-          <strong>Opciones de Rendimientos</strong>
-          <span>RAMOS ING es ahora una consulta de los ingresos creados en la estacion de escaneo; no permite generar inventario desde Rendimientos.</span>
+      <div class="ops-yield-command-row">
+        <div class="ops-yield-options-bar">
+          <details class="ops-yield-options-menu">
+            <summary>Opciones</summary>
+            <div>
+              <button type="button" data-ops-action="yield-view-rendimientos">1. Rendimientos</button>
+              <button type="button" data-ops-action="yield-view-screen">2. Pantalla de presentaci&oacute;n completa</button>
+              <button type="button" data-ops-action="yield-view-records">3. Registros de rendimientos</button>
+            </div>
+          </details>
         </div>
-      </section>
-      <div class="subnav-tabs">
-        ${views.map(([value, label]) => `
-          <button class="subnav-tab ${activeView === value ? "active" : ""}" data-ops-ui-field="yieldsView" data-value="${utils.esc(value)}">${utils.esc(label)}</button>
-        `).join("")}
+        ${renderWorkdayControl(store)}
       </div>
-      ${body}
+      ${activeView === "records" ? BlessERP.operacionesRegistrosRendimientos.render(appState) : `
+        <section class="ops-yield-panels" aria-label="Rendimientos de trabajadores">
+          ${renderWorkerPanel({
+          mode: "classifiers",
+          eyebrow: "CLASIFICADORES",
+          title: "Rendimiento de clasificadores",
+          workerLabel: "Clasificador",
+          unit: "mallas",
+          hourlyGoal: 33,
+          dailyGoal: 264,
+          hourLabels,
+          rows: classifierRows
+          })}
+          ${renderWorkerPanel({
+          mode: "bunchers",
+          eyebrow: "EMBONCHADORES",
+          title: "Rendimiento de embonchadores",
+          workerLabel: "Embonchador",
+          unit: "ramos",
+          hourlyGoal: 25,
+          dailyGoal: 200,
+          hourLabels,
+          rows: buncherRows
+          })}
+        </section>
+      `}
     `;
   }
 
-  BlessERP.operacionesRendimientos = { render };
+  function updateLiveTime() {
+    if (!mountedRoot || !mountedAppState) return;
+    const store = stateApi.getStore(mountedAppState);
+    const now = new Date();
+    const clock = mountedRoot.querySelector("[data-yield-workday-clock]");
+    const date = mountedRoot.querySelector("[data-yield-workday-date]");
+    const elapsed = mountedRoot.querySelector("[data-yield-workday-time]");
+    if (clock) clock.textContent = new Intl.DateTimeFormat("es-EC", { timeStyle: "medium" }).format(now);
+    if (date) date.textContent = new Intl.DateTimeFormat("es-EC", { dateStyle: "medium" }).format(now);
+    if (elapsed) elapsed.textContent = formatDuration(BlessERP.operacionesWorkdayCore.elapsedMs(store.yieldWorkday));
+  }
+
+  function mount(container, appState) {
+    unmount();
+    mountedRoot = container;
+    mountedAppState = appState;
+    updateLiveTime();
+    clockTimer = window.setInterval(updateLiveTime, 1000);
+  }
+
+  function unmount() {
+    window.clearInterval(clockTimer);
+    clockTimer = 0;
+    mountedRoot = null;
+    mountedAppState = null;
+  }
+
+  BlessERP.operacionesRendimientos = { formatDuration, mount, render, unmount, updateLiveTime };
 })();

@@ -1,0 +1,17 @@
+node_modules/
+erp-james-unico/node_modules/
+erp-james-unico/VERCEL-UN-SOLO-ARCHIVO/
+erp-james-unico/.dist-build/
+erp-james-unico/.standalone-build/
+.env
+erp-james-unico/.env
+npm-debug.log*
+*.log
+*.p12
+*.pfx
+*.pem
+*.key
+.codex-tmp/
+
+.vercel
+.env*

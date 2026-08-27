@@ -1,6 +1,7 @@
 (function(){
   const BlessERP = window.BlessERP = window.BlessERP || {};
   const stateApi = BlessERP.state;
+  const accountingRules = BlessERP.accountingRules;
   const { clone, uid } = BlessERP.utils;
 
   function all() {
@@ -41,28 +42,6 @@
     return String(code || "").split(".").filter(Boolean).length || 1;
   }
 
-  function validateAccount(candidate, currentId = "") {
-    const errors = [];
-    const accounts = all();
-    const code = String(candidate.code || "").trim();
-    const name = String(candidate.name || "").trim();
-    const type = String(candidate.type || "").trim();
-    const nature = String(candidate.nature || "").trim();
-
-    if (!code) errors.push("El código es obligatorio.");
-    if (!name) errors.push("El nombre es obligatorio.");
-    if (!type) errors.push("El tipo es obligatorio.");
-    if (!nature) errors.push("La naturaleza es obligatoria.");
-
-    const duplicate = accounts.find(account => account.code === code && account.id !== currentId);
-    if (duplicate) errors.push("No se permiten códigos duplicados.");
-
-    const ownChildren = childrenOf(code, accounts).filter(account => account.id !== currentId);
-    if (candidate.isMovement && ownChildren.length) errors.push("Una cuenta con subcuentas no puede marcarse como cuenta de movimiento.");
-
-    return errors;
-  }
-
   function saveAccount(candidate) {
     const normalized = {
       id: candidate.id || uid("ACC"),
@@ -79,10 +58,18 @@
       notes: String(candidate.notes || "").trim()
     };
 
-    const errors = validateAccount(normalized, normalized.id);
+    const accounts = all();
+    const previous = accounts.find(account => account.id === normalized.id);
+    const usedByPostedEntry = previous && (stateApi.state.db.journalEntries || []).some(entry =>
+      ["CONTABILIZADO", "REVERSADO"].includes(entry.status)
+      && (entry.lines || []).some(line => line.accountCode === previous.code)
+    );
+    const errors = validateAccountStructure(normalized, normalized.id);
+    if (usedByPostedEntry && ["code", "type", "nature", "isMovement"].some(field => normalized[field] !== previous[field])) {
+      errors.push("No se puede cambiar la estructura de una cuenta que ya tiene movimientos contabilizados.");
+    }
     if (errors.length) return { ok: false, errors };
 
-    const accounts = all();
     const index = accounts.findIndex(account => account.id === normalized.id);
     if (index >= 0) accounts[index] = normalized;
     else accounts.push(normalized);
@@ -96,6 +83,16 @@
     const accounts = all();
     const target = accounts.find(account => account.id === id);
     if (!target) return { ok: false, message: "Cuenta no encontrada." };
+    if (target.status === "Activa") {
+      const usedByPostedEntry = (stateApi.state.db.journalEntries || []).some(entry =>
+        ["CONTABILIZADO", "REVERSADO"].includes(entry.status)
+        && (entry.lines || []).some(line => line.accountCode === target.code)
+      );
+      if (usedByPostedEntry) return { ok: false, message: "No se puede inactivar una cuenta con movimientos contabilizados." };
+      if (childrenOf(target.code, accounts).some(account => account.status === "Activa")) {
+        return { ok: false, message: "Inactive primero las subcuentas activas." };
+      }
+    }
     target.status = target.status === "Activa" ? "Inactiva" : "Activa";
     stateApi.state.db.chartOfAccounts = sortAccounts(accounts);
     stateApi.saveDb();
@@ -106,16 +103,27 @@
     return sortAccounts(all()).filter(account => account.status === "Activa" && account.isMovement);
   }
 
+  function validateAccountStructure(candidate, currentId = "") {
+    return accountingRules.validateAccount(candidate, all(), currentId);
+  }
+
+  function auditCatalog() {
+    return accountingRules.auditCatalog(all());
+  }
+
   BlessERP.services = BlessERP.services || {};
   BlessERP.services.chartOfAccounts = {
     all,
     sortAccounts,
     childrenOf,
     findByCode,
-    validateAccount,
+    validateAccount: validateAccountStructure,
     saveAccount,
     toggleActive,
     movementOptions,
-    levelFromCode
+    levelFromCode,
+    auditCatalog,
+    accountGroups: accountingRules.ACCOUNT_GROUPS,
+    accountTypes: accountingRules.ACCOUNT_TYPES
   };
 })();

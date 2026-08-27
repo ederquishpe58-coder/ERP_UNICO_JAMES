@@ -41,7 +41,7 @@
   }
 
   function currentUser() {
-    return adminService?.activeUser?.() || stateApi.state.db.session?.activeUser || { id: "demo", name: "Usuario demo", role: "Administrador" };
+    return adminService?.activeUser?.() || stateApi.state.db.session?.activeUser || { id: "system", name: "Usuario del sistema", role: "Administrador" };
   }
 
   function lastDay(year, month) {
@@ -50,6 +50,13 @@
 
   function normalizeMonth(value) {
     return String(value || "06").padStart(2, "0").slice(-2);
+  }
+
+  function daysBetweenDates(fromValue = "", toValue = "") {
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(fromValue || "")) ? new Date(`${fromValue}T00:00:00Z`) : null;
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(String(toValue || "")) ? new Date(`${toValue}T00:00:00Z`) : null;
+    if (!from || !to || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
+    return Math.round((to.getTime() - from.getTime()) / 86400000);
   }
 
   function inferPeriodFromSettings(settings = {}) {
@@ -118,7 +125,7 @@
   }
 
   function history() {
-    ensureDemoGeneration();
+    ensureStore();
     return clone(stateApi.state.db.atsHistory || []).sort((a, b) =>
       String(b.generatedAt || b.validatedAt || b.createdAt || "").localeCompare(String(a.generatedAt || a.validatedAt || a.createdAt || ""), "es")
     );
@@ -175,6 +182,11 @@
     return true;
   }
 
+  function periodKey(value = "") {
+    const match = /^(\d{4})-(\d{2})/.exec(String(value || ""));
+    return match ? `${match[1]}-${match[2]}` : "";
+  }
+
   function identificationType(taxId) {
     const normalized = String(taxId || "").trim();
     if (!normalized) return "";
@@ -192,6 +204,104 @@
       nota_debito: "05"
     };
     return map[voucherType] || "";
+  }
+
+  function salesPaymentMethod(value, fallback = "20") {
+    const queueCore = BlessERP.comercialSriOrderQueueCore;
+    if (queueCore?.paymentMethodCode) return queueCore.paymentMethodCode(value, fallback);
+    const normalized = String(value || "").trim().toUpperCase();
+    if (["01", "20"].includes(normalized)) return normalized;
+    if (normalized.includes("SIN UTILIZACION") || normalized.includes("SIN UTILIZACIÓN")) return "01";
+    if (normalized.includes("TRANSFER") || normalized.includes("CHEQUE") || normalized.includes("DEBITO") || normalized.includes("DÉBITO")) return "20";
+    return fallback === "" ? "" : "20";
+  }
+
+  function commercialOrders() {
+    try {
+      const rows = BlessERP.comercialState?.getOrders?.(stateApi.state);
+      if (Array.isArray(rows)) return rows;
+    } catch {
+      // El ATS sigue disponible aunque el modulo comercial aun no se haya abierto.
+    }
+    return Array.isArray(stateApi.state.db?.commercial?.orders) ? stateApi.state.db.commercial.orders : [];
+  }
+
+  function commercialCustomer(customerId) {
+    const direct = BlessERP.comercialUtils?.findCustomer?.(customerId);
+    if (direct) return direct;
+    const rows = stateApi.state.db?.commercial?.customerCatalog || BlessERP.comercialData?.customers || [];
+    return rows.find(item => String(item.id) === String(customerId)) || null;
+  }
+
+  function commercialBrand(brandId) {
+    const direct = BlessERP.comercialUtils?.findBrand?.(brandId);
+    if (direct) return direct;
+    const rows = stateApi.state.db?.commercial?.brandCatalog || BlessERP.comercialData?.brands || [];
+    return rows.find(item => String(item.id) === String(brandId)) || null;
+  }
+
+  function activeCompanyId() {
+    return BlessERP.services?.companyContext?.activeCompanyId?.()
+      || stateApi.state.db?.activeCompanyId
+      || "COMP-BLESS-FLOWER";
+  }
+
+  function parseSriDocumentNumber(value) {
+    const digits = String(value || "").replace(/\D+/g, "");
+    if (digits.length < 15) return { establishment: "", emissionPoint: "", sequential: "" };
+    const compact = digits.slice(-15);
+    return {
+      establishment: compact.slice(0, 3),
+      emissionPoint: compact.slice(3, 6),
+      sequential: compact.slice(6, 15)
+    };
+  }
+
+  function orderTotal(order = {}) {
+    const metrics = BlessERP.comercialUtils?.getOrderMetrics?.(order) || {};
+    if (Number(metrics.totalUsd || 0) > 0) return round2(metrics.totalUsd);
+    return round2((order.lines || []).reduce((sum, line) => {
+      const stems = Number(line.totalStems || (Number(line.bunches || 0) * Number(line.stemsPerBunch || 0)));
+      return sum + stems * Number(line.unitPrice || 0);
+    }, 0));
+  }
+
+  function mapSaleRow(order = {}) {
+    const customer = commercialCustomer(order.customerId) || {};
+    const brand = commercialBrand(order.brandId) || {};
+    const documentNumber = order.sriInvoiceNumber || order.documentNumber || order.number || "";
+    const parts = parseSriDocumentNumber(documentNumber);
+    const paymentMethod = salesPaymentMethod(order.sriPaymentMethod || customer.sriPaymentMethod, "20");
+    const total = orderTotal(order);
+    const exportSale = BlessERP.comercialSriOrderQueueCore?.isExportOrder
+      ? BlessERP.comercialSriOrderQueueCore.isExportOrder(order, brand)
+      : String(customer.category || "EXPORTACION").toUpperCase() !== "LOCAL";
+    return {
+      sourceId: order.id || "",
+      sourceMode: "ERP",
+      companyId: order.sellingCompanyId || order.selling_company_id || order.companyId || order.company_id || activeCompanyId(),
+      issueDate: String(order.sriIssueDate || order.issuedAt || "").slice(0, 10),
+      customerName: customer.legalName || customer.commercialName || "",
+      customerTaxId: customer.identification || "",
+      customerIdentificationType: identificationType(customer.identification),
+      brandName: brand.finalClientName || brand.name || "",
+      documentType: "01",
+      documentNumber,
+      establishment: parts.establishment,
+      emissionPoint: parts.emissionPoint,
+      sequential: parts.sequential,
+      authorization: order.sriAuthorizationNumber || "",
+      accessKey: order.sriAccessKey || "",
+      status: String(order.sriAuthorizationStatus || "PENDIENTE").toUpperCase(),
+      paymentMethod,
+      paymentMethods: [paymentMethod],
+      baseNoTax: 0,
+      base0: total,
+      baseTaxed: 0,
+      vat: 0,
+      total,
+      exportSale
+    };
   }
 
   function purchaseRequiresRetention(purchaseType) {
@@ -240,9 +350,27 @@
   function aggregateIssuedRetentions(rows = []) {
     const byPurchase = new Map();
     rows.forEach(row => {
-      const current = byPurchase.get(row.purchaseId) || { rent: 0, vat: 0, total: 0 };
-      if (row.taxType === "RENTA") current.rent = round2(current.rent + row.retainedAmount);
+      const current = byPurchase.get(row.purchaseId) || { rent: 0, vat: 0, total: 0, incomeTaxDetails: [], vatDetails: [] };
+      if (row.taxType === "RENTA") {
+        current.rent = round2(current.rent + row.retainedAmount);
+        current.incomeTaxDetails.push({
+          code: row.sriCode || row.retentionCode || "",
+          baseAmount: num(row.baseAmount),
+          percentage: num(row.percentage),
+          retainedAmount: num(row.retainedAmount),
+          source: "WITHHOLDING"
+        });
+      }
       if (row.taxType === "IVA") current.vat = round2(current.vat + row.retainedAmount);
+      if (row.taxType === "IVA") {
+        current.vatDetails.push({
+          code: row.sriCode || row.retentionCode || "",
+          baseAmount: num(row.baseAmount),
+          percentage: num(row.percentage),
+          retainedAmount: num(row.retainedAmount),
+          source: "WITHHOLDING"
+        });
+      }
       current.total = round2(current.total + row.retainedAmount);
       byPurchase.set(row.purchaseId, current);
     });
@@ -252,7 +380,22 @@
   function mapPurchaseRow(purchase, retentionMap = new Map(), overrides = {}) {
     const support = purchaseService.taxSupportByCode(purchase.taxSupportCode) || { code: purchase.taxSupportCode || "", description: "" };
     const totals = purchase.totals || {};
-    const retentions = retentionMap.get(purchase.id) || { rent: 0, vat: 0, total: 0 };
+    const retentions = retentionMap.get(purchase.id) || { rent: 0, vat: 0, total: 0, incomeTaxDetails: [], vatDetails: [] };
+    const noSubjectBase = round2(
+      num(overrides.baseNoObjetoIva ?? 0)
+      + num(overrides.baseExentaIva ?? 0)
+      + num(overrides.base0 ?? totals.base0)
+      + num(overrides.baseIva ?? totals.baseIva)
+    );
+    const incomeTaxDetails = purchase.retentionDecision === "NO_SUJETO_332"
+      ? [{
+          code: "332",
+          baseAmount: noSubjectBase,
+          percentage: 0,
+          retainedAmount: 0,
+          source: "PURCHASE_DECISION"
+        }]
+      : clone(retentions.incomeTaxDetails || []);
     return {
       sourceId: purchase.id,
       sourceMode: overrides.sourceMode || "ERP",
@@ -283,6 +426,11 @@
       retentionRent: num(overrides.retentionRent ?? retentions.rent),
       retentionVat: num(overrides.retentionVat ?? retentions.vat),
       retentionTotal: num(overrides.retentionTotal ?? retentions.total),
+      retentionDecision: purchase.retentionDecision || "",
+      retentionDecisionCode: purchase.retentionDecisionCode || "",
+      retentionDecisionReason: purchase.retentionDecisionReason || "",
+      incomeTaxDetails,
+      vatRetentionDetails: clone(retentions.vatDetails || []),
       status: overrides.status || purchase.status || "",
       lineCount: Array.isArray(purchase.lines) ? purchase.lines.length : 0,
       duplicateKey: overrides.duplicateKey || duplicateKeyFromPurchase({
@@ -313,6 +461,23 @@
       accountingEntryNumber: withholding.journalEntryNumber || "",
       accountingEntryId: withholding.journalEntryId || ""
     };
+    const detailLines = Array.isArray(withholding.retentionLines)
+      ? withholding.retentionLines.filter(line => line.code && num(line.retainedAmount) > 0)
+      : [];
+    if (detailLines.length) {
+      return detailLines.map((line, index) => ({
+        ...base,
+        sourceId: `${withholding.id || uid("ATS")}:${line.id || index + 1}`,
+        taxType: line.taxType === "IVA" ? "IVA" : "RENTA",
+        retentionCode: line.code || line.sriCode || "",
+        sriCode: line.sriCode || line.code || "",
+        description: line.description || "",
+        baseAmount: num(line.baseAmount),
+        percentage: num(line.percentage),
+        retainedAmount: num(line.retainedAmount),
+        payableAccountCode: line.payableAccountCode || ""
+      }));
+    }
     if (num(overrides.rentRetainedAmount ?? withholding.rentRetainedAmount) > 0 || overrides.forceRent) {
       rows.push({
         ...base,
@@ -416,167 +581,32 @@
       })
       .flatMap(item => (item.lines || []).map(line => mapReceivedWithholdingRow(item, line)));
 
+    const companyId = activeCompanyId();
+    const salesRows = commercialOrders()
+      .filter(order => {
+        const orderCompanyId = order.sellingCompanyId || order.selling_company_id || order.companyId || order.company_id || companyId;
+        if (String(orderCompanyId) !== String(companyId)) return false;
+        if (String(order.sriAuthorizationStatus || "").toUpperCase() !== "AUTORIZADO") return false;
+        const rowDate = String(order.sriIssueDate || order.issuedAt || "").slice(0, 10);
+        if (!matchesDate(rowDate, filters.dateFrom, filters.dateTo)) return false;
+        const customer = commercialCustomer(order.customerId) || {};
+        if (filters.customer && ![customer.legalName, customer.commercialName, customer.identification]
+          .join(" ").toLowerCase().includes(String(filters.customer).toLowerCase())) return false;
+        return true;
+      })
+      .map(mapSaleRow);
+
     return {
       sourceMode: "live",
       purchases: purchaseRows,
       issued: issuedRows,
-      received: receivedRows
+      received: receivedRows,
+      sales: salesRows
     };
-  }
-
-  function pickPurchase(documentNumber, fallback) {
-    return purchaseService.purchases().find(item => item.documentNumber === documentNumber) || fallback;
-  }
-
-  function pickReceived(documentNumber, fallback) {
-    return withholdingService.receivedWithholdings().find(item => item.documentNumber === documentNumber) || fallback;
-  }
-
-  function demoJuneDataset() {
-    const junePurchases = [
-      pickPurchase("001-003-000000242", {
-        id: uid("PUR"),
-        supplierName: "Agroinsumos del Ecuador",
-        supplierRuc: "1790012345001",
-        voucherType: "factura",
-        estab: "001",
-        ptoEmi: "003",
-        sequential: "000000242",
-        authorizationNumber: "1790012345678901234567890123456789012345678910",
-        accessKey: "",
-        taxSupportCode: "01",
-        purchaseType: "INVENTARIO_SUMINISTROS",
-        status: "CONTABILIZADO",
-        totals: { base0: 560, baseIva: 0, iva: 0, total: 560 }
-      }),
-      pickPurchase("001-004-000000402", {
-        id: uid("PUR"),
-        supplierName: "Cartonera Andina",
-        supplierRuc: "0990012345001",
-        voucherType: "factura",
-        estab: "001",
-        ptoEmi: "004",
-        sequential: "000000402",
-        authorizationNumber: "0990012345678901234567890123456789012345678911",
-        accessKey: "",
-        taxSupportCode: "01",
-        purchaseType: "INVENTARIO_EMPAQUE",
-        status: "CONTABILIZADO",
-        totals: { base0: 1250, baseIva: 0, iva: 0, total: 1250 }
-      }),
-      pickPurchase("001-002-000000152", {
-        id: uid("PUR"),
-        supplierName: "Servicios Tecnicos Quito",
-        supplierRuc: "1710012345001",
-        voucherType: "factura",
-        estab: "001",
-        ptoEmi: "002",
-        sequential: "000000152",
-        authorizationNumber: "",
-        accessKey: "",
-        taxSupportCode: "02",
-        purchaseType: "SERVICIOS",
-        status: "CONTABILIZADO",
-        totals: { base0: 300, baseIva: 0, iva: 0, total: 300 }
-      })
-    ];
-
-    const issuedPrototype = {
-      id: uid("RET"),
-      purchaseId: junePurchases[2].id,
-      purchaseDocumentNumber: "001-002-000000152",
-      supplierName: "Servicios Tecnicos Quito",
-      supplierRuc: "1710012345001",
-      retentionDate: "2026-06-18",
-      draftNumber: "RET-JUN-000001",
-      rentCode: "RET_304",
-      rentSriCode: "304",
-      rentDescription: "Servicios",
-      rentBaseAmount: 300,
-      rentPercentage: 2,
-      rentRetainedAmount: 6,
-      rentPayableAccountCode: "2.1.02.02",
-      vatCode: "",
-      vatSriCode: "",
-      vatDescription: "",
-      vatBaseAmount: 0,
-      vatPercentage: 0,
-      vatRetainedAmount: 0,
-      vatPayableAccountCode: "2.1.02.01",
-      journalEntryNumber: "",
-      status: "CONFIRMADA"
-    };
-
-    const receivedApplied = pickReceived("001-001-000000041", {
-      id: uid("WRC"),
-      issuerTaxId: "1799999999001",
-      issuerName: "Floristeria Quito",
-      issueDate: "2026-06-21",
-      estab: "001",
-      ptoEmi: "001",
-      sequential: "000000041",
-      documentNumber: "001-001-000000041",
-      authorizationNumber: "1799999999001001001000000041123456789012345678901234",
-      accessKey: "1799999999001001001000000041123456789012345678901234",
-      supportDocumentNumber: "CXC-001",
-      supportDocumentDate: "2026-06-12",
-      relatedReceivableNumber: "CXC-001",
-      journalEntryNumber: "ASI-2026-000021",
-      status: "APLICADO",
-      lines: [{ id: uid("LIN"), taxType: "RENTA", retentionCode: "RET_304", sriCode: "304", percentage: 1.95, baseAmount: 450, retainedAmount: 8.78 }]
-    });
-
-    const receivedPending = pickReceived("001-002-000000085", {
-      id: uid("WRC"),
-      issuerTaxId: "FF-USA-001",
-      issuerName: "FlowerForce",
-      issueDate: "2026-06-24",
-      estab: "001",
-      ptoEmi: "002",
-      sequential: "000000085",
-      documentNumber: "001-002-000000085",
-      authorizationNumber: "FF0010020000000851234567890123456789012345678901234",
-      accessKey: "FF0010020000000851234567890123456789012345678901234",
-      supportDocumentNumber: "CXC-002",
-      supportDocumentDate: "2026-06-13",
-      relatedReceivableNumber: "",
-      journalEntryNumber: "",
-      status: "PENDIENTE_RELACION",
-      lines: [{ id: uid("LIN"), taxType: "RENTA", retentionCode: "RET_312", sriCode: "312", percentage: 1, baseAmount: 1200, retainedAmount: 12 }]
-    });
-
-    const issuedRows = mapIssuedWithholdingRow(issuedPrototype, { sourceMode: "demo-junio" });
-    const retentionMap = aggregateIssuedRetentions(issuedRows);
-
-    return {
-      sourceMode: "demo-junio",
-      purchases: [
-        mapPurchaseRow(junePurchases[0], retentionMap, { sourceMode: "demo-junio", issueDate: "2026-06-11", accountingDate: "2026-06-11", paymentMethod: "" }),
-        mapPurchaseRow(junePurchases[1], retentionMap, { sourceMode: "demo-junio", issueDate: "2026-06-14", accountingDate: "2026-06-14", paymentMethod: "Transferencia" }),
-        mapPurchaseRow(junePurchases[2], retentionMap, { sourceMode: "demo-junio", issueDate: "2026-06-18", accountingDate: "2026-06-18", authorization: "", accessKey: "", paymentMethod: "" })
-      ],
-      issued: issuedRows,
-      received: [
-        mapReceivedWithholdingRow(receivedApplied, receivedApplied.lines?.[0] || {}, { sourceMode: "demo-junio", issueDate: "2026-06-21", status: "APLICADO", relatedDocumentNumber: "CXC-001" }),
-        mapReceivedWithholdingRow(receivedPending, receivedPending.lines?.[0] || {}, { sourceMode: "demo-junio", issueDate: "2026-06-24", status: "PENDIENTE_RELACION", relatedDocumentNumber: "" })
-      ]
-    };
-  }
-
-  function shouldUseJuneDemo(dataset, filters) {
-    return String(filters.year) === "2026"
-      && String(filters.month) === "06"
-      && (
-        dataset.purchases.length < 3
-        || dataset.issued.length < 1
-        || dataset.received.length < 2
-      );
   }
 
   function buildDataset(filters) {
-    const live = buildLiveDataset(filters);
-    if (shouldUseJuneDemo(live, filters)) return demoJuneDataset();
-    return live;
+    return buildLiveDataset(filters);
   }
 
   function validationRecord(severity, moduleOrigin, documentLabel, description, suggestedAction, status = "pendiente", justification = "", key = "") {
@@ -622,19 +652,70 @@
         duplicateMap.add(row.duplicateKey);
       }
       if (!row.paymentMethod) warnings.push(validationRecord("warning", "Compras ATS", label, "Documento sin forma de pago registrada.", "Registrar forma de pago o justificar la ausencia.", "pendiente", "", `${label}|payment`));
-      if (purchaseRequiresRetention(row.purchaseType) && num(row.retentionTotal) <= 0) {
-        warnings.push(validationRecord("warning", "Compras ATS", label, "Compra sin retencion a pesar de que el tipo sugiere retener.", "Revisar si la compra requiere retencion emitida.", "pendiente", "", `${label}|retention-warning`));
+      if (row.retentionDecision === "NO_SUJETO_332") {
+        const detail332 = (row.incomeTaxDetails || []).find(item => item.code === "332");
+        if (!detail332 || num(detail332.baseAmount) <= 0 || num(detail332.percentage) !== 0 || num(detail332.retainedAmount) !== 0) {
+          errors.push(validationRecord("error", "Compras ATS", label, "El tratamiento 332 no contiene base imponible valida con porcentaje y retencion en cero.", "Revisar la decision tributaria de la compra.", "pendiente", "", `${label}|air-332`));
+        }
+      }
+      if (row.retentionDecision === "APLICAR" && num(row.retentionTotal) <= 0) {
+        const relatedOtherPeriod = purchaseService.issuedWithholdings().find(item =>
+          item.purchaseId === row.sourceId
+          && ["CONFIRMADA", "LISTA_PARA_AUTORIZAR", "AUTORIZADA"].includes(item.status)
+          && periodKey(item.retentionDate) !== `${filters.year}-${normalizeMonth(filters.month)}`
+        );
+        warnings.push(relatedOtherPeriod
+          ? validationRecord(
+              "warning",
+              "Compras ATS",
+              label,
+              `La compra pertenece a ${periodKey(row.accountingDate || row.issueDate)}, pero su retencion fue emitida en ${periodKey(relatedOtherPeriod.retentionDate)}.`,
+              "Mantener la compra en su periodo y revisar la retencion en el periodo de su fecha de emision, sin duplicar el documento.",
+              "pendiente",
+              "",
+              `${label}|retention-cross-period`
+            )
+          : validationRecord("warning", "Compras ATS", label, "Compra sin retencion a pesar de que el tipo sugiere retener.", "Revisar si la compra requiere retencion emitida.", "pendiente", "", `${label}|retention-warning`)
+        );
       }
     });
     return { errors, warnings };
   }
 
-  function validateIssued(rows) {
+  function validateIssued(rows, filters) {
     const errors = [];
     const warnings = [];
     const duplicateSet = new Set();
     rows.forEach(row => {
       const label = `${row.draftNumber || row.purchaseDocumentNumber} / ${row.sriCode || row.retentionCode || row.taxType}`;
+      const purchase = purchaseService.purchases().find(item => item.id === row.purchaseId);
+      const purchasePeriod = periodKey(purchase?.accountingDate || purchase?.issueDate);
+      const retentionPeriod = periodKey(row.retentionDate);
+      const retentionDaysAfterPurchase = daysBetweenDates(purchase?.issueDate || purchase?.accountingDate, row.retentionDate);
+      if (retentionDaysAfterPurchase !== null && retentionDaysAfterPurchase > 5) {
+        errors.push(validationRecord(
+          "error",
+          "Retenciones emitidas ATS",
+          label,
+          `La retencion fue emitida ${retentionDaysAfterPurchase} dias despues de la factura y supera el plazo de 5 dias.`,
+          "Revisar la fecha real del comprobante y el tratamiento tributario antes de generar o presentar el ATS.",
+          "pendiente",
+          "",
+          `${label}|retention-term`
+        ));
+      }
+      if (purchasePeriod && retentionPeriod && purchasePeriod !== retentionPeriod) {
+        warnings.push(validationRecord(
+          "warning",
+          "Retenciones emitidas ATS",
+          label,
+          `Retencion emitida en ${retentionPeriod} relacionada con una compra de ${purchasePeriod}.`,
+          `Revisar la retencion en ${filters.year}-${normalizeMonth(filters.month)} y usar la compra solo como documento sustento, sin trasladarla ni duplicarla.`,
+          "pendiente",
+          "",
+          `${label}|cross-period`
+        ));
+      }
       if (!["CONFIRMADA", "AUTORIZADA"].includes(row.status)) {
         errors.push(validationRecord("error", "Retenciones emitidas ATS", label, "La retencion emitida esta en borrador o no confirmada.", "Confirmar la retencion antes de incluirla en ATS.", "pendiente", "", `${label}|status`));
       }
@@ -656,6 +737,27 @@
       const accountCheck = accountActiveAndMovement(row.payableAccountCode || "");
       if (!accountCheck.ok) {
         warnings.push(validationRecord("warning", "Retenciones emitidas ATS", label, accountCheck.errors.join(" "), "Completar la cuenta contable por pagar del codigo.", "pendiente", "", `${label}|account`));
+      }
+    });
+    return { errors, warnings };
+  }
+
+  function validateSales(rows, filters) {
+    const errors = [];
+    const warnings = [];
+    const duplicates = new Set();
+    rows.forEach(row => {
+      const label = row.documentNumber || row.sourceId || "Factura de venta";
+      if (!row.customerTaxId) errors.push(validationRecord("error", "Ventas ATS", label, "Falta identificacion del cliente.", "Corregir el cliente principal antes de volver a generar el ATS.", "pendiente", "", `${label}|customer-tax-id`));
+      if (!row.establishment || !row.emissionPoint || !row.sequential) errors.push(validationRecord("error", "Ventas ATS", label, "El secuencial SRI de la factura no esta completo.", "Revisar establecimiento, punto de emision y secuencial de la factura autorizada.", "pendiente", "", `${label}|document-number`));
+      if (!row.authorization && !row.accessKey && filters.validateAuthorizations) errors.push(validationRecord("error", "Ventas ATS", label, "Falta autorizacion o clave de acceso de la factura.", "Sincronizar la respuesta autorizada del SRI.", "pendiente", "", `${label}|authorization`));
+      if (row.status !== "AUTORIZADO") errors.push(validationRecord("error", "Ventas ATS", label, "La factura de venta no esta autorizada por el SRI.", "Incluir solamente facturas autorizadas o corregir su estado.", "pendiente", "", `${label}|status`));
+      if (!["01", "20"].includes(row.paymentMethod)) errors.push(validationRecord("error", "Ventas ATS", label, "La forma de pago no corresponde a los codigos configurados 01 o 20.", "Corregir la forma de pago del cliente o del pedido antes de autorizar.", "pendiente", "", `${label}|payment-method`));
+      if (num(row.total) <= 0) errors.push(validationRecord("error", "Ventas ATS", label, "El total de la factura debe ser mayor que cero.", "Revisar las lineas y precios de la venta.", "pendiente", "", `${label}|total`));
+      const duplicateKey = row.accessKey || `${row.establishment}|${row.emissionPoint}|${row.sequential}`;
+      if (filters.excludeDuplicates && duplicateKey) {
+        if (duplicates.has(duplicateKey)) errors.push(validationRecord("error", "Ventas ATS", label, "Factura duplicada dentro del periodo ATS.", "Revisar la sincronizacion de ventas autorizadas.", "pendiente", "", `${label}|duplicate`));
+        duplicates.add(duplicateKey);
       }
     });
     return { errors, warnings };
@@ -712,6 +814,7 @@
       purchases: dataset.purchases.length,
       issued: dataset.issued.length,
       received: dataset.received.length,
+      sales: (dataset.sales || []).length,
       errors: errors.length,
       warnings: warnings.length
     };
@@ -720,8 +823,9 @@
   function validateDataset(dataset, filters, previousValidations = []) {
     const globalResult = validateGlobal(filters);
     const purchasesResult = validatePurchases(dataset.purchases, filters);
-    const issuedResult = validateIssued(dataset.issued);
+    const issuedResult = validateIssued(dataset.issued, filters);
     const receivedResult = validateReceived(dataset.received, filters);
+    const salesResult = validateSales(dataset.sales || [], filters);
     const validations = [
       ...globalResult.errors,
       ...globalResult.warnings,
@@ -730,7 +834,9 @@
       ...issuedResult.errors,
       ...issuedResult.warnings,
       ...receivedResult.errors,
-      ...receivedResult.warnings
+      ...receivedResult.warnings,
+      ...salesResult.errors,
+      ...salesResult.warnings
     ];
     return carryValidationStatus(validations, previousValidations);
   }
@@ -769,7 +875,14 @@
         total: item.total,
         formaPago: item.paymentMethod || "",
         retencionFuente: item.retentionRent,
-        retencionIva: item.retentionVat
+        retencionIva: item.retentionVat,
+        air: (item.incomeTaxDetails || []).map(detail => ({
+          codigo: detail.code,
+          baseImponible: detail.baseAmount,
+          porcentaje: detail.percentage,
+          valorRetenido: detail.retainedAmount,
+          origen: detail.source
+        }))
       })),
       retencionesEmitidas: generation.dataset.issued.map(item => ({
         fecha: item.retentionDate,
@@ -795,6 +908,42 @@
         valorRetenido: item.retainedAmount,
         documentoRelacionado: item.relatedDocumentNumber || "",
         estado: item.status
+      })),
+      ventas: (generation.dataset.sales || []).filter(item => !item.exportSale).map(item => ({
+        fechaEmision: item.issueDate,
+        cliente: item.customerName,
+        identificacionCliente: item.customerTaxId,
+        tipoIdentificacion: item.customerIdentificationType,
+        tipoComprobante: item.documentType || "01",
+        establecimiento: item.establishment,
+        puntoEmision: item.emissionPoint,
+        secuencial: item.sequential,
+        numeroDocumento: item.documentNumber,
+        autorizacion: item.authorization || item.accessKey || "",
+        baseNoObjetoIva: item.baseNoTax,
+        baseCero: item.base0,
+        baseIva: item.baseTaxed,
+        iva: item.vat,
+        total: item.total,
+        formaPago: item.paymentMethod,
+        formasPago: item.paymentMethods || [item.paymentMethod],
+        exportacion: Boolean(item.exportSale),
+        estado: item.status
+      })),
+      exportaciones: (generation.dataset.sales || []).filter(item => item.exportSale).map(item => ({
+        fechaEmision: item.issueDate,
+        cliente: item.customerName,
+        identificacionCliente: item.customerTaxId,
+        tipoIdentificacion: item.customerIdentificationType,
+        tipoComprobante: item.documentType || "01",
+        establecimiento: item.establishment,
+        puntoEmision: item.emissionPoint,
+        secuencial: item.sequential,
+        numeroDocumento: item.documentNumber,
+        autorizacion: item.authorization || item.accessKey || "",
+        valorFob: item.total,
+        formaPagoFactura: item.paymentMethod,
+        estado: item.status
       }))
     };
   }
@@ -815,6 +964,18 @@
       "  <retencionesRecibidas>",
       ...structure.retencionesRecibidas.map(item => `    <retencionRecibida documentoSustento="${item.documentoSustento}" codigo="${item.codigoRetencion}" tipo="${item.tipoImpuesto}" valor="${item.valorRetenido.toFixed(2)}" estado="${item.estado}" />`),
       "  </retencionesRecibidas>",
+      "  <ventas>",
+      ...structure.ventas.map(item => [
+        `    <venta identificacionCliente="${item.identificacionCliente}" tipoComprobante="${item.tipoComprobante}" establecimiento="${item.establecimiento}" puntoEmision="${item.puntoEmision}" secuencial="${item.secuencial}" total="${Number(item.total || 0).toFixed(2)}">`,
+        "      <formasDePago>",
+        ...(item.formasPago || []).map(code => `        <formaPago>${code}</formaPago>`),
+        "      </formasDePago>",
+        "    </venta>"
+      ].join("\n")),
+      "  </ventas>",
+      "  <exportaciones>",
+      ...structure.exportaciones.map(item => `    <exportacion identificacionCliente="${item.identificacionCliente}" tipoComprobante="${item.tipoComprobante}" establecimiento="${item.establecimiento}" puntoEmision="${item.puntoEmision}" secuencial="${item.secuencial}" autorizacion="${item.autorizacion}" valorFob="${Number(item.valorFob || 0).toFixed(2)}" />`),
+      "  </exportaciones>",
       "</ats>"
     ].join("\n");
   }
@@ -880,7 +1041,7 @@
       generatedAt: existing?.generatedAt || "",
       annulledAt: existing?.annulledAt || "",
       annulReason: existing?.annulReason || "",
-      userName: existing?.userName || currentUser().name || "Usuario demo",
+      userName: existing?.userName || currentUser().name || "Usuario del sistema",
       preview: {
         xml: "",
         json: ""
@@ -1037,24 +1198,6 @@
       return { ok: true, filename: `ATS-REVISION-PRELIMINAR-${generation.year}-${generation.month}.csv`, mime: "text/csv;charset=utf-8", content };
     }
     return { ok: true, filename: `ATS-PRELIMINAR-${generation.year}-${generation.month}.xml`, mime: "application/xml", content: generation.preview?.xml || buildXmlPreview(generation) };
-  }
-
-  function ensureDemoGeneration() {
-    ensureStore();
-    const rows = stateApi.state.db.atsHistory || [];
-    const exists = rows.some(item => item.period === "2026-06" && item.sourceMode === "demo-junio");
-    if (exists) return;
-    const seeded = buildGeneration({
-      year: "2026",
-      month: "06",
-      periodicity: "mensual",
-      dateFrom: "2026-06-01",
-      dateTo: "2026-06-30"
-    });
-    seeded.status = "BORRADOR";
-    seeded.createdAt = new Date().toISOString();
-    seeded.validatedAt = "";
-    saveGenerationRecord(seeded);
   }
 
   BlessERP.services = BlessERP.services || {};

@@ -27,8 +27,8 @@
       return {
         value: "ERROR-SIN-BOX",
         isValid: false,
-        note: "Codigo aduana demo no disponible por falta de numero de caja.",
-        issues: ["Caja sin numero para generar codigo aduana demo."]
+        note: "Referencia interna no disponible por falta de numero de caja.",
+        issues: ["Caja sin numero para generar la referencia interna."]
       };
     }
 
@@ -42,15 +42,13 @@
     return {
       value: code,
       isValid: Boolean(order?.daeNumber),
-      note: "Codigo aduana demo / pendiente validacion.",
+      note: "Referencia interna del pedido y la caja.",
       issues: order?.daeNumber ? [] : ["SIN DAE"]
     };
   }
 
-  function buildBarcodeValue(order, group, totalBoxes) {
-    const boxNumber = Number(group?.boxNumber || group?.numero_caja || 0);
-    if (!boxNumber) return "";
-    return `BAR-${normalizeToken(order?.number, "PEDIDO", 14)}-${padBoxNumber(boxNumber)}-OF${String(Math.max(1, Number(totalBoxes || 0))).padStart(3, "0")}`;
+  function buildBarcodeValue(order) {
+    return digitsOnly(order?.daeNumber);
   }
 
   function buildQrValue(order, group, totalBoxes) {

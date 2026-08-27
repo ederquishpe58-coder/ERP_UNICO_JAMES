@@ -21,8 +21,10 @@
       periodStatus: "Abierto",
       sriEnvironment: "Pruebas",
       mainEstablishment: "001",
-      mainEmissionPoint: "001",
-      defaultAccounts: {
+      mainEmissionPoint: "003",
+      retentionEstablishmentCode: "001",
+      retentionEmissionPointCode: "002",
+      defaultAccounts: { ...(BlessERP.accountingPlanBlessV1?.defaultAccounts || {
         cashGeneral: "1.1.01.01",
         mainBank: "1.1.01.02",
         accountsReceivableCustomers: "1.1.02",
@@ -34,19 +36,33 @@
         withholdingReceivable: "1.1.05",
         suppliesInventory: "1.1.03.01",
         packagingInventory: "1.1.03.02",
-        suppliesExpenseCost: "6.2",
+        suppliesExpenseCost: "5.4",
         packagingCost: "5.2",
         localSales: "4.1",
         exportSales: "4.2",
         supplierAdvances: "1.1.04",
-        customerAdvances: "2.1.04"
-      }
+        customerAdvances: "2.1.04",
+        payrollSalaries: "5.6.01",
+        payrollPiecework: "5.6.02",
+        payrollCommissions: "5.6.03",
+        payrollBonuses: "5.6.04",
+        payrollTransport: "5.6.05",
+        payrollOvertime: "5.6.06",
+        payrollOtherIncome: "5.6.07",
+        payrollPayable: "2.1.05",
+        employeeAdvances: "1.1.06",
+        payrollFoodRecovery: "4.3.01",
+        payrollFinesRecovery: "4.3.02",
+        payrollOtherDiscounts: "4.3.03"
+      }) }
     };
   }
 
   function createChartOfAccountsSeed() {
+    const configuredPlan = BlessERP.accountingPlanBlessV1?.createAccounts?.();
+    if (Array.isArray(configuredPlan) && configuredPlan.length) return configuredPlan;
     return [
-      { id: uid("ACC"), code: "1", name: "Activo", type: "Activo", nature: "Deudora", level: 1, parentCode: "", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Clase principal de activos" },
+      { id: uid("ACC"), code: "1", name: "Activos", type: "Activo", nature: "Deudora", level: 1, parentCode: "", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Clase principal de activos" },
       { id: uid("ACC"), code: "1.1", name: "Activo corriente", type: "Activo", nature: "Deudora", level: 2, parentCode: "1", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Activos corrientes" },
       { id: uid("ACC"), code: "1.1.01", name: "Caja y bancos", type: "Activo", nature: "Deudora", level: 3, parentCode: "1.1", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Disponibilidades" },
       { id: uid("ACC"), code: "1.1.01.01", name: "Caja general", type: "Activo", nature: "Deudora", level: 4, parentCode: "1.1.01", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Caja general de la empresa" },
@@ -57,10 +73,11 @@
       { id: uid("ACC"), code: "1.1.03.02", name: "Inventario materiales de empaque", type: "Activo", nature: "Deudora", level: 4, parentCode: "1.1.03", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Materiales de empaque" },
       { id: uid("ACC"), code: "1.1.04", name: "Anticipos a proveedores", type: "Activo", nature: "Deudora", level: 3, parentCode: "1.1", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: true, status: "Activa", notes: "Anticipos entregados a proveedores" },
       { id: uid("ACC"), code: "1.1.05", name: "Retenciones por cobrar", type: "Activo", nature: "Deudora", level: 3, parentCode: "1.1", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Retenciones e IVA compras por cobrar" },
+      { id: uid("ACC"), code: "1.1.06", name: "Anticipos a empleados", type: "Activo", nature: "Deudora", level: 3, parentCode: "1.1", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: true, status: "Activa", notes: "Anticipos entregados a trabajadores" },
       { id: uid("ACC"), code: "1.2", name: "Activo no corriente", type: "Activo", nature: "Deudora", level: 2, parentCode: "1", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Activos no corrientes" },
       { id: uid("ACC"), code: "1.2.01", name: "Activos fijos", type: "Activo", nature: "Deudora", level: 3, parentCode: "1.2", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Base de activos fijos" },
       { id: uid("ACC"), code: "1.2.01.01", name: "Equipos y mobiliario", type: "Activo", nature: "Deudora", level: 4, parentCode: "1.2.01", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Equipos y mobiliario administrativo" },
-      { id: uid("ACC"), code: "2", name: "Pasivo", type: "Pasivo", nature: "Acreedora", level: 1, parentCode: "", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Clase principal de pasivos" },
+      { id: uid("ACC"), code: "2", name: "Pasivos", type: "Pasivo", nature: "Acreedora", level: 1, parentCode: "", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Clase principal de pasivos" },
       { id: uid("ACC"), code: "2.1", name: "Pasivo corriente", type: "Pasivo", nature: "Acreedora", level: 2, parentCode: "2", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Obligaciones corrientes" },
       { id: uid("ACC"), code: "2.1.01", name: "Cuentas por pagar proveedores", type: "Pasivo", nature: "Acreedora", level: 3, parentCode: "2.1", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: true, status: "Activa", notes: "Cartera de proveedores" },
       { id: uid("ACC"), code: "2.1.02", name: "Retenciones por pagar", type: "Pasivo", nature: "Acreedora", level: 3, parentCode: "2.1", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Retenciones tributarias por pagar" },
@@ -68,19 +85,31 @@
       { id: uid("ACC"), code: "2.1.02.02", name: "Retencion fuente por pagar", type: "Pasivo", nature: "Acreedora", level: 4, parentCode: "2.1.02", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Retenciones de renta por pagar" },
       { id: uid("ACC"), code: "2.1.03", name: "IVA por pagar", type: "Pasivo", nature: "Acreedora", level: 3, parentCode: "2.1", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "IVA generado por ventas" },
       { id: uid("ACC"), code: "2.1.04", name: "Anticipos de clientes", type: "Pasivo", nature: "Acreedora", level: 3, parentCode: "2.1", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: true, status: "Activa", notes: "Valores recibidos por anticipado" },
+      { id: uid("ACC"), code: "2.1.05", name: "Remuneraciones por pagar", type: "Pasivo", nature: "Acreedora", level: 3, parentCode: "2.1", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: true, status: "Activa", notes: "Neto de roles de pago pendiente" },
       { id: uid("ACC"), code: "3", name: "Patrimonio", type: "Patrimonio", nature: "Acreedora", level: 1, parentCode: "", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Clase principal de patrimonio" },
       { id: uid("ACC"), code: "3.1", name: "Capital", type: "Patrimonio", nature: "Acreedora", level: 2, parentCode: "3", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Capital del negocio" },
       { id: uid("ACC"), code: "3.2", name: "Resultados acumulados", type: "Patrimonio", nature: "Acreedora", level: 2, parentCode: "3", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Resultados acumulados" },
       { id: uid("ACC"), code: "4", name: "Ingresos", type: "Ingreso", nature: "Acreedora", level: 1, parentCode: "", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Clase principal de ingresos" },
       { id: uid("ACC"), code: "4.1", name: "Ventas locales", type: "Ingreso", nature: "Acreedora", level: 2, parentCode: "4", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Ventas locales" },
       { id: uid("ACC"), code: "4.2", name: "Ventas exportacion", type: "Ingreso", nature: "Acreedora", level: 2, parentCode: "4", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Placeholder para exportacion" },
-      { id: uid("ACC"), code: "5", name: "Costos", type: "Costo", nature: "Deudora", level: 1, parentCode: "", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Clase principal de costos" },
+      { id: uid("ACC"), code: "4.3", name: "Recuperaciones de personal", type: "Ingreso", nature: "Acreedora", level: 2, parentCode: "4", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Agrupa recuperaciones y descuentos a empleados" },
+      { id: uid("ACC"), code: "4.3.01", name: "Recuperacion alimentacion", type: "Ingreso", nature: "Acreedora", level: 3, parentCode: "4.3", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: true, status: "Activa", notes: "Descuentos de alimentacion en rol" },
+      { id: uid("ACC"), code: "4.3.02", name: "Multas e infracciones", type: "Ingreso", nature: "Acreedora", level: 3, parentCode: "4.3", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: true, status: "Activa", notes: "Descuentos autorizados por multas" },
+      { id: uid("ACC"), code: "4.3.03", name: "Otros descuentos de personal", type: "Ingreso", nature: "Acreedora", level: 3, parentCode: "4.3", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: true, status: "Activa", notes: "Otros descuentos configurados del rol" },
+      { id: uid("ACC"), code: "5", name: "Costos y Gastos", type: "Costo", nature: "Deudora", level: 1, parentCode: "", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Clase principal de costos y gastos" },
       { id: uid("ACC"), code: "5.1", name: "Costo de ventas", type: "Costo", nature: "Deudora", level: 2, parentCode: "5", isMovement: true, acceptsCostCenter: true, requiresAuxiliary: false, status: "Activa", notes: "Costo de ventas" },
       { id: uid("ACC"), code: "5.2", name: "Costo materiales de empaque", type: "Costo", nature: "Deudora", level: 2, parentCode: "5", isMovement: true, acceptsCostCenter: true, requiresAuxiliary: false, status: "Activa", notes: "Costo de materiales de empaque" },
-      { id: uid("ACC"), code: "6", name: "Gastos", type: "Gasto", nature: "Deudora", level: 1, parentCode: "", isMovement: false, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Clase principal de gastos" },
-      { id: uid("ACC"), code: "6.1", name: "Gastos administrativos", type: "Gasto", nature: "Deudora", level: 2, parentCode: "6", isMovement: true, acceptsCostCenter: true, requiresAuxiliary: false, status: "Activa", notes: "Gastos administrativos" },
-      { id: uid("ACC"), code: "6.2", name: "Gastos de suministros", type: "Gasto", nature: "Deudora", level: 2, parentCode: "6", isMovement: true, acceptsCostCenter: true, requiresAuxiliary: false, status: "Activa", notes: "Gastos o costo de suministros" },
-      { id: uid("ACC"), code: "6.3", name: "Gastos financieros", type: "Gasto", nature: "Deudora", level: 2, parentCode: "6", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Gastos financieros" }
+      { id: uid("ACC"), code: "5.3", name: "Gastos administrativos", type: "Gasto", nature: "Deudora", level: 2, parentCode: "5", isMovement: true, acceptsCostCenter: true, requiresAuxiliary: false, status: "Activa", notes: "Gastos administrativos" },
+      { id: uid("ACC"), code: "5.4", name: "Gastos de suministros", type: "Gasto", nature: "Deudora", level: 2, parentCode: "5", isMovement: true, acceptsCostCenter: true, requiresAuxiliary: false, status: "Activa", notes: "Gastos o costo de suministros" },
+      { id: uid("ACC"), code: "5.5", name: "Gastos financieros", type: "Gasto", nature: "Deudora", level: 2, parentCode: "5", isMovement: true, acceptsCostCenter: false, requiresAuxiliary: false, status: "Activa", notes: "Gastos financieros" },
+      { id: uid("ACC"), code: "5.6", name: "Gastos de personal", type: "Gasto", nature: "Deudora", level: 2, parentCode: "5", isMovement: false, acceptsCostCenter: true, requiresAuxiliary: false, status: "Activa", notes: "Agrupa componentes del rol de pagos" },
+      { id: uid("ACC"), code: "5.6.01", name: "Sueldos y salarios", type: "Gasto", nature: "Deudora", level: 3, parentCode: "5.6", isMovement: true, acceptsCostCenter: true, requiresAuxiliary: true, status: "Activa", notes: "Sueldos mensuales, proporcionales y horas normales" },
+      { id: uid("ACC"), code: "5.6.02", name: "Trabajo por destajo", type: "Gasto", nature: "Deudora", level: 3, parentCode: "5.6", isMovement: true, acceptsCostCenter: true, requiresAuxiliary: true, status: "Activa", notes: "Clasificacion, embonche y trabajo por unidad" },
+      { id: uid("ACC"), code: "5.6.03", name: "Comisiones de vendedores", type: "Gasto", nature: "Deudora", level: 3, parentCode: "5.6", isMovement: true, acceptsCostCenter: true, requiresAuxiliary: true, status: "Activa", notes: "Comisiones generadas por ventas" },
+      { id: uid("ACC"), code: "5.6.04", name: "Bonificaciones al personal", type: "Gasto", nature: "Deudora", level: 3, parentCode: "5.6", isMovement: true, acceptsCostCenter: true, requiresAuxiliary: true, status: "Activa", notes: "Bonificaciones del rol" },
+      { id: uid("ACC"), code: "5.6.05", name: "Pasajes y transporte", type: "Gasto", nature: "Deudora", level: 3, parentCode: "5.6", isMovement: true, acceptsCostCenter: true, requiresAuxiliary: true, status: "Activa", notes: "Pasajes pagados en rol" },
+      { id: uid("ACC"), code: "5.6.06", name: "Horas adicionales", type: "Gasto", nature: "Deudora", level: 3, parentCode: "5.6", isMovement: true, acceptsCostCenter: true, requiresAuxiliary: true, status: "Activa", notes: "Horas suplementarias o extraordinarias" },
+      { id: uid("ACC"), code: "5.6.07", name: "Otros ingresos de personal", type: "Gasto", nature: "Deudora", level: 3, parentCode: "5.6", isMovement: true, acceptsCostCenter: true, requiresAuxiliary: true, status: "Activa", notes: "Otros ingresos pagados en rol" }
     ];
   }
 
@@ -146,10 +175,10 @@
   function createTaxSupportsSeed() {
     return [
       { id: uid("SUP"), code: "01", description: "Credito tributario para declaracion de IVA", status: "Activo", suggestedAccountCode: "1.1.05", suggestedPurchaseType: "BIENES" },
-      { id: uid("SUP"), code: "02", description: "Costo o gasto para declaracion de IR", status: "Activo", suggestedAccountCode: "6.1", suggestedPurchaseType: "GASTO" },
+      { id: uid("SUP"), code: "02", description: "Costo o gasto para declaracion de IR", status: "Activo", suggestedAccountCode: "5.3", suggestedPurchaseType: "GASTO" },
       { id: uid("SUP"), code: "03", description: "Activo fijo con credito tributario IVA", status: "Activo", suggestedAccountCode: "1.2.01.01", suggestedPurchaseType: "ACTIVO_FIJO" },
       { id: uid("SUP"), code: "04", description: "Activo fijo como costo o gasto IR", status: "Activo", suggestedAccountCode: "1.2.01.01", suggestedPurchaseType: "ACTIVO_FIJO" },
-      { id: uid("SUP"), code: "05", description: "Liquidacion de gastos de viaje, hospedaje y alimentacion", status: "Activo", suggestedAccountCode: "6.1", suggestedPurchaseType: "SERVICIOS" }
+      { id: uid("SUP"), code: "05", description: "Liquidacion de gastos de viaje, hospedaje y alimentacion", status: "Activo", suggestedAccountCode: "5.3", suggestedPurchaseType: "SERVICIOS" }
     ];
   }
 
@@ -245,33 +274,44 @@
 
   function createPurchaseTypesSeed() {
     return [
-      { id: uid("PTY"), code: "BIENES", label: "Bienes", suggestedAccountCode: "6.2", requiresRetentionRent: false, requiresRetentionVat: false, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: false, suggestedSupportCode: "01" },
-      { id: uid("PTY"), code: "SERVICIOS", label: "Servicios", suggestedAccountCode: "6.1", requiresRetentionRent: true, requiresRetentionVat: true, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: true, suggestedSupportCode: "02" },
-      { id: uid("PTY"), code: "SERVICIOS_PROFESIONALES", label: "Servicios profesionales", suggestedAccountCode: "6.1", requiresRetentionRent: true, requiresRetentionVat: true, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: true, suggestedSupportCode: "02" },
-      { id: uid("PTY"), code: "SERVICIOS_EXTERIOR", label: "Servicios del exterior", suggestedAccountCode: "6.3", requiresRetentionRent: true, requiresRetentionVat: false, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: false, suggestedSupportCode: "02" },
-      { id: uid("PTY"), code: "TRANSPORTE", label: "Transporte", suggestedAccountCode: "6.1", requiresRetentionRent: true, requiresRetentionVat: true, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: true, suggestedSupportCode: "02" },
-      { id: uid("PTY"), code: "ARRIENDO", label: "Arriendo", suggestedAccountCode: "6.1", requiresRetentionRent: true, requiresRetentionVat: true, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: false, suggestedSupportCode: "02" },
+      { id: uid("PTY"), code: "BIENES", label: "Bienes", suggestedAccountCode: "5.4", requiresRetentionRent: false, requiresRetentionVat: false, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: false, suggestedSupportCode: "01" },
+      { id: uid("PTY"), code: "SERVICIOS", label: "Servicios", suggestedAccountCode: "5.3", requiresRetentionRent: true, requiresRetentionVat: true, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: true, suggestedSupportCode: "02" },
+      { id: uid("PTY"), code: "SERVICIOS_PROFESIONALES", label: "Servicios profesionales", suggestedAccountCode: "5.3", requiresRetentionRent: true, requiresRetentionVat: true, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: true, suggestedSupportCode: "02" },
+      { id: uid("PTY"), code: "SERVICIOS_EXTERIOR", label: "Servicios del exterior", suggestedAccountCode: "5.5", requiresRetentionRent: true, requiresRetentionVat: false, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: false, suggestedSupportCode: "02" },
+      { id: uid("PTY"), code: "TRANSPORTE", label: "Transporte", suggestedAccountCode: "5.3", requiresRetentionRent: true, requiresRetentionVat: true, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: true, suggestedSupportCode: "02" },
+      { id: uid("PTY"), code: "ARRIENDO", label: "Arriendo", suggestedAccountCode: "5.3", requiresRetentionRent: true, requiresRetentionVat: true, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: false, suggestedSupportCode: "02" },
       { id: uid("PTY"), code: "AGRICOLA", label: "Agricola", suggestedAccountCode: "1.1.03.01", requiresRetentionRent: true, requiresRetentionVat: false, affectsInventory: true, affectsCostOrExpense: false, requiresCostCenter: false, suggestedSupportCode: "01" },
       { id: uid("PTY"), code: "INVENTARIO_SUMINISTROS", label: "Inventario suministros", suggestedAccountCode: "1.1.03.01", requiresRetentionRent: false, requiresRetentionVat: false, affectsInventory: true, affectsCostOrExpense: false, requiresCostCenter: false, suggestedSupportCode: "01" },
       { id: uid("PTY"), code: "INVENTARIO_EMPAQUE", label: "Inventario empaque", suggestedAccountCode: "1.1.03.02", requiresRetentionRent: false, requiresRetentionVat: false, affectsInventory: true, affectsCostOrExpense: false, requiresCostCenter: false, suggestedSupportCode: "01" },
       { id: uid("PTY"), code: "COSTO", label: "Costo", suggestedAccountCode: "5.1", requiresRetentionRent: false, requiresRetentionVat: false, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: true, suggestedSupportCode: "02" },
       { id: uid("PTY"), code: "ACTIVO_FIJO", label: "Activo PPE", suggestedAccountCode: "1.2.01.01", requiresRetentionRent: false, requiresRetentionVat: false, affectsInventory: false, affectsCostOrExpense: false, requiresCostCenter: false, suggestedSupportCode: "03" },
-      { id: uid("PTY"), code: "GASTO", label: "Gasto", suggestedAccountCode: "6.1", requiresRetentionRent: false, requiresRetentionVat: false, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: true, suggestedSupportCode: "02" },
-      { id: uid("PTY"), code: "OTROS", label: "Otros", suggestedAccountCode: "6.1", requiresRetentionRent: false, requiresRetentionVat: false, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: false, suggestedSupportCode: "02" }
+      { id: uid("PTY"), code: "GASTO", label: "Gasto", suggestedAccountCode: "5.3", requiresRetentionRent: false, requiresRetentionVat: false, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: true, suggestedSupportCode: "02" },
+      { id: uid("PTY"), code: "OTROS", label: "Otros", suggestedAccountCode: "5.3", requiresRetentionRent: false, requiresRetentionVat: false, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: false, suggestedSupportCode: "02" }
     ];
   }
 
   function createRetentionParametersSeed() {
     return [
-      { id: uid("WHT"), internalCode: "RET_303", sriCode: "303", description: "Honorarios profesionales", taxType: "RENTA", percentage: 10, appliesTo: "compra", category: "profesional", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "" },
-      { id: uid("WHT"), internalCode: "RET_304", sriCode: "304", description: "Servicios", taxType: "RENTA", percentage: 2, appliesTo: "compra", category: "servicios", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "" },
-      { id: uid("WHT"), internalCode: "RET_312", sriCode: "312", description: "Transferencia de bienes", taxType: "RENTA", percentage: 1.75, appliesTo: "compra", category: "bienes", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "" },
-      { id: uid("WHT"), internalCode: "RET_332", sriCode: "332", description: "Compras no sujetas a retencion", taxType: "RENTA", percentage: 0, appliesTo: "compra", category: "otros", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "Codigo por defecto cuando no existe retencion." },
-      { id: uid("WHT"), internalCode: "RET_AGRICOLA_1", sriCode: "AGRICOLA_1", description: "Material / producto agricola 1%", taxType: "RENTA", percentage: 1, appliesTo: "compra", category: "agricola", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "" },
-      { id: uid("WHT"), internalCode: "RET_EXTERIOR_25", sriCode: "EXTERIOR_25", description: "Servicios del exterior 25%", taxType: "RENTA", percentage: 25, appliesTo: "compra", category: "exterior", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "" },
-      { id: uid("WHT"), internalCode: "RET_IVA_30", sriCode: "IVA_30", description: "Retencion IVA 30%", taxType: "IVA", percentage: 30, appliesTo: "compra", category: "servicios", payableAccountCode: "2.1.02.01", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "" },
-      { id: uid("WHT"), internalCode: "RET_IVA_70", sriCode: "IVA_70", description: "Retencion IVA 70%", taxType: "IVA", percentage: 70, appliesTo: "compra", category: "servicios", payableAccountCode: "2.1.02.01", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "" },
-      { id: uid("WHT"), internalCode: "RET_IVA_100", sriCode: "IVA_100", description: "Retencion IVA 100%", taxType: "IVA", percentage: 100, appliesTo: "compra", category: "servicios", payableAccountCode: "2.1.02.01", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "" }
+      { id: uid("WHT"), internalCode: "RET_303", sriCode: "303", description: "Honorarios y servicios donde predomina el intelecto - persona natural", taxType: "RENTA", percentage: 10, appliesTo: "compra", category: "profesional", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "Tarifa vigente segun Resolucion NAC-DGERCGC26-00000009." },
+      { id: uid("WHT"), internalCode: "RET_304", sriCode: "304", description: "Servicios donde predomina el intelecto", taxType: "RENTA", percentage: 10, appliesTo: "compra", category: "servicios", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "Tarifa vigente segun Resolucion NAC-DGERCGC26-00000009." },
+      { id: uid("WHT"), internalCode: "RET_307", sriCode: "307", description: "Servicios donde predomina la mano de obra", taxType: "RENTA", percentage: 3, appliesTo: "compra", category: "servicios", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "Tarifa vigente segun Resolucion NAC-DGERCGC26-00000009." },
+      { id: uid("WHT"), internalCode: "RET_310", sriCode: "310", description: "Transporte privado de pasajeros o transporte publico/privado de carga", taxType: "RENTA", percentage: 1, appliesTo: "compra", category: "transporte", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "Tarifa vigente segun Resolucion NAC-DGERCGC26-00000009." },
+      { id: uid("WHT"), internalCode: "RET_311", sriCode: "311", description: "Pagos mediante liquidacion de compra", taxType: "RENTA", percentage: 3, appliesTo: "compra", category: "bienes", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "Tarifa vigente segun Resolucion NAC-DGERCGC26-00000009." },
+      { id: uid("WHT"), internalCode: "RET_312", sriCode: "312", description: "Transferencia de bienes muebles de naturaleza corporal", taxType: "RENTA", percentage: 2, appliesTo: "compra", category: "bienes", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "Tarifa vigente segun Resolucion NAC-DGERCGC26-00000009." },
+      { id: uid("WHT"), internalCode: "RET_312A", sriCode: "312A", description: "Compras directas al productor de bienes de origen agricola y similares", taxType: "RENTA", percentage: 1, appliesTo: "compra", category: "agricola", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "Tarifa vigente segun Resolucion NAC-DGERCGC26-00000009." },
+      { id: uid("WHT"), internalCode: "RET_312C", sriCode: "312C", description: "Compras a comercializador de bienes de origen agricola y similares", taxType: "RENTA", percentage: 1.75, appliesTo: "compra", category: "agricola", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "Tarifa vigente segun Resolucion NAC-DGERCGC26-00000009." },
+      { id: uid("WHT"), internalCode: "RET_303A", sriCode: "303A", description: "Servicios profesionales prestados por sociedades residentes", taxType: "RENTA", percentage: 5, appliesTo: "compra", category: "profesional", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "Tarifa vigente segun Resolucion NAC-DGERCGC26-00000009." },
+      { id: uid("WHT"), internalCode: "RET_3482", sriCode: "3482", description: "Comisiones pagadas a sociedades residentes y establecimientos permanentes", taxType: "RENTA", percentage: 5, appliesTo: "compra", category: "servicios", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "Tarifa vigente segun Resolucion NAC-DGERCGC26-00000009." },
+      { id: uid("WHT"), internalCode: "RET_340", sriCode: "340", description: "Otras retenciones aplicables el 3% (casillero 3440)", taxType: "RENTA", percentage: 3, appliesTo: "compra", category: "otros", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "El codigo electronico es 340; 3440 corresponde al casillero del Formulario 103." },
+{ id: uid("WHT"), internalCode: "RET_332", sriCode: "332", description: "Otras compras de bienes y servicios no sujetas a retencion", taxType: "RENTA", percentage: 0, appliesTo: "compra", category: "otros", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "Se reporta en AIR con base, porcentaje 0 y valor retenido 0; no genera comprobante." },
+      { id: uid("WHT"), internalCode: "RET_501", sriCode: "501", description: "Pago al exterior - beneficios empresariales", taxType: "RENTA", percentage: 25, appliesTo: "compra", category: "exterior", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "Verificar convenio para evitar doble imposicion y residencia fiscal antes de emitir." },
+      { id: uid("WHT"), internalCode: "RET_502", sriCode: "502", description: "Pago al exterior - servicios empresariales", taxType: "RENTA", percentage: 25, appliesTo: "compra", category: "exterior", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "Verificar convenio para evitar doble imposicion y residencia fiscal antes de emitir." },
+      { id: uid("WHT"), internalCode: "RET_511", sriCode: "511", description: "Pago al exterior - servicios profesionales independientes", taxType: "RENTA", percentage: 25, appliesTo: "compra", category: "exterior", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "Verificar convenio para evitar doble imposicion y residencia fiscal antes de emitir." },
+      { id: uid("WHT"), internalCode: "RET_520", sriCode: "520", description: "Pago al exterior - otros conceptos de ingresos gravados", taxType: "RENTA", percentage: 25, appliesTo: "compra", category: "exterior", payableAccountCode: "2.1.02.02", receivableAccountCode: "1.1.05", effectiveFrom: "2026-03-01", effectiveTo: "", status: "activo", observation: "Verificar convenio para evitar doble imposicion, residencia fiscal y naturaleza del pago antes de emitir." },
+      { id: uid("WHT"), internalCode: "RET_IVA_20", sriCode: "10", description: "Retencion IVA 20%", taxType: "IVA", percentage: 20, appliesTo: "compra", category: "servicios", payableAccountCode: "2.1.02.01", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "Codigo SRI de comprobante electronico: 10." },
+      { id: uid("WHT"), internalCode: "RET_IVA_30", sriCode: "1", description: "Retencion IVA 30%", taxType: "IVA", percentage: 30, appliesTo: "compra", category: "bienes", payableAccountCode: "2.1.02.01", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "Codigo SRI de comprobante electronico: 1." },
+      { id: uid("WHT"), internalCode: "RET_IVA_70", sriCode: "2", description: "Retencion IVA 70%", taxType: "IVA", percentage: 70, appliesTo: "compra", category: "servicios", payableAccountCode: "2.1.02.01", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "Codigo SRI de comprobante electronico: 2." },
+      { id: uid("WHT"), internalCode: "RET_IVA_100", sriCode: "3", description: "Retencion IVA 100%", taxType: "IVA", percentage: 100, appliesTo: "compra", category: "servicios", payableAccountCode: "2.1.02.01", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "Codigo SRI de comprobante electronico: 3." }
     ];
   }
 
@@ -316,7 +356,7 @@
         productCode: "",
         descriptionNormalized: "servicio tecnico de mantenimiento",
         keywords: ["servicio", "tecnico", "mantenimiento"],
-        accountCode: "6.1",
+        accountCode: "5.3",
         vatPercentage: 15,
         expenseType: "SERVICIOS_PROFESIONALES",
         lastUsedAt: "2026-07-06T16:15:00.000Z",
@@ -365,7 +405,7 @@
         reversedById: "",
         reverseOfId: "",
         lines: [
-          { id: uid("JLN"), accountCode: "6.2", accountName: "Gastos de suministros", debit: 125, credit: 0, costCenter: "", auxiliary: "", lineDescription: "Compra menor", documentReference: "" },
+          { id: uid("JLN"), accountCode: "5.4", accountName: "Gastos de suministros", debit: 125, credit: 0, costCenter: "", auxiliary: "", lineDescription: "Compra menor", documentReference: "" },
           { id: uid("JLN"), accountCode: "1.1.01.01", accountName: "Caja general", debit: 0, credit: 125, costCenter: "", auxiliary: "", lineDescription: "Salida de caja", documentReference: "" }
         ]
       },
@@ -405,7 +445,7 @@
         reversedById: "",
         reverseOfId: "",
         lines: [
-          { id: uid("JLN"), accountCode: "6.1", accountName: "Gastos administrativos", debit: 200, credit: 0, costCenter: "", auxiliary: "", lineDescription: "Prueba", documentReference: "" },
+          { id: uid("JLN"), accountCode: "5.3", accountName: "Gastos administrativos", debit: 200, credit: 0, costCenter: "", auxiliary: "", lineDescription: "Prueba", documentReference: "" },
           { id: uid("JLN"), accountCode: "1.1.01.01", accountName: "Caja general", debit: 0, credit: 180, costCenter: "", auxiliary: "", lineDescription: "Prueba", documentReference: "" }
         ]
       },
@@ -425,7 +465,7 @@
         reversedById: "",
         reverseOfId: "",
         lines: [
-          { id: uid("JLN"), accountCode: "6.1", accountName: "Gastos administrativos", debit: 200, credit: 0, costCenter: "ADMIN", auxiliary: "", lineDescription: "Servicio tecnico", documentReference: "001-002-000000145" },
+          { id: uid("JLN"), accountCode: "5.3", accountName: "Gastos administrativos", debit: 200, credit: 0, costCenter: "ADMIN", auxiliary: "", lineDescription: "Servicio tecnico", documentReference: "001-002-000000145" },
           { id: uid("JLN"), accountCode: "1.1.05", accountName: "Retenciones por cobrar", debit: 30, credit: 0, costCenter: "", auxiliary: "", lineDescription: "IVA compras", documentReference: "001-002-000000145" },
           { id: uid("JLN"), accountCode: "2.1.01", accountName: "Cuentas por pagar proveedores", debit: 0, credit: 230, costCenter: "", auxiliary: "1710012345001", lineDescription: "Proveedor Servicios Tecnicos Quito", documentReference: "001-002-000000145" }
         ]
@@ -507,7 +547,7 @@
         reversedById: "",
         reverseOfId: "",
         lines: [
-          { id: uid("JLN"), accountCode: "6.1", accountName: "Gastos administrativos", debit: 300, credit: 0, costCenter: "ADMIN", auxiliary: "", lineDescription: "Soporte correctivo", documentReference: "001-002-000000152" },
+          { id: uid("JLN"), accountCode: "5.3", accountName: "Gastos administrativos", debit: 300, credit: 0, costCenter: "ADMIN", auxiliary: "", lineDescription: "Soporte correctivo", documentReference: "001-002-000000152" },
           { id: uid("JLN"), accountCode: "2.1.01", accountName: "Cuentas por pagar proveedores", debit: 0, credit: 300, costCenter: "", auxiliary: "1710012345001", lineDescription: "Proveedor Servicios Tecnicos Quito", documentReference: "001-002-000000152" }
         ]
       },
@@ -627,7 +667,7 @@
         reversedById: "",
         reverseOfId: "",
         lines: [
-          { id: uid("JLN"), accountCode: "6.3", accountName: "Gastos financieros", debit: 12.5, credit: 0, costCenter: "", auxiliary: "", lineDescription: "Comision bancaria", documentReference: "MOV-2026-000002" },
+          { id: uid("JLN"), accountCode: "5.5", accountName: "Gastos financieros", debit: 12.5, credit: 0, costCenter: "", auxiliary: "", lineDescription: "Comision bancaria", documentReference: "MOV-2026-000002" },
           { id: uid("JLN"), accountCode: "1.1.01.02", accountName: "Banco principal", debit: 0, credit: 12.5, costCenter: "", auxiliary: "", lineDescription: "Salida por comision", documentReference: "COM-BP-0721" }
         ]
       },
@@ -667,7 +707,7 @@
         reversedById: "",
         reverseOfId: "",
         lines: [
-          { id: uid("JLN"), accountCode: "6.3", accountName: "Gastos financieros", debit: 5, credit: 0, costCenter: "", auxiliary: "", lineDescription: "Comision bancaria", documentReference: "COM-BP-0620" },
+          { id: uid("JLN"), accountCode: "5.5", accountName: "Gastos financieros", debit: 5, credit: 0, costCenter: "", auxiliary: "", lineDescription: "Comision bancaria", documentReference: "COM-BP-0620" },
           { id: uid("JLN"), accountCode: "1.1.01.02", accountName: "Banco principal", debit: 0, credit: 5, costCenter: "", auxiliary: "", lineDescription: "Salida por comision", documentReference: "MOV-2026-000005" }
         ]
       },
@@ -827,7 +867,7 @@
         reversedById: "",
         reverseOfId: "",
         lines: [
-          { id: uid("JLN"), accountCode: "6.2", accountName: "Gastos de suministros", debit: 36, credit: 0, costCenter: "BODEGA", auxiliary: "", lineDescription: "Merma de etiquetas adhesivas", documentReference: "INV-2026-000007" },
+          { id: uid("JLN"), accountCode: "5.4", accountName: "Gastos de suministros", debit: 36, credit: 0, costCenter: "BODEGA", auxiliary: "", lineDescription: "Merma de etiquetas adhesivas", documentReference: "INV-2026-000007" },
           { id: uid("JLN"), accountCode: "1.1.03.02", accountName: "Inventario materiales de empaque", debit: 0, credit: 36, costCenter: "", auxiliary: "", lineDescription: "Salida por ajuste negativo", documentReference: "INV-2026-000007" }
         ]
       },
@@ -906,12 +946,12 @@
             vatRate: 15,
             vatValue: 30,
             totalLine: 230,
-            accountCode: "6.1",
+            accountCode: "5.3",
             accountName: "Gastos administrativos",
             costCenter: "ADMIN",
             lineType: "servicio",
             suggestionMode: "Automatico",
-            suggestedAccountCode: memoryServicios?.accountCode || "6.1"
+            suggestedAccountCode: memoryServicios?.accountCode || "5.3"
           }
         ],
         totals: {
@@ -1242,12 +1282,12 @@
             vatRate: 0,
             vatValue: 0,
             totalLine: 300,
-            accountCode: "6.1",
+            accountCode: "5.3",
             accountName: "Gastos administrativos",
             costCenter: "ADMIN",
             lineType: "servicio",
             suggestionMode: "Automatico",
-            suggestedAccountCode: memoryServicios?.accountCode || "6.1"
+            suggestedAccountCode: memoryServicios?.accountCode || "5.3"
           }
         ],
         totals: {
@@ -1359,7 +1399,7 @@
             costCenter: "",
             lineType: "gasto",
             suggestionMode: "Manual",
-            suggestedAccountCode: "6.1"
+            suggestedAccountCode: "5.3"
           }
         ],
         totals: {
@@ -1677,7 +1717,7 @@
         bankName: "Banco Pichincha",
         accountNumber: "2200457788",
         accountType: "corriente",
-        holder: "Bless Flower / Proyecto ERP JAMES",
+      holder: "Bless Flower / JAEDER SYSTEMS",
         currency: "USD",
         linkedAccountCode: "1.1.01.02",
         openingBalance: 5000,
@@ -1753,7 +1793,7 @@
         journalEntryId: comisionJunioEntry?.id || "",
         journalEntryNumber: comisionJunioEntry?.entryNumber || "",
         observation: "Comision demo usada en conciliacion bancaria de junio.",
-        counterAccountCode: "6.3",
+        counterAccountCode: "5.5",
         counterAccountName: "Gastos financieros",
         costCenter: "",
         auxiliary: "",
@@ -1825,7 +1865,7 @@
         journalEntryId: comisionEntry?.id || "",
         journalEntryNumber: comisionEntry?.entryNumber || "",
         observation: "Cargo mensual del banco.",
-        counterAccountCode: "6.3",
+        counterAccountCode: "5.5",
         counterAccountName: "Gastos financieros",
         costCenter: "",
         auxiliary: "",
@@ -1849,7 +1889,7 @@
         journalEntryId: "",
         journalEntryNumber: "",
         observation: "Borrador para prueba del modulo.",
-        counterAccountCode: "6.2",
+        counterAccountCode: "5.4",
         counterAccountName: "Gastos de suministros",
         costCenter: "ADMIN",
         auxiliary: "",
@@ -2300,9 +2340,9 @@
       { id: uid("ITM"), code: "LIGA-001", barcode: "", name: "Liga para bonche", category: "MATERIAL_EMPAQUE", subcategory: "liga", unit: "paquete", inventoryAccountCode: "1.1.03.02", expenseAccountCode: "5.2", minStock: 30, maxStock: 120, warehouseId: empaque?.id || "", requiresLot: false, requiresExpiry: false, status: "activo", observation: "Liga usada en armado de bonches y empaque." },
       { id: uid("ITM"), code: "CAP-001", barcode: "", name: "Capuchon transparente", category: "MATERIAL_EMPAQUE", subcategory: "capuchon", unit: "paquete", inventoryAccountCode: "1.1.03.02", expenseAccountCode: "5.2", minStock: 25, maxStock: 90, warehouseId: empaque?.id || "", requiresLot: false, requiresExpiry: false, status: "activo", observation: "Capuchon para proteccion en empaque." },
       { id: uid("ITM"), code: "ETQ-001", barcode: "", name: "Etiqueta adhesiva", category: "MATERIAL_EMPAQUE", subcategory: "etiqueta", unit: "rollo", inventoryAccountCode: "1.1.03.02", expenseAccountCode: "5.2", minStock: 8, maxStock: 40, warehouseId: empaque?.id || "", requiresLot: false, requiresExpiry: false, status: "activo", observation: "Etiquetas de cajas y bultos." },
-      { id: uid("ITM"), code: "FERT-001", barcode: "", name: "Fertilizante general", category: "FERTILIZANTE", subcategory: "fertilizante", unit: "kilo", inventoryAccountCode: "1.1.03.01", expenseAccountCode: "6.2", minStock: 50, maxStock: 250, warehouseId: fertilizantes?.id || "", requiresLot: true, requiresExpiry: true, status: "activo", observation: "Fertilizante de uso recurrente." },
-      { id: uid("ITM"), code: "QUIM-001", barcode: "", name: "Quimico agricola", category: "QUIMICO", subcategory: "quimico", unit: "litro", inventoryAccountCode: "1.1.03.01", expenseAccountCode: "6.2", minStock: 20, maxStock: 100, warehouseId: quimicos?.id || "", requiresLot: true, requiresExpiry: true, status: "activo", observation: "Quimico de uso agricola controlado." },
-      { id: uid("ITM"), code: "HRR-001", barcode: "", name: "Tijera de poda", category: "HERRAMIENTA", subcategory: "herramienta", unit: "unidad", inventoryAccountCode: "1.1.03.01", expenseAccountCode: "6.2", minStock: 5, maxStock: 30, warehouseId: herramientas?.id || "", requiresLot: false, requiresExpiry: false, status: "activo", observation: "Herramienta administrativa / operativa de bodega." }
+      { id: uid("ITM"), code: "FERT-001", barcode: "", name: "Fertilizante general", category: "FERTILIZANTE", subcategory: "fertilizante", unit: "kilo", inventoryAccountCode: "1.1.03.01", expenseAccountCode: "5.4", minStock: 50, maxStock: 250, warehouseId: fertilizantes?.id || "", requiresLot: true, requiresExpiry: true, status: "activo", observation: "Fertilizante de uso recurrente." },
+      { id: uid("ITM"), code: "QUIM-001", barcode: "", name: "Quimico agricola", category: "QUIMICO", subcategory: "quimico", unit: "litro", inventoryAccountCode: "1.1.03.01", expenseAccountCode: "5.4", minStock: 20, maxStock: 100, warehouseId: quimicos?.id || "", requiresLot: true, requiresExpiry: true, status: "activo", observation: "Quimico de uso agricola controlado." },
+      { id: uid("ITM"), code: "HRR-001", barcode: "", name: "Tijera de poda", category: "HERRAMIENTA", subcategory: "herramienta", unit: "unidad", inventoryAccountCode: "1.1.03.01", expenseAccountCode: "5.4", minStock: 5, maxStock: 30, warehouseId: herramientas?.id || "", requiresLot: false, requiresExpiry: false, status: "activo", observation: "Herramienta administrativa / operativa de bodega." }
     ];
   }
 
@@ -2465,7 +2505,7 @@
         createdBy: "James Lanchimba",
         confirmedAt: createdAt,
         lines: [
-          { id: uid("MVL"), itemId: fertilizante?.id || "", itemCode: fertilizante?.code || "FERT-001", itemName: fertilizante?.name || "Fertilizante general", description: "Entrada compra fertilizante", quantity: 80, unit: "kilo", costUnit: 4.2, costTotal: 336, lot: "FERT-0726-A", expiryDate: "2026-07-28", inventoryAccountCode: "1.1.03.01", expenseAccountCode: "6.2", costCenter: "", observation: "Lote proximo a vencer para demo", sourcePurchaseId: "", sourceLineId: "" }
+          { id: uid("MVL"), itemId: fertilizante?.id || "", itemCode: fertilizante?.code || "FERT-001", itemName: fertilizante?.name || "Fertilizante general", description: "Entrada compra fertilizante", quantity: 80, unit: "kilo", costUnit: 4.2, costTotal: 336, lot: "FERT-0726-A", expiryDate: "2026-07-28", inventoryAccountCode: "1.1.03.01", expenseAccountCode: "5.4", costCenter: "", observation: "Lote proximo a vencer para demo", sourcePurchaseId: "", sourceLineId: "" }
         ]
       },
       {
@@ -2494,7 +2534,7 @@
         createdBy: "James Lanchimba",
         confirmedAt: createdAt,
         lines: [
-          { id: uid("MVL"), itemId: quimico?.id || "", itemCode: quimico?.code || "QUIM-001", itemName: quimico?.name || "Quimico agricola", description: "Entrada quimico agricola", quantity: 25, unit: "litro", costUnit: 6.4, costTotal: 160, lot: "QUI-0726-A", expiryDate: "2026-08-05", inventoryAccountCode: "1.1.03.01", expenseAccountCode: "6.2", costCenter: "", observation: "Lote demo de quimico", sourcePurchaseId: "", sourceLineId: "" }
+          { id: uid("MVL"), itemId: quimico?.id || "", itemCode: quimico?.code || "QUIM-001", itemName: quimico?.name || "Quimico agricola", description: "Entrada quimico agricola", quantity: 25, unit: "litro", costUnit: 6.4, costTotal: 160, lot: "QUI-0726-A", expiryDate: "2026-08-05", inventoryAccountCode: "1.1.03.01", expenseAccountCode: "5.4", costCenter: "", observation: "Lote demo de quimico", sourcePurchaseId: "", sourceLineId: "" }
         ]
       },
       {
@@ -2540,7 +2580,7 @@
         originModule: "ajuste",
         status: "CONFIRMADO",
         observation: "Ajuste negativo por perdida de etiquetas.",
-        counterAccountCode: "6.2",
+        counterAccountCode: "5.4",
         counterAccountName: "Gastos de suministros",
         supplierId: "",
         supplierName: "",
@@ -2552,7 +2592,7 @@
         createdBy: "James Lanchimba",
         confirmedAt: createdAt,
         lines: [
-          { id: uid("MVL"), itemId: etiqueta?.id || "", itemCode: etiqueta?.code || "ETQ-001", itemName: etiqueta?.name || "Etiqueta adhesiva", description: "Perdida de etiquetas adhesivas", quantity: 3, unit: "rollo", costUnit: 12, costTotal: 36, lot: "", expiryDate: "", inventoryAccountCode: "1.1.03.02", expenseAccountCode: "6.2", costCenter: "BODEGA", observation: "Ajuste por merma", sourcePurchaseId: "", sourceLineId: "" }
+          { id: uid("MVL"), itemId: etiqueta?.id || "", itemCode: etiqueta?.code || "ETQ-001", itemName: etiqueta?.name || "Etiqueta adhesiva", description: "Perdida de etiquetas adhesivas", quantity: 3, unit: "rollo", costUnit: 12, costTotal: 36, lot: "", expiryDate: "", inventoryAccountCode: "1.1.03.02", expenseAccountCode: "5.4", costCenter: "BODEGA", observation: "Ajuste por merma", sourcePurchaseId: "", sourceLineId: "" }
         ]
       },
       {
@@ -2581,26 +2621,23 @@
         createdBy: "James Lanchimba",
         confirmedAt: createdAt,
         lines: [
-          { id: uid("MVL"), itemId: fertilizante?.id || "", itemCode: fertilizante?.code || "FERT-001", itemName: fertilizante?.name || "Fertilizante general", description: "Salida de fertilizante a proveedor", quantity: 15, unit: "kilo", costUnit: 4.2, costTotal: 63, lot: "FERT-0726-A", expiryDate: "2026-07-28", inventoryAccountCode: "1.1.03.01", expenseAccountCode: "6.2", costCenter: "", observation: "Pendiente de descuento en proveedor", sourcePurchaseId: "", sourceLineId: "" }
+          { id: uid("MVL"), itemId: fertilizante?.id || "", itemCode: fertilizante?.code || "FERT-001", itemName: fertilizante?.name || "Fertilizante general", description: "Salida de fertilizante a proveedor", quantity: 15, unit: "kilo", costUnit: 4.2, costTotal: 63, lot: "FERT-0726-A", expiryDate: "2026-07-28", inventoryAccountCode: "1.1.03.01", expenseAccountCode: "5.4", costCenter: "", observation: "Pendiente de descuento en proveedor", sourcePurchaseId: "", sourceLineId: "" }
         ]
       }
     ];
   }
 
   function createVisualUsersSeed() {
-    return [
-      { id: "USR-ADMIN-001", code: "USR-001", name: "James Lanchimba", fullName: "James Santiago Lanchimba Tipanluisa", email: "", role: "Administrador / Contador", cargo: "Administrador / Contador", area: "Administracion / Contabilidad", status: "activo", observation: "Usuario visual principal para pruebas de auditoria." },
-      { id: "USR-SUP-002", code: "USR-002", name: "Eder Lenin Quishpe", fullName: "Eder Lenin Quishpe", email: "", role: "Co-creador / Soporte", cargo: "Co-creador / Soporte", area: "Tecnologia / Soporte", status: "activo", observation: "Usuario visual de soporte funcional." },
-      { id: "USR-ACC-003", code: "USR-003", name: "Usuario Contable", fullName: "Usuario Contable", email: "", role: "Asistente contable", cargo: "Asistente contable", area: "Contabilidad", status: "activo", observation: "Perfil visual para pruebas de registros contables." },
-      { id: "USR-WHS-004", code: "USR-004", name: "Usuario Bodega", fullName: "Usuario Bodega", email: "", role: "Responsable bodega", cargo: "Responsable bodega", area: "Bodega", status: "activo", observation: "Perfil visual para inventario y movimientos de bodega." }
-    ];
+    return [];
   }
 
   function createDocumentSequencesSeed() {
     return [
+      { id: "SEQ-FAC-EXPORT", code: "FAC_EXPORT", name: "Facturas de exportación", prefix: "", year: "", month: "", currentNumber: 0, length: 9, reset: "nunca", module: "Comercial", status: "activo", documentType: "01", environment: "PRUEBAS", establishmentCode: "001", emissionPointCode: "002", configurationStatus: "CONFIRMADA", observation: "Bless Flower exportación 001-002." },
+      { id: "SEQ-FAC-LOCAL", code: "FAC_LOCAL", name: "Facturas de venta local", prefix: "", year: "", month: "", currentNumber: 674, length: 9, reset: "nunca", module: "Comercial", status: "activo", documentType: "01", environment: "PRUEBAS", establishmentCode: "001", emissionPointCode: "003", configurationStatus: "CONFIRMADA", observation: "Bless Flower local 001-003. Último secuencial informado: 000000674." },
       { id: "SEQ-ASI", code: "ASI", name: "Asientos contables", prefix: "ASI", year: "2026", month: "", currentNumber: 25, length: 6, reset: "anual", module: "Contabilidad", status: "activo", observation: "Secuencial interno del libro diario." },
       { id: "SEQ-COM", code: "COM", name: "Compras", prefix: "COM", year: "2026", month: "", currentNumber: 3, length: 6, reset: "anual", module: "Compras", status: "activo", observation: "Control interno para documentos de compra." },
-      { id: "SEQ-RETE", code: "RETE", name: "Retenciones emitidas", prefix: "RETE", year: "2026", month: "", currentNumber: 1, length: 6, reset: "anual", module: "Compras", status: "activo", observation: "Borradores y confirmaciones de retenciones emitidas." },
+      { id: "SEQ-RETE", code: "RETE", name: "Comprobantes de retencion", prefix: "", year: "", month: "", currentNumber: 686, length: 9, reset: "nunca", module: "Compras", status: "activo", documentType: "07", environment: "PRUEBAS", establishmentCode: "001", emissionPointCode: "002", configurationStatus: "CONFIRMADA", observation: "Secuencial tributario tipo 07 para comprobantes de retencion emitidos." },
       { id: "SEQ-RETR", code: "RETR", name: "Retenciones recibidas", prefix: "RETR", year: "2026", month: "", currentNumber: 2, length: 6, reset: "anual", module: "Tributario", status: "activo", observation: "Importaciones XML de retenciones recibidas." },
       { id: "SEQ-PAGO", code: "PAGO", name: "Pagos", prefix: "PAGO", year: "2026", month: "", currentNumber: 2, length: 6, reset: "anual", module: "Carteras", status: "activo", observation: "Pagos individuales y lotes." },
       { id: "SEQ-COBRO", code: "COBRO", name: "Cobros", prefix: "COBRO", year: "2026", month: "", currentNumber: 2, length: 6, reset: "anual", module: "Carteras", status: "activo", observation: "Cobros individuales y lotes." },
@@ -2615,15 +2652,15 @@
 
   function createCostCentersSeed() {
     return [
-      { id: "CC-ADMINISTRACION", code: "ADMINISTRACION", name: "Administracion", type: "administrativo", responsible: "James Lanchimba", status: "activo", relatedAccount: "6.1", observation: "Centro administrativo general." },
+      { id: "CC-ADMINISTRACION", code: "ADMINISTRACION", name: "Administracion", type: "administrativo", responsible: "James Lanchimba", status: "activo", relatedAccount: "5.3", observation: "Centro administrativo general." },
       { id: "CC-CAMPO", code: "CAMPO", name: "Campo", type: "produccion", responsible: "Responsable de campo", status: "activo", relatedAccount: "5.1", observation: "Base operativa de campo." },
       { id: "CC-POSCOSECHA", code: "POSCOSECHA", name: "Poscosecha", type: "produccion", responsible: "Responsable poscosecha", status: "activo", relatedAccount: "5.1", observation: "Preparado para integracion futura con Parte 1." },
       { id: "CC-EMPAQUE", code: "EMPAQUE", name: "Empaque", type: "empaque", responsible: "Responsable de empaque", status: "activo", relatedAccount: "5.2", observation: "Consumos y costos de materiales de empaque." },
       { id: "CC-BODEGA", code: "BODEGA", name: "Bodega", type: "operativo", responsible: "Usuario Bodega", status: "activo", relatedAccount: "1.1.03.02", observation: "Control operativo de suministros y materiales." },
       { id: "CC-VENTAS", code: "VENTAS", name: "Ventas", type: "ventas", responsible: "Equipo comercial", status: "activo", relatedAccount: "4.1", observation: "Reservado para la fase comercial futura." },
-      { id: "CC-LOGISTICA", code: "LOGISTICA", name: "Logistica", type: "logistica", responsible: "Coordinacion logistica", status: "activo", relatedAccount: "6.1", observation: "Apoyo a operaciones de despacho y transporte." },
-      { id: "CC-MANTENIMIENTO", code: "MANTENIMIENTO", name: "Mantenimiento", type: "operativo", responsible: "Responsable de mantenimiento", status: "activo", relatedAccount: "6.2", observation: "Consumos y gastos por mantenimiento." },
-      { id: "CC-GERENCIA", code: "GERENCIA", name: "Gerencia", type: "administrativo", responsible: "Gerencia general", status: "activo", relatedAccount: "6.1", observation: "Centro de decisiones y direccion." }
+      { id: "CC-LOGISTICA", code: "LOGISTICA", name: "Logistica", type: "logistica", responsible: "Coordinacion logistica", status: "activo", relatedAccount: "5.3", observation: "Apoyo a operaciones de despacho y transporte." },
+      { id: "CC-MANTENIMIENTO", code: "MANTENIMIENTO", name: "Mantenimiento", type: "operativo", responsible: "Responsable de mantenimiento", status: "activo", relatedAccount: "5.4", observation: "Consumos y gastos por mantenimiento." },
+      { id: "CC-GERENCIA", code: "GERENCIA", name: "Gerencia", type: "administrativo", responsible: "Gerencia general", status: "activo", relatedAccount: "5.3", observation: "Centro de decisiones y direccion." }
     ];
   }
 
@@ -2662,7 +2699,7 @@
 
     return {
       meta: {
-        companyName: "Bless Flower / Proyecto ERP JAMES",
+        companyName: "Bless Flower / JAEDER SYSTEMS",
         accountingPeriod: "Julio 2026",
         mode: "demo",
         createdAt: new Date().toISOString(),
@@ -2765,5 +2802,70 @@
     };
   }
 
-  BlessERP.demo = { createDemoDatabase };
+  function isOperationalDeployment() {
+    const configured = typeof BlessERP.getAppMode === "function"
+      ? BlessERP.getAppMode()
+      : window.__ERP_ENV__?.VITE_APP_ENV;
+    return String(configured || "").trim().toLowerCase() !== "demo";
+  }
+
+  function createOperationalDatabase() {
+    const db = createDemoDatabase();
+    db.meta = {
+      ...(db.meta || {}),
+      companyName: "Bless Flower / JAEDER SYSTEMS",
+      accountingPeriod: "",
+      mode: "operational-test",
+      createdAt: new Date().toISOString()
+    };
+    db.session = {
+      activeUser: null,
+      alerts: []
+    };
+
+    [
+      "journalEntries",
+      "providers",
+      "purchaseMemory",
+      "visualUsers",
+      "auditLogs",
+      "purchases",
+      "purchasePayables",
+      "issuedWithholdings",
+      "payments",
+      "paymentBatches",
+      "bankAccounts",
+      "bankMovements",
+      "bankStatementMovements",
+      "bankReconciliations",
+      "customers",
+      "customerReceivables",
+      "collections",
+      "collectionBatches",
+      "receivedWithholdings",
+      "inventoryWarehouses",
+      "inventoryItems",
+      "inventoryMovements",
+      "sales"
+    ].forEach(key => {
+      db[key] = [];
+    });
+    db.documentSequences = (db.documentSequences || []).map(sequence => ({
+      ...sequence,
+      currentNumber: sequence.code === "FAC_LOCAL" ? 674 : (sequence.code === "RETE" ? 686 : 0)
+    }));
+
+    return db;
+  }
+
+  function createInitialDatabase() {
+    return createOperationalDatabase();
+  }
+
+  BlessERP.demo = {
+    createDemoDatabase,
+    createInitialDatabase,
+    createOperationalDatabase,
+    isOperationalDeployment
+  };
 })();

@@ -4,7 +4,7 @@
 
   function buildJournalPreview(order, appState) {
     const totals = previewUtils.buildCommercialTotals(order);
-    const accounts = previewUtils.resolveSuggestedAccounts(appState);
+    const accounts = previewUtils.resolveSuggestedAccounts(order);
     const costCenter = previewUtils.resolveSuggestedCostCenter(order);
     const ids = previewUtils.buildPreviewIds(order);
     const state = previewUtils.ensurePreviewStore(order);
@@ -21,13 +21,13 @@
     };
 
     const creditLine = {
-      accountCode: accounts.exportSales.code,
-      accountName: accounts.exportSales.name,
+      accountCode: accounts.sales.code,
+      accountName: accounts.sales.name,
       debit: 0,
       credit: totals.totalUsd,
       costCenter: costCenter.code,
       auxiliary: order.brandId || "",
-      description: `Venta exportacion demo ${order.clientInvoiceNumber || order.number}`
+      description: `Venta ${accounts.market.toLowerCase()} demo ${order.clientInvoiceNumber || order.number}`
     };
 
     return {

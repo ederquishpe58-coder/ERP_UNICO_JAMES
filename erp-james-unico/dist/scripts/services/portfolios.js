@@ -8,7 +8,7 @@
   const purchaseService = BlessERP.services.purchases;
   const adminService = BlessERP.services.adminConfig;
 
-  const providerTypes = ["comercial", "floricola", "servicios", "transporte", "insumos", "otros"];
+  const providerTypes = ["comercial", "floricola", "productor", "socio", "servicios", "transporte", "insumos", "otros"];
   const providerStates = ["activo", "inactivo"];
   const paymentConditions = ["Contado", "Credito 15 dias", "Credito 30 dias", "Credito 45 dias", "Credito 60 dias"];
   const payableStates = ["PENDIENTE", "PARCIAL", "PAGADO", "VENCIDO", "ANULADO"];
@@ -28,6 +28,13 @@
     return clone(stateApi.state.db[key] || []);
   }
 
+  function supplierV2() { return BlessERP.services?.supplierFinanceV2 || null; }
+  function requiresSupplierV2() {
+    const config = BlessERP.getEnvConfig?.() || {};
+    return Boolean(config.supabaseEnabled && config.supplierFinanceV2CaptureEnabled === true
+      && window.location?.protocol !== "file:");
+  }
+
   function saveList(key, value) {
     stateApi.state.db[key] = value;
     stateApi.saveDb();
@@ -42,13 +49,21 @@
     return `PRV-${String(max + 1).padStart(4, "0")}`;
   }
 
+  function providerIdentity(value = "") {
+    return String(value || "")
+      .trim()
+      .toUpperCase()
+      .replace(/[^0-9A-Z]/g, "");
+  }
+
   function normalizeProvider(provider = {}) {
     const settings = companyService.settings();
     const current = clone(provider || {});
     return {
       id: current.id || uid("PRV"),
       code: String(current.code || "").trim(),
-      taxId: String(current.taxId || current.ruc || "").trim(),
+      taxId: providerIdentity(current.taxId || current.ruc),
+      ruc: providerIdentity(current.taxId || current.ruc),
       name: String(current.name || "").trim(),
       commercialName: String(current.commercialName || current.name || "").trim(),
       providerType: String(current.providerType || "otros").trim(),
@@ -62,8 +77,62 @@
       status: String(current.status || "activo").trim().toLowerCase(),
       observation: String(current.observation || current.notes || "").trim(),
       profileState: String(current.profileState || "COMPLETO").trim().toUpperCase(),
+      createdSource: String(current.createdSource || "").trim().toUpperCase(),
+      lastXmlImportAt: String(current.lastXmlImportAt || "").trim(),
       hasMovements: Boolean(current.hasMovements)
     };
+  }
+
+  function upsertProviderFromPurchase(purchase = {}, options = {}) {
+    const taxId = providerIdentity(purchase.supplierRuc);
+    const name = String(purchase.supplierName || "").trim();
+    if (!taxId || !name) {
+      return { ok: false, created: false, errors: ["El XML no contiene RUC y razon social suficientes para crear el proveedor."] };
+    }
+    const rows = cloneList("providers").map(normalizeProvider);
+    const index = rows.findIndex(item => providerIdentity(item.taxId) === taxId);
+    const before = index >= 0 ? clone(rows[index]) : null;
+    const current = index >= 0 ? rows[index] : normalizeProvider({
+      code: nextProviderCode(rows),
+      taxId,
+      name,
+      commercialName: purchase.supplierCommercialName || name,
+      providerType: "otros",
+      paymentCondition: "Credito 30 dias",
+      creditDays: 30,
+      status: "activo",
+      observation: "Proveedor creado automaticamente desde XML de compra.",
+      profileState: "PENDIENTE",
+      createdSource: options.source || purchase.source || "XML"
+    });
+    current.name = current.name || name;
+    current.commercialName = current.commercialName || purchase.supplierCommercialName || name;
+    current.address = current.address || purchase.supplierAddress || "";
+    current.email = current.email || purchase.supplierEmail || "";
+    current.phone = current.phone || purchase.supplierPhone || "";
+    current.ruc = taxId;
+    current.taxId = taxId;
+    current.lastXmlImportAt = options.importedAt || new Date().toISOString();
+    current.profileState = current.address && current.email && current.phone ? "COMPLETO" : "PENDIENTE";
+    if (index >= 0) rows[index] = normalizeProvider(current);
+    else rows.unshift(normalizeProvider(current));
+    saveList("providers", rows);
+    const saved = index >= 0 ? rows[index] : rows[0];
+    adminService?.addAuditLog?.({
+      module: "COMPRAS",
+      action: index >= 0 ? "ACTUALIZAR_PROVEEDOR_DESDE_XML" : "CREAR_PROVEEDOR_DESDE_XML",
+      entityType: "provider",
+      entityId: saved.id,
+      entityLabel: saved.code,
+      documentLabel: saved.name,
+      previousStatus: before?.profileState || "",
+      nextStatus: saved.profileState,
+      description: `${index >= 0 ? "Se actualizo" : "Se creo"} automaticamente el proveedor ${saved.name} desde un XML de compra.`,
+      before,
+      after: saved,
+      result: "exitoso"
+    });
+    return { ok: true, created: index < 0, provider: clone(saved) };
   }
 
   function syncProvidersFromPurchases() {
@@ -72,7 +141,8 @@
     let changed = false;
     purchases.forEach(purchase => {
       if (!purchase.supplierRuc || !purchase.supplierName) return;
-      const existing = providers.find(item => item.taxId === purchase.supplierRuc);
+      const purchaseTaxId = providerIdentity(purchase.supplierRuc);
+      const existing = providers.find(item => providerIdentity(item.taxId) === purchaseTaxId);
       if (existing) {
         if (!existing.address && purchase.supplierAddress) {
           existing.address = purchase.supplierAddress;
@@ -82,8 +152,8 @@
       }
       providers.push(normalizeProvider({
         code: nextProviderCode(providers),
-        ruc: purchase.supplierRuc,
-        taxId: purchase.supplierRuc,
+        ruc: purchaseTaxId,
+        taxId: purchaseTaxId,
         name: purchase.supplierName,
         commercialName: purchase.supplierName,
         providerType: "otros",
@@ -103,16 +173,35 @@
   }
 
   function providers() {
-    const rows = syncProvidersFromPurchases().map(normalizeProvider);
+    const canonical = supplierV2()?.providers?.() || [];
+    const canonicalIds = new Set(canonical.map(item => String(item.id || item.providerId || "")));
+    const canonicalTax = new Set(canonical.map(item => providerIdentity(item.taxId || item.ruc)));
+    const legacySource = requiresSupplierV2() ? cloneList("providers") : syncProvidersFromPurchases();
+    const rows = [...canonical, ...legacySource.filter(item => !canonicalIds.has(String(item.id || "")) && !canonicalTax.has(providerIdentity(item.taxId || item.ruc)))]
+      .map(item => normalizeProvider({
+        ...item,
+        providerType: ({ EXTERNAL:"comercial",PRODUCER:"productor",PARTNER:"socio",SERVICE:"servicios",TRANSPORT:"transporte",SUPPLIES:"insumos",OTHER:"otros" })[String(item.providerType || "").toUpperCase()] || item.providerType,
+        status: ({ ACTIVE:"activo",INACTIVE:"inactivo" })[String(item.status || "").toUpperCase()] || item.status
+      }));
     const purchases = purchaseService.purchases();
     const confirmedPayments = payments().filter(item => item.status === "CONFIRMADO");
     const confirmedBatches = paymentBatches().filter(item => item.status === "CONFIRMADO");
-    return rows.map(provider => ({
-      ...provider,
-      hasMovements: purchases.some(item => item.supplierRuc === provider.taxId)
-        || confirmedPayments.some(item => item.providerRuc === provider.taxId)
-        || confirmedBatches.some(item => item.applications?.some(app => app.supplierRuc === provider.taxId))
-    }));
+    return rows.map(provider => {
+      const providerPurchases = purchases.filter(item => providerIdentity(item.supplierRuc) === provider.taxId);
+      const validPurchases = providerPurchases.filter(item => String(item.status || "").toUpperCase() !== "ANULADO");
+      const lastPurchase = providerPurchases
+        .slice()
+        .sort((a, b) => String(b.issueDate || b.createdAt || "").localeCompare(String(a.issueDate || a.createdAt || "")))[0];
+      return {
+        ...provider,
+        purchaseCount: providerPurchases.length,
+        totalPurchased: round2(validPurchases.reduce((sum, item) => sum + Number(item.totals?.total || 0), 0)),
+        lastPurchaseDate: lastPurchase?.issueDate || "",
+        hasMovements: providerPurchases.length > 0
+          || confirmedPayments.some(item => providerIdentity(item.providerRuc) === provider.taxId)
+          || confirmedBatches.some(item => item.applications?.some(app => providerIdentity(app.supplierRuc) === provider.taxId))
+      };
+    });
   }
 
   function findProviderById(providerId) {
@@ -120,7 +209,8 @@
   }
 
   function findProviderByTaxId(taxId) {
-    return providers().find(item => item.taxId === taxId);
+    const identity = providerIdentity(taxId);
+    return providers().find(item => providerIdentity(item.taxId) === identity);
   }
 
   function validateProvider(provider) {
@@ -128,7 +218,7 @@
     const errors = [];
     if (!candidate.taxId) errors.push("El RUC / CI es obligatorio.");
     if (!candidate.name) errors.push("La razon social / nombre es obligatoria.");
-    const duplicate = providers().find(item => item.id !== candidate.id && item.taxId === candidate.taxId);
+    const duplicate = providers().find(item => item.id !== candidate.id && providerIdentity(item.taxId) === providerIdentity(candidate.taxId));
     if (duplicate) errors.push("No se permite RUC / CI duplicado.");
     if (!providerTypes.includes(candidate.providerType)) errors.push("El tipo de proveedor no es valido.");
     if (!providerStates.includes(candidate.status)) errors.push("El estado del proveedor no es valido.");
@@ -142,6 +232,7 @@
     const index = rows.findIndex(item => item.id === candidate.id);
     const before = index >= 0 ? clone(rows[index]) : null;
     if (!candidate.code) candidate.code = nextProviderCode(rows);
+    if (!candidate.createdSource) candidate.createdSource = "MANUAL";
     if (index >= 0) rows[index] = candidate;
     else rows.unshift(candidate);
     saveList("providers", rows);
@@ -160,6 +251,20 @@
       result: "exitoso"
     });
     return { ok: true, provider: clone(candidate) };
+  }
+
+  async function saveProviderV2(provider, options = {}) {
+    const { provider:candidate,errors }=validateProvider(provider);
+    if(errors.length) return { ok:false,errors };
+    if(!requiresSupplierV2()) return saveProvider(candidate);
+    const result=await supplierV2()?.upsertProvider?.(candidate,{ source:candidate.createdSource || "MANUAL",...options });
+    return result || { ok:false,errors:["Servicio de proveedores V2 no disponible."] };
+  }
+
+  async function upsertProviderFromPurchaseV2(purchase = {}, options = {}) {
+    if(!requiresSupplierV2()) return upsertProviderFromPurchase(purchase,options);
+    const result=await supplierV2()?.upsertProvider?.({ ...purchase,taxId:purchase.supplierRuc,name:purchase.supplierName },{ source:options.source || purchase.source || "PURCHASE" });
+    return result?.ok ? { ...result,created:false } : result;
   }
 
   function toggleProviderStatus(providerId) {
@@ -183,8 +288,28 @@
     return { ok: true, provider: clone(rows[index]) };
   }
 
+  async function toggleProviderStatusV2(providerId, options = {}) {
+    const current = providers().find(item => String(item.id) === String(providerId));
+    if (!current) return { ok: false, errors: ["Proveedor no encontrado."] };
+    if (!requiresSupplierV2()) return toggleProviderStatus(providerId);
+    return saveProviderV2({
+      ...current,
+      status: current.status === "activo" ? "inactivo" : "activo"
+    }, options);
+  }
+
   function payments() {
-    return cloneList("payments");
+    const canonical=(supplierV2()?.payments?.() || []).map(item=>({
+      ...clone(item),id:String(item.id || item.paymentId || ""),paymentNumber:item.paymentNumber || item.paymentCode || "",
+      providerId:String(item.providerId || ""),providerName:item.providerName || "",providerRuc:item.providerRuc || "",
+      paymentDate:item.paymentDate || "",paymentMethod:String(item.paymentMethod || "otro").toLowerCase(),
+      paymentAccountCode:item.paymentAccountCode || "",total:round2(item.total || 0),applications:clone(item.applications || []),
+      entryId:item.entryId || item.journalEntryId || "",status:({CONFIRMED:"CONFIRMADO",REVERSED:"ANULADO"})[String(item.status || "").toUpperCase()] || item.status,
+      syncFlow:"SUPPLIER_FINANCE_V2",remoteConfirmed:true
+    }));
+    const refs=new Set(canonical.map(item=>String(item.clientReferenceId || "")).filter(Boolean));
+    const ids=new Set(canonical.map(item=>String(item.id || item.paymentId || "")));
+    return [...canonical,...cloneList("payments").filter(item=>!refs.has(String(item.id || ""))&&!ids.has(String(item.id || "")))];
   }
 
   function paymentBatches() {
@@ -315,7 +440,15 @@
   }
 
   function payables(filters = {}) {
-    return derivePayables().filter(item => {
+    const canonical=(supplierV2()?.payables?.() || []).map(item=>({
+      ...item,id:String(item.id || item.payableId || ""),providerId:String(item.providerId || ""),providerName:item.providerName || "",
+      providerRuc:item.providerRuc || "",documentNumber:item.documentNumber || "",issueDate:item.issueDate || "",dueDate:item.dueDate || "",
+      totalDocument:round2(item.total || 0),balance:round2(item.balance || 0),state:({OPEN:"PENDIENTE",PARTIALLY_PAID:"PARCIAL",PAID:"PAGADO",CANCELLED:"ANULADO"})[String(item.status || "").toUpperCase()] || item.state,
+      originEntryId:item.journalEntryId || "",sourcePurchase:{ status:"CONTABILIZADO",syncFlow:"SUPPLIER_FINANCE_V2" },syncFlow:"SUPPLIER_FINANCE_V2"
+    }));
+    const sourceIds=new Set(canonical.map(item=>String(item.sourceId || "")));
+    const merged=[...canonical,...derivePayables().filter(item=>!sourceIds.has(String(item.purchaseId || "")))];
+    return merged.filter(item => {
       if (filters.providerId && item.providerId !== filters.providerId) return false;
       if (filters.state && item.state !== filters.state) return false;
       if (filters.status && item.state !== filters.status) return false;
@@ -365,10 +498,11 @@
   }
 
   function emptyPayment(providerId = "") {
-    const rows = payments();
+    const remote = requiresSupplierV2();
+    const rows = remote ? [] : payments();
     return {
       id: "",
-      paymentNumber: nextPaymentNumber(rows),
+      paymentNumber: remote ? "Se asigna al confirmar" : nextPaymentNumber(rows),
       providerId,
       providerName: "",
       providerRuc: "",
@@ -429,6 +563,10 @@
     candidate.applications = (candidate.applications || []).map(application => ({
       payableId: String(application.payableId || ""),
       purchaseId: String(application.purchaseId || ""),
+      source: String(application.source || ""),
+      state: String(application.state || ""),
+      canonicalStatus: String(application.canonicalStatus || application.canonical_status || ""),
+      companyId: String(application.companyId || application.company_id || ""),
       documentNumber: String(application.documentNumber || ""),
       supplierName: String(application.supplierName || candidate.providerName || ""),
       supplierRuc: String(application.supplierRuc || candidate.providerRuc || ""),
@@ -473,23 +611,68 @@
     return candidate;
   }
 
-  function validateApplications(applications = []) {
+  function activeCompanyIds() {
+    return new Set([
+      BlessERP.getSupplierFinanceV2Repository?.()?.activeCompanyUuid?.(),
+      BlessERP.services?.companyContext?.activeCompanyId?.(),
+      stateApi.state.db?.activeCompanyId
+    ].map(value => String(value || "").trim()).filter(Boolean));
+  }
+
+  function canonicalPaymentPayable(payableId) {
+    const id = String(payableId || "").trim();
+    if (!id) return null;
+    const portfolioRow = BlessERP.services?.portfolioReadV2?.row?.("ap", id);
+    if (portfolioRow) return clone(portfolioRow);
+    const lookup = BlessERP.services?.paymentCollectionReadV2?.snapshot?.()?.payment?.lookup;
+    const lookupRow = (lookup?.items || []).find(item => String(item.id || "") === id);
+    if (lookupRow) return clone(lookupRow);
+    const supplierRow = (supplierV2()?.payables?.() || [])
+      .find(item => String(item.id || item.payableId || "") === id);
+    if (supplierRow) return clone(supplierRow);
+    if (!requiresSupplierV2()) return payables().find(item => String(item.id || "") === id) || null;
+    return null;
+  }
+
+  function validateApplications(applications = [], providerId = "") {
     const errors = [];
     applications.forEach((application, index) => {
-      const payable = payables().find(item => item.id === application.payableId);
       const row = index + 1;
+      const payableId = String(application.payableId || "").trim();
+      if (!payableId) {
+        errors.push(`El documento ${row} no tiene una CxP canónica.`);
+        return;
+      }
+      const payable = canonicalPaymentPayable(payableId);
       if (!payable) {
         errors.push(`El documento ${row} ya no existe en cartera.`);
         return;
       }
-      if (["PAGADO", "ANULADO"].includes(payable.state)) {
-        errors.push(`El documento ${payable.documentNumber} ya no puede pagarse.`);
+      const documentNumber = payable.documentNumber || application.documentNumber || row;
+      const payableCompanyId = String(payable.companyId || payable.company_id || application.companyId || "");
+      const companyIds = activeCompanyIds();
+      if (payableCompanyId && companyIds.size && !companyIds.has(payableCompanyId)) {
+        errors.push(`El documento ${documentNumber} pertenece a otra empresa.`);
+      }
+      const payableProviderId = String(payable.providerId || payable.provider_id || application.providerId || "");
+      if (providerId && payableProviderId && payableProviderId !== String(providerId)) {
+        errors.push(`El documento ${documentNumber} pertenece a otro proveedor.`);
+      }
+      const state = String(payable.state || "").toUpperCase();
+      const canonicalStatus = String(payable.canonicalStatus || payable.canonical_status || payable.status || "").toUpperCase();
+      const invalidState = state && !["PENDIENTE", "PARCIAL", "VENCIDO"].includes(state);
+      const invalidCanonicalStatus = canonicalStatus && !["OPEN", "PARTIALLY_PAID"].includes(canonicalStatus);
+      if (invalidState || invalidCanonicalStatus) {
+        errors.push(`El documento ${documentNumber} ya no puede pagarse.`);
+      }
+      if (Number(payable.balance || 0) <= 0) {
+        errors.push(`El documento ${documentNumber} no tiene saldo pendiente.`);
       }
       if (Number(application.amount || 0) < 0) {
-        errors.push(`El valor aplicado al documento ${payable.documentNumber} no puede ser negativo.`);
+        errors.push(`El valor aplicado al documento ${documentNumber} no puede ser negativo.`);
       }
       if (Number(application.amount || 0) > Number(payable.balance || 0)) {
-        errors.push(`El valor aplicado al documento ${payable.documentNumber} excede su saldo disponible.`);
+        errors.push(`El valor aplicado al documento ${documentNumber} excede su saldo disponible.`);
       }
     });
     return errors;
@@ -501,7 +684,7 @@
     if (!candidate.providerId) errors.push("Debe seleccionar un proveedor.");
     if (!candidate.paymentDate) errors.push("La fecha de pago es obligatoria.");
     if (forConfirm && !candidate.paymentAccountCode) errors.push("Debe seleccionar la cuenta contable de pago.");
-    const appErrors = validateApplications(candidate.applications);
+    const appErrors = validateApplications(candidate.applications, candidate.providerId);
     errors.push(...appErrors);
     const positiveApplications = candidate.applications.filter(item => Number(item.amount || 0) > 0);
     if (!positiveApplications.length) errors.push("Debe aplicar valor a por lo menos un documento.");
@@ -513,13 +696,20 @@
     return { payment: candidate, errors };
   }
 
+  function validatePaymentDraft(payment, options = {}) {
+    const result = validatePayment(payment, options);
+    return { ok: result.errors.length === 0, ...result };
+  }
+
   function buildPaymentJournalEntry(payment, label = "") {
     const defaults = companyService.settings().defaultAccounts || {};
     const accountsPayable = chartService.findByCode(defaults.accountsPayableSuppliers);
     const paymentAccount = chartService.findByCode(payment.paymentAccountCode);
     const entry = journalService.emptyEntry();
     entry.accountingDate = payment.paymentDate;
-    entry.accountingPeriod = companyService.settings().activePeriod || entry.accountingPeriod;
+    entry.accountingPeriod = journalService.accountingPeriodForDate?.(entry.accountingDate, entry.accountingPeriod)
+      || String(entry.accountingDate || "").slice(0, 7)
+      || entry.accountingPeriod;
     entry.concept = label || `Pago a proveedor ${payment.providerName}`;
     entry.originModule = "Pagos";
     entry.sourceDocument = payment.paymentNumber || payment.batchNumber || "";
@@ -613,6 +803,17 @@
     return { ok: true, payment: clone(candidate), entry: clone(postedEntry.entry) };
   }
 
+  async function confirmPaymentV2(paymentId, options = {}) {
+    if (!requiresSupplierV2()) return confirmPayment(paymentId);
+    const current=payments().find(item=>String(item.id)===String(paymentId));
+    if(!current) return { ok:false,errors:["Pago no encontrado."] };
+    if(current.syncFlow==="SUPPLIER_FINANCE_V2" || current.status==="CONFIRMADO") return { ok:true,payment:clone(current),reused:true };
+    const { payment:candidate,errors }=validatePayment(current,{ forConfirm:true });
+    if(errors.length) return { ok:false,errors };
+    const result=await supplierV2()?.registerPayment?.(candidate,options);
+    return result || { ok:false,errors:["Servicio de pagos V2 no disponible."] };
+  }
+
   function annulPayment(paymentId) {
     const rows = payments();
     const index = rows.findIndex(item => item.id === paymentId);
@@ -642,6 +843,14 @@
       result: "exitoso"
     });
     return { ok: true, payment: clone(payment) };
+  }
+
+  async function annulPaymentV2(paymentId, reason, options = {}) {
+    const current=payments().find(item=>String(item.id)===String(paymentId));
+    if(!current) return { ok:false,errors:["Pago no encontrado."] };
+    if(current.syncFlow!=="SUPPLIER_FINANCE_V2") return annulPayment(paymentId);
+    const result=await supplierV2()?.reversePayment?.(current.paymentId || current.id,reason,options);
+    return result || { ok:false,errors:["Servicio de reversión V2 no disponible."] };
   }
 
   function validateBatch(batch, { forConfirm = false } = {}) {
@@ -773,10 +982,15 @@
     paymentStates,
     batchStates,
     providers,
+    providerIdentity,
+    upsertProviderFromPurchase,
+    upsertProviderFromPurchaseV2,
     findProviderById,
     findProviderByTaxId,
     saveProvider,
+    saveProviderV2,
     toggleProviderStatus,
+    toggleProviderStatusV2,
     payables,
     providerPortfolioSummary,
     activePaymentAccountOptions,
@@ -785,14 +999,18 @@
     paymentsByPurchase,
     pendingPayablesByProvider,
     emptyPayment,
+    buildPaymentJournalEntry,
     emptyBatch,
     savePayment,
     confirmPayment,
+    confirmPaymentV2,
     annulPayment,
+    annulPaymentV2,
     saveBatch,
     confirmBatch,
     annulBatch,
     paymentHistoryForPurchase,
+    validatePaymentDraft,
     normalizePayment,
     normalizeBatch
   };

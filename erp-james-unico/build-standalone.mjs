@@ -1,185 +1,114 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
+const releasesRoot = path.join(root, "SALIDAS");
 const output = path.join(root, "VERCEL-UN-SOLO-ARCHIVO");
+const localDirectory = path.join(releasesRoot, "LOCAL");
+const localOutput = path.join(localDirectory, "JAEDER-SYSTEMS-LOCAL.html");
+const staging = path.join(root, ".standalone-build");
+const htmlSource = await readFile(path.join(root, "index.html"), "utf8");
 
-const scriptOrder = [
-  "scripts/core/utils.js",
-  "scripts/data/demo.js",
-  "scripts/core/storage.js",
-  "scripts/config/env.js",
-  "scripts/config/navigation.js",
-  "scripts/config/navigation-tree.js",
-  "scripts/services/navigation/menu-service.js",
-  "scripts/config/module-registry.js",
-  "scripts/config/module-contracts.js",
-  "scripts/core/state.js",
-  "scripts/services/supabase/supabase-client.js",
-  "scripts/services/supabase/repository-base.js",
-  "scripts/services/supabase/feature-flag-guard.js",
-  "scripts/repositories/core/company-repository.js",
-  "scripts/repositories/core/user-repository.js",
-  "scripts/repositories/core/audit-log-repository.js",
-  "scripts/repositories/core/sequence-repository.js",
-  "scripts/repositories/core/settings-repository.js",
-  "scripts/repositories/core/menu-repository.js",
-  "scripts/repositories/comercial/customer-repository.js",
-  "scripts/repositories/comercial/final-brand-repository.js",
-  "scripts/repositories/comercial/commercial-order-repository.js",
-  "scripts/repositories/comercial/commercial-order-box-repository.js",
-  "scripts/repositories/comercial/commercial-order-line-repository.js",
-  "scripts/repositories/comercial/commercial-document-repository.js",
-  "scripts/repositories/comercial/commercial-workflow-repository.js",
-  "scripts/repositories/comercial/dae-repository.js",
-  "scripts/repositories/comercial/cargo-agency-repository.js",
-  "scripts/repositories/comercial/airline-repository.js",
-  "scripts/repositories/comercial/export-product-repository.js",
-  "scripts/repositories/operaciones/flower-availability-repository.js",
-  "scripts/repositories/operaciones/flower-reservation-repository.js",
-  "scripts/repositories/operaciones/operational-dispatch-repository.js",
-  "scripts/repositories/operaciones/operational-dispatch-box-repository.js",
-  "scripts/repositories/operaciones/scanner-event-repository.js",
-  "scripts/repositories/operaciones/operational-consumption-repository.js",
-  "scripts/repositories/operaciones/operational-kardex-repository.js",
-  "scripts/repositories/operaciones/flower-inventory-repository.js",
-  "scripts/repositories/operaciones/bunch-label-repository.js",
-  "scripts/repositories/inventario-materiales/material-item-repository.js",
-  "scripts/repositories/inventario-materiales/material-stock-repository.js",
-  "scripts/repositories/inventario-materiales/material-movement-repository.js",
-  "scripts/repositories/inventario-materiales/packaging-requirement-repository.js",
-  "scripts/repositories/contabilidad/chart-of-accounts-repository.js",
-  "scripts/repositories/contabilidad/journal-entry-repository.js",
-  "scripts/repositories/contabilidad/journal-entry-line-repository.js",
-  "scripts/repositories/contabilidad/supplier-repository.js",
-  "scripts/repositories/contabilidad/purchase-repository.js",
-  "scripts/repositories/contabilidad/withholding-issued-repository.js",
-  "scripts/repositories/contabilidad/withholding-received-repository.js",
-  "scripts/repositories/contabilidad/cxp-repository.js",
-  "scripts/repositories/contabilidad/cxc-repository.js",
-  "scripts/repositories/contabilidad/bank-account-repository.js",
-  "scripts/repositories/contabilidad/bank-movement-repository.js",
-  "scripts/repositories/index.js",
-  "scripts/repositories/repository-status.js",
-  "scripts/services/company-settings.js",
-  "scripts/services/chart-of-accounts.js",
-  "scripts/services/tax-config.js",
-  "scripts/services/admin-config.js",
-  "scripts/services/journal.js",
-  "scripts/services/purchases.js",
-  "scripts/services/portfolios.js",
-  "scripts/services/banks.js",
-  "scripts/services/bank-reconciliation.js",
-  "scripts/services/receivables.js",
-  "scripts/services/tax-withholdings.js",
-  "scripts/services/inventory.js",
-  "scripts/services/reports.js",
-  "scripts/services/ats.js",
-  "scripts/modules/part2-foundation.js",
-  "scripts/modules/part2-settings.js",
-  "scripts/modules/part2-accounting.js",
-  "scripts/modules/part2-purchases.js",
-  "scripts/modules/part2-portfolios.js",
-  "scripts/modules/part2-banks.js",
-  "scripts/modules/part2-receivables.js",
-  "scripts/modules/part2-tax.js",
-  "scripts/modules/part2-ats.js",
-  "scripts/modules/part2-inventory.js",
-  "scripts/modules/part2-reports.js",
-  "scripts/modules/comercial/comercial-data.js",
-  "scripts/modules/comercial/comercial-utils.js",
-  "scripts/modules/comercial/comercial-workflow.js",
-  "scripts/modules/comercial/order-box-builder.js",
-  "scripts/modules/comercial/comercial-state.js",
-  "scripts/modules/comercial/order-fulfillment-demo.js",
-  "scripts/modules/comercial/pedido-demand-view.js",
-  "scripts/modules/comercial/pedido-maestro-workspace.js",
-  "scripts/modules/comercial/accounting-preview/accounting-preview-utils.js",
-  "scripts/modules/comercial/accounting-preview/cxc-preview.js",
-  "scripts/modules/comercial/accounting-preview/journal-preview.js",
-  "scripts/modules/comercial/accounting-preview/sales-accounting-preview.js",
-  "scripts/modules/comercial/accounting-preview/index.js",
-  "scripts/modules/comercial/catalogos-comerciales.js",
-  "scripts/modules/comercial/print/print-utils.js",
-  "scripts/modules/comercial/labels/box-labels-data.js",
-  "scripts/modules/comercial/labels/customs-code-utils.js",
-  "scripts/modules/comercial/labels/box-labels-utils.js",
-  "scripts/modules/comercial/labels/box-labels-render.js",
-  "scripts/modules/comercial/bodega-empaque/packaging-data.js",
-  "scripts/modules/comercial/bodega-empaque/packaging-rules.js",
-  "scripts/modules/comercial/bodega-empaque/packaging-status.js",
-  "scripts/modules/comercial/bodega-empaque/packaging-calculator.js",
-  "scripts/modules/comercial/bodega-empaque/packaging-requirements-view.js",
-  "scripts/modules/comercial/bodega-empaque/index.js",
-  "scripts/modules/comercial/print/client-invoice-utils.js",
-  "scripts/modules/comercial/print/commercial-invoice-client-print.js",
-  "scripts/modules/comercial/print/invoice-carguera-print.js",
-  "scripts/modules/comercial/print/packing-list-print.js",
-  "scripts/modules/comercial/print/hoja-ruta-print.js",
-  "scripts/modules/comercial/print/master-packing-print.js",
-  "scripts/modules/comercial/print/box-labels-print.js",
-  "scripts/modules/comercial/print/control-dae-print.js",
-  "scripts/modules/comercial/print/summary-order-print.js",
-  "scripts/modules/comercial/print/index.js",
-  "scripts/modules/comercial/invoice-carguera.js",
-  "scripts/modules/comercial/centro-impresion.js",
-  "scripts/modules/comercial/pedidos-historial.js",
-  "scripts/modules/comercial/disponibilidad-comercial.js",
-  "scripts/modules/comercial/ordenes-dia.js",
-  "scripts/modules/comercial/orden-detalle.js",
-  "scripts/modules/comercial/pedido-maestro.js",
-  "scripts/modules/comercial/index.js",
-  "scripts/modules/operaciones/operaciones-data.js",
-  "scripts/modules/operaciones/code-utils-demo.js",
-  "scripts/modules/operaciones/scanner-hid-adapter-demo.js",
-  "scripts/modules/operaciones/operaciones-utils.js",
-  "scripts/modules/operaciones/operaciones-state.js",
-  "scripts/modules/operaciones/disponibilidad-service-demo.js",
-  "scripts/modules/operaciones/despacho-service-demo.js",
-  "scripts/modules/operaciones/consumo-inventario-demo.js",
-  "scripts/modules/operaciones/operational-cycle-demo.js",
-  "scripts/modules/operaciones/scanner-service-demo.js",
-  "scripts/modules/operaciones/parte1-adapter.js",
-  "scripts/modules/operaciones/panel-operativo.js",
-  "scripts/modules/operaciones/parametros-poscosecha.js",
-  "scripts/modules/operaciones/recepcion-flor.js",
-  "scripts/modules/operaciones/clasificacion.js",
-  "scripts/modules/operaciones/etiquetas-ramos.js",
-  "scripts/modules/operaciones/ramos-report-xlsx.js",
-  "scripts/modules/operaciones/ingreso-ramos-scanner.js",
-  "scripts/modules/operaciones/inventario-rosas.js",
-  "scripts/modules/operaciones/disponibilidad.js",
-  "scripts/modules/operaciones/bodega-rosas.js",
-  "scripts/modules/operaciones/rendimientos.js",
-  "scripts/modules/operaciones/scanner-zebra.js",
-  "scripts/modules/operaciones/despacho-operativo.js",
-  "scripts/modules/operaciones/index.js",
-  "scripts/modules/part2.js",
-  "scripts/ui/layout.js",
-  "app.js"
-];
+const stripQuery = value => value.split(/[?#]/, 1)[0];
+const isLocalAsset = value => !/^(?:[a-z]+:|\/\/|#)/i.test(value);
+const safeScript = source => source.replace(/<\/script/gi, "<\\/script");
+const imageMimeTypes = Object.freeze({
+  ".gif": "image/gif",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp"
+});
 
-const [htmlSource, styles, printStyles, ...scripts] = await Promise.all([
-  readFile(path.join(root, "index.html"), "utf8"),
-  readFile(path.join(root, "styles.css"), "utf8"),
-  readFile(path.join(root, "styles/print.css"), "utf8"),
-  ...scriptOrder.map(file => readFile(path.join(root, file), "utf8"))
+const stylesheetTags = [...htmlSource.matchAll(/<link\b[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*>/gi)]
+  .filter(match => isLocalAsset(match[1]));
+const scriptTags = [...htmlSource.matchAll(/<script\b[^>]*src=["']([^"']+)["'][^>]*><\/script>/gi)]
+  .filter(match => isLocalAsset(match[1]));
+
+if (!stylesheetTags.length || !scriptTags.length) {
+  throw new Error("index.html no contiene los estilos o scripts locales esperados");
+}
+
+const [styles, scripts] = await Promise.all([
+  Promise.all(stylesheetTags.map(match => readFile(path.join(root, stripQuery(match[1])), "utf8"))),
+  Promise.all(scriptTags.map(match => readFile(path.join(root, stripQuery(match[1])), "utf8")))
 ]);
 
-const safeScript = source => source.replace(/<\/script/gi, "<\\/script");
+const lazyGroupOf = match => match[0].match(/data-jaeder-lazy-group=["']([^"']+)["']/i)?.[1] || "";
 
-let html = htmlSource.replace(
-  /<link rel="stylesheet" href="styles\.css">\s*<link rel="stylesheet" href="styles\/print\.css">/,
-  () => `<style>\n${styles}\n</style>\n  <style>\n${printStyles}\n</style>`
+const replacements = [
+  ...stylesheetTags.map((match, index) => ({
+    index: match.index,
+    length: match[0].length,
+    content: `<style data-source="${stripQuery(match[1])}">\n${styles[index]}\n</style>`
+  })),
+  ...scriptTags.map((match, index) => ({
+    index: match.index,
+    length: match[0].length,
+    content: lazyGroupOf(match)
+      ? `<script type="application/x-jaeder-lazy-source" data-jaeder-lazy-group="${lazyGroupOf(match)}" data-source="${stripQuery(match[1])}">\n${safeScript(scripts[index])}\n</script>`
+      : `<script data-source="${stripQuery(match[1])}">\n${safeScript(scripts[index])}\n</script>`
+  }))
+].sort((left, right) => right.index - left.index);
+
+let html = htmlSource;
+for (const replacement of replacements) {
+  html = `${html.slice(0, replacement.index)}${replacement.content}${html.slice(replacement.index + replacement.length)}`;
+}
+
+const assetRoot = path.join(root, "scripts", "assets");
+const assetEntries = await readdir(assetRoot, { recursive: true, withFileTypes: true });
+for (const entry of assetEntries) {
+  if (!entry.isFile()) continue;
+  const extension = path.extname(entry.name).toLowerCase();
+  const mimeType = imageMimeTypes[extension];
+  if (!mimeType) continue;
+  const absolutePath = path.join(entry.parentPath, entry.name);
+  const relativePath = path.relative(root, absolutePath).split(path.sep).join("/");
+  const dataUrl = `data:${mimeType};base64,${(await readFile(absolutePath)).toString("base64")}`;
+  html = html.replaceAll(relativePath, dataUrl);
+}
+
+// El contenido embebido puede traer tabulaciones al final de una línea desde
+// dependencias minificadas. No son parte funcional del JavaScript y ensucian
+// la verificación del artefacto generado.
+html = html.replace(/[ \t]+(?=\r?\n)/g, "");
+const localRuntime = `<script data-source="scripts/config/runtime-env.js">
+window.__JAEDER_LOCAL_BUILD__ = true;
+window.__ERP_LOCAL_MODE__ = true;
+window.__ERP_ENV__ = {
+  VITE_SUPABASE_ENABLED: "false",
+  VITE_SUPABASE_URL: "",
+  VITE_SUPABASE_ANON_KEY: "",
+  VITE_APP_ENV: "local-isolated",
+  VITE_COMPANY_MODE: "multi",
+  VITE_ENABLE_AUTH: "false",
+  VITE_ENABLE_RLS: "false",
+  VITE_ENABLE_CORE_SUPABASE: "false",
+  VITE_ENABLE_INCREMENTAL_SYNC: "false",
+  VITE_ENABLE_ACCOUNTING_SUPABASE: "false",
+  VITE_ENABLE_COMMERCIAL_CATALOGS_SUPABASE: "false",
+  VITE_ENABLE_COMMERCIAL_ORDERS_SUPABASE: "false",
+  VITE_ENABLE_OPERATIONS_SUPABASE: "false",
+  VITE_ENABLE_SCANNER_SUPABASE: "false",
+  VITE_ENABLE_MATERIAL_INVENTORY_SUPABASE: "false",
+  VITE_ENABLE_SRI_SUPABASE: "false"
+  ,VITE_ENABLE_PAYROLL_V2_CAPTURE: "false"
+};
+</script>`;
+const localHtml = html.replace(
+  /<script data-source="scripts\/config\/runtime-env\.js">[\s\S]*?<\/script>/i,
+  localRuntime
 );
 
-html = html.replace(
-  /\s*<script src="scripts\/core\/utils\.js"><\/script>[\s\S]*<script src="app\.js"><\/script>/,
-  () => `\n  <script>\n${safeScript(scripts.join("\n\n"))}\n  </script>`
-);
-
+await rm(staging, { recursive: true, force: true });
+await mkdir(staging, { recursive: true });
+await writeFile(path.join(staging, "index.html"), html, "utf8");
 await rm(output, { recursive: true, force: true });
-await mkdir(output, { recursive: true });
-await writeFile(path.join(output, "index.html"), html, "utf8");
+await rename(staging, output);
+await mkdir(localDirectory, { recursive: true });
+await writeFile(localOutput, localHtml, "utf8");
 
-console.log(`ERP JAMES UNICO standalone preparado en ${path.join(output, "index.html")}`);
+console.log(`JAEDER SYSTEMS standalone preparado en ${path.join(output, "index.html")}`);
+console.log(`JAEDER SYSTEMS local preparado en ${localOutput}`);

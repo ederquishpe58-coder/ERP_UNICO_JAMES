@@ -1,0 +1,27 @@
+{
+  "name": "JAEDER SYSTEMS - Bless Flower",
+  "short_name": "JAEDER",
+  "description": "Sistema administrativo, comercial, operativo y contable de Bless Flower.",
+  "lang": "es-EC",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f8f5",
+  "theme_color": "#0f5132",
+  "icons": [
+    {
+      "src": "scripts/assets/bless-flower-logo-official-transparent.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "scripts/assets/bless-flower-logo-official-transparent.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

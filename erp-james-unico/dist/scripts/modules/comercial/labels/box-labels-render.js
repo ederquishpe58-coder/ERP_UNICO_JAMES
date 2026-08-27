@@ -4,6 +4,14 @@
   const labelUtils = BlessERP.comercialLabelsUtils;
   const utils = BlessERP.comercialUtils;
 
+  function assetUrl(relativePath) {
+    try {
+      return new URL(relativePath, document.baseURI).href;
+    } catch (error) {
+      return relativePath;
+    }
+  }
+
   function renderControls(order, appState, options = {}) {
     const documentData = labelUtils.buildDocumentData(order, appState, options.selection || {});
     const selection = documentData.selection;
@@ -45,11 +53,10 @@
       ${showActions ? `
         <div class="table-actions-inline screen-only ${cardMode ? "commercial-print-inline-grid" : ""}">
           <button class="secondary-button" data-commercial-preview-doc="ETIQUETAS" data-commercial-doc-options-source="labels-selection">Vista previa</button>
-          <button class="secondary-button" data-commercial-print-doc="ETIQUETAS" data-commercial-doc-options-source="labels-all">Imprimir todas</button>
-          <button class="secondary-button" data-commercial-print-doc="ETIQUETAS" data-commercial-doc-options-source="labels-range">Imprimir rango</button>
-          <button class="secondary-button" data-commercial-print-doc="ETIQUETAS" data-commercial-doc-options-source="labels-individual">Reimprimir individual</button>
-          <button class="secondary-button" data-commercial-doc-placeholder="pdf|ETIQUETAS">Descargar PDF</button>
-          <button class="secondary-button" data-commercial-doc-placeholder="zebra|ETIQUETAS">Zebra futuro</button>
+          <button class="secondary-button" data-commercial-print-doc="ETIQUETAS" data-commercial-doc-options-source="labels-all">PDF de todas</button>
+          <button class="secondary-button" data-commercial-print-doc="ETIQUETAS" data-commercial-doc-options-source="labels-range">PDF por rango</button>
+          <button class="secondary-button" data-commercial-print-doc="ETIQUETAS" data-commercial-doc-options-source="labels-individual">PDF individual</button>
+          <button class="secondary-button" data-commercial-download-doc="ETIQUETAS" data-commercial-doc-options-source="labels-selection">Descargar PDF para Adobe</button>
         </div>
       ` : ""}
       <p class="panel-note screen-only">${utils.esc(labelData.placeholders.zebra)}</p>
@@ -62,7 +69,7 @@
         <article class="summary-card">
           <span>Total cajas</span>
           <strong>${utils.esc(documentData.summary.totalBoxes)}</strong>
-          <small>Base actual del Pedido Maestro</small>
+        <small>Base actual de Crear pedido</small>
         </article>
         <article class="summary-card">
           <span>Etiquetas generadas</span>
@@ -72,7 +79,7 @@
         <article class="summary-card">
           <span>Etiquetas con DAE</span>
           <strong>${utils.esc(documentData.summary.withDaeCount)}</strong>
-          <small>Control aduanero demo</small>
+          <small>Con codigo de barras DAE</small>
         </article>
         <article class="summary-card">
           <span>Etiquetas sin PO</span>
@@ -87,7 +94,7 @@
         <article class="summary-card">
           <span>Advertencias</span>
           <strong>${utils.esc(documentData.summary.warningCount)}</strong>
-          <small>PO, AWB/HAWB o barcode pendiente</small>
+          <small>Datos logisticos pendientes</small>
         </article>
       </section>
     `;
@@ -114,6 +121,16 @@
     `;
   }
 
+  function renderProductRows(row) {
+    const content = Array.isArray(row.contenido_lineas) ? row.contenido_lineas : [];
+    const minimumRows = 6;
+    const blankRows = Array.from({ length: Math.max(0, minimumRows - content.length) }, () => null);
+    return [...content, ...blankRows].map(line => line
+      ? `<tr><td>${utils.esc(String(line.variety || "-").toUpperCase())}</td><td>${utils.esc(line.length)} cm</td><td>${utils.esc(utils.number(line.bunches))}</td><td>${utils.esc(utils.number(line.totalStems))}</td></tr>`
+      : `<tr class="customs-product-empty-row"><td>&nbsp;</td><td></td><td></td><td></td></tr>`
+    ).join("");
+  }
+
   function renderTable(documentData) {
     return `
       <article class="panel-card">
@@ -134,8 +151,8 @@
                 <th>Destino</th>
                 <th>DAE</th>
                 <th>AWB / HAWB</th>
-                <th>Codigo aduana demo</th>
-                <th>Codigo caja demo</th>
+                <th>Codigo DAE</th>
+                <th>Codigo caja</th>
                 <th>Estado</th>
                 <th>Accion</th>
               </tr>
@@ -152,8 +169,8 @@
                   <td>${utils.esc([row.awb || "-", row.hawb || "-"].join(" / "))}</td>
                   <td>
                     <div class="commercial-label-code-cell">
-                      <strong>${utils.esc(row.codigo_aduana)}</strong>
-                      <small>${utils.esc(row.codigo_aduana_note)}</small>
+                      <strong>${utils.esc(row.dae_barcode || "-")}</strong>
+                      <small>${utils.esc(row.dae || "Sin DAE")}</small>
                     </div>
                   </td>
                   <td><strong>${utils.esc(row.codigo_scanner_demo || "-")}</strong></td>
@@ -161,7 +178,7 @@
                   <td>
                     <div class="table-actions-inline commercial-action-stack">
                       <button class="secondary-button" data-commercial-preview-doc="ETIQUETAS" data-commercial-doc-options='{"printType":"individual","singleBox":${Number(row.numero_caja)}}'>Ver</button>
-                      <button class="secondary-button" data-commercial-print-doc="ETIQUETAS" data-commercial-doc-options='{"printType":"individual","singleBox":${Number(row.numero_caja)}}'>Imprimir</button>
+                      <button class="secondary-button" data-commercial-print-doc="ETIQUETAS" data-commercial-doc-options='{"printType":"individual","singleBox":${Number(row.numero_caja)}}'>Descargar PDF</button>
                     </div>
                   </td>
                 </tr>
@@ -175,8 +192,8 @@
 
   function renderPrintDocument(order, appState, options = {}, existingDocumentData = null) {
     const documentData = existingDocumentData || labelUtils.buildDocumentData(order, appState, options);
-    const normalizedOrder = utils.normalizeOrder(order);
-    const brand = utils.findBrand(normalizedOrder.brandId);
+    const company = BlessERP.services?.companyBranding?.resolveForOrder?.(order)
+      || BlessERP.comercialData.company;
 
     if (!documentData.selectedRows.length) {
       return `
@@ -188,93 +205,60 @@
     }
 
     return `
-      <article class="doc-page doc-label-page">
-        <div class="doc-header">
-          <div class="doc-company">
-            <span class="doc-kicker">Etiquetas comerciales demo</span>
-            <strong class="doc-company-logo">BLESS FLOWER</strong>
-            <h2 class="doc-title">ETIQUETAS DE CAJA</h2>
-            <p class="doc-subtitle">Una etiqueta por caja. Impresion demo por todas, rango o individual.</p>
-          </div>
-          <div class="doc-box">
-            <h4>Seleccion actual</h4>
-            ${BlessERP.comercialPrintUtils.renderInfoRows([
-              ["Pedido", normalizedOrder.number],
-              ["Marca", brand?.name || "-"],
-              ["Tipo impresion", labelData.printModes.find(item => item.id === documentData.selection.printType)?.label || "Todas"],
-              ["Etiquetas", `${documentData.selection.printCount} de ${documentData.summary.totalBoxes}`],
-              ["Destino", normalizedOrder.destination || "-"],
-              ["Fecha vuelo", utils.dateLabel(normalizedOrder.flightDate)]
-            ])}
-          </div>
-        </div>
-        <div class="doc-stamp referential">Referencial</div>
-        <section class="print-label-sheet">
-          ${documentData.selectedRows.map(row => `
-            <section class="box-label">
-              <header class="box-label-header">
-                <div>
-                  <span class="doc-kicker">Etiqueta comercial demo</span>
-                  <strong>BLESS FLOWER</strong>
-                  <span class="doc-muted">Pedido No. ${utils.esc(normalizedOrder.number)}</span>
-                  ${row.invoice_packing_no ? `<span class="doc-muted">Invoice / Packing No. ${utils.esc(row.invoice_packing_no)}</span>` : ""}
+      <section class="customs-label-sheet">
+        ${documentData.selectedRows.map(row => `
+          <article class="customs-shipping-label">
+            <div class="customs-label-canvas">
+              <header class="customs-label-top">
+                <div class="customs-aduana-logo" role="img" aria-label="Aduana del Ecuador">
+                  <img src="${utils.esc(assetUrl("scripts/assets/aduana-ecuador-logo.png"))}" alt="Aduana del Ecuador">
                 </div>
-                <div class="doc-inline-status">
-                  <span>Box ${utils.esc(row.numero_caja)} / ${utils.esc(row.total_cajas)}</span>
-                  <span>${utils.esc(row.tipo_caja)}</span>
-                </div>
+                ${row.dae ? `<div class="customs-dae-bars">${BlessERP.code128.barcodeSvg(row.dae, { className: "customs-dae-barcode", height: 64, quietZone: 14 })}</div><strong class="customs-dae-number">${utils.esc(row.dae_barcode)}</strong>` : `<div class="customs-dae-bars"><strong>DAE PENDIENTE</strong></div><strong class="customs-dae-number">SIN CÓDIGO DE BARRAS</strong>`}
+                <div class="customs-destination-country">PAIS DESTINO: <strong>${utils.esc(String(row.pais || row.destino || "").toUpperCase())}</strong></div>
               </header>
-              <div class="box-label-body">
-                <div class="box-label-grid">
-                  <div><span>Cliente final / marca</span><strong>${utils.esc(row.marca || "-")}</strong></div>
-                  <div><span>PO / marcacion</span><strong>${utils.esc(row.po || "-")}</strong></div>
-                  <div><span>Destino</span><strong>${utils.esc(row.destino || "-")}</strong></div>
-                  <div><span>Pais</span><strong>${utils.esc(row.pais || "-")}</strong></div>
-                  <div><span>DAE</span><strong>${utils.esc(row.dae || "-")}</strong></div>
-                  <div><span>AWB / HAWB</span><strong>${utils.esc([row.awb || "-", row.hawb || "-"].join(" / "))}</strong></div>
-                  <div><span>Agencia</span><strong>${utils.esc(row.agencia_carga || "-")}</strong></div>
-                  <div><span>Carrier / vuelo</span><strong>${utils.esc([row.carrier || "-", row.vuelo || "-"].join(" / "))}</strong></div>
-                  <div><span>Fecha vuelo</span><strong>${utils.esc(utils.dateLabel(row.fecha_vuelo))}</strong></div>
-                  <div><span>Estado</span><strong>${utils.esc(row.estado_label)}</strong></div>
-                  <div><span>Codigo caja demo</span><strong>${utils.esc(row.codigo_scanner_demo || "-")}</strong></div>
-                  <div><span>Revision etiqueta</span><strong>R${utils.esc(row.revision_etiqueta || 1)}</strong></div>
-                </div>
-                <div class="customs-code-callout">
-                  <strong>${utils.esc(row.codigo_aduana)}</strong>
-                  <span>${utils.esc(row.codigo_aduana_note)}</span>
-                </div>
-                <section class="box-label-content">
-                  <strong>Contenido resumido de la caja</strong>
-                  <div class="label-content-list">
-                    ${row.contenido_lineas.map(line => `
-                      <div class="label-content-row">
-                        <span>${utils.esc(line.variety)} ${utils.esc(line.length)} cm</span>
-                        <span>${utils.esc(utils.number(line.bunches))} ramo</span>
-                        <span>${utils.esc(utils.number(line.stemsPerBunch))} tallos</span>
-                        <strong>${utils.esc(utils.number(line.totalStems))} total</strong>
-                      </div>
-                    `).join("")}
+
+              <section class="customs-label-frame">
+                <div class="customs-label-details">
+                  <div class="customs-address-block">
+                    <p><b>FROM:</b><strong>${utils.esc(String(
+                      /bless/i.test(`${company.company_key || company.id || ""} ${company.commercialName || ""}`)
+                        ? `${company.legalName || company.commercialName || "Empresa"} (BLESS FLOWER)`
+                        : (company.legalName || company.commercialName || "Empresa")
+                    ).toUpperCase())}</strong></p>
+                    <p><b>RUC:</b><strong>${utils.esc(company.ruc || "-")}</strong></p>
+                    <p><b>TO:</b><strong>${utils.esc(String(row.marca || row.destino || "-").toUpperCase())}</strong></p>
                   </div>
-                </section>
-                <div class="doc-label-grid">
-                  <div class="barcode-placeholder">
-                    <strong>${utils.esc(labelData.placeholders.barcode)}</strong>
-                    <span>${utils.esc(row.codigo_scanner_demo || row.barcode_value_futuro || "Pendiente")}</span>
-                  </div>
-                  <div class="qr-placeholder">
-                    <strong>${utils.esc(labelData.placeholders.qr)}</strong>
-                    <span>${utils.esc(row.qr_value_futuro || "Pendiente")}</span>
+
+                  <div class="customs-logistics-block">
+                    <p><b>PO:</b><strong>${utils.esc(row.po || "-")}</strong></p>
+                    <p><b>INVOICE:</b><strong>${utils.esc(row.invoice_no || "-")}</strong></p>
+                    <p><b>${row.transport_type === "maritimo" ? "GUÍA MADRE" : "AWB"}:</b><strong>${utils.esc(row.awb || "-")}</strong></p>
+                    <p><b>${row.transport_type === "maritimo" ? "GUÍA HIJA" : "HAWB"}:</b><strong>${utils.esc(row.hawb || "-")}</strong></p>
+                    <p class="customs-box-line"><span><b>BOX #:</b><strong>${utils.esc(row.numero_caja)}</strong></span></p>
                   </div>
                 </div>
-              </div>
-              <footer class="box-label-footer">
-                <span>Observacion: ${utils.esc(row.observacion || "Sin observacion.")}</span>
-                <span>${utils.esc(labelData.placeholders.zebra)}</span>
-              </footer>
-            </section>
-          `).join("")}
-        </section>
-      </article>
+
+                <div class="customs-products-space">
+                  <table class="customs-products-table ${row.contenido_lineas.length > 6 ? "is-dense" : ""}">
+                    <thead><tr><th>PRODUCTO/VARIETY</th><th>GRADE</th><th>BUNCH</th><th>STEMS</th></tr></thead>
+                    <tbody>${renderProductRows(row)}</tbody>
+                    <tfoot><tr><td colspan="2">TOTAL BUNCHS / STEMS</td><td>${utils.esc(utils.number(row.total_ramos))}</td><td>${utils.esc(utils.number(row.total_tallos))}</td></tr></tfoot>
+                  </table>
+                </div>
+
+                <div class="customs-label-bottom">
+                  <strong>PRODUCT GROWN IN ECUADOR</strong>
+                  <div class="customs-label-bottom-logistics">
+                    <p>AGENCY: ${utils.esc(String(row.agencia_carga || "-").toUpperCase())}</p>
+                    <p>COLD ROOM: ${utils.esc(String(row.cuarto_frio || "-").toUpperCase())}</p>
+                  </div>
+                  <small>${utils.esc(row.pedido_numero)} / INVOICE ${utils.esc(row.invoice_no || "-")}</small>
+                </div>
+              </section>
+            </div>
+          </article>
+        `).join("")}
+      </section>
     `;
   }
 
@@ -293,7 +277,7 @@
               ${utils.esc(documentData.errors.length ? "Bloqueado" : documentData.warnings.length ? "Con advertencias" : "Listo")}
             </span>
           </div>
-          <p class="panel-note">Cada caja genera una etiqueta demo con codigo aduana placeholder, barcode/QR visual y filtro por todas, rango o individual.</p>
+          <p class="panel-note">Cada caja genera un PDF vertical de 10 x 16 cm para Zebra ZD220: 100 mm de ancho por 160 mm de alto, con margen de página 0. La impresión se realiza desde Adobe Acrobat en Tamaño real / 100 %.</p>
           ${renderControls(order, appState)}
         </article>
         ${renderIssues(documentData)}
@@ -301,17 +285,17 @@
       ${renderTable(documentData)}
       ${BlessERP.comercialPrintSystem.renderWorkspace("ETIQUETAS", order, appState, {
         title: "Vista previa de etiquetas",
-        description: "La vista previa usa la seleccion actual del Pedido Maestro. Puede imprimirse completa, por rango o reimprimir una caja.",
+      description: "La vista previa usa la seleccion actual de Crear pedido. Puede imprimirse completa, por rango o reimprimir una caja.",
         options: labelUtils.getCurrentSelection(appState),
         controlsMarkup: "",
         actionsMarkup: `
           <div class="table-actions-inline screen-only">
             <button class="secondary-button" data-commercial-preview-doc="ETIQUETAS" data-commercial-doc-options-source="labels-selection">Vista previa emergente</button>
-            <button class="secondary-button" data-commercial-print-doc="ETIQUETAS" data-commercial-doc-options-source="labels-selection">Imprimir seleccion actual</button>
-            <button class="secondary-button" data-commercial-doc-placeholder="zebra|ETIQUETAS">Zebra futuro</button>
+            <button class="primary-button" data-commercial-print-doc="ETIQUETAS" data-commercial-doc-options-source="labels-selection">Descargar PDF seleccionado</button>
+            <button class="secondary-button" data-commercial-download-doc="ETIQUETAS" data-commercial-doc-options-source="labels-selection">PDF para Adobe</button>
           </div>
         `,
-        footerNote: labelData.placeholders.zebra
+        footerNote: "La impresión logística marítima puede indicar DAE pendiente; CONTROL_DAE continúa exigiendo una DAE real."
       })}
     `;
   }

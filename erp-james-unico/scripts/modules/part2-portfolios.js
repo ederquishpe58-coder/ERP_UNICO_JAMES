@@ -3,6 +3,10 @@
   const { esc, money, clone } = BlessERP.utils;
   const portfolioService = BlessERP.services.portfolios;
   const purchaseService = BlessERP.services.purchases;
+  const paymentRead = () => BlessERP.services?.paymentCollectionReadV2;
+  let paymentReadBooting = false;
+  const today = () => new Date().toISOString().slice(0, 10);
+  const monthStart = () => `${today().slice(0, 7)}-01`;
 
   const uiState = {
     providers: {
@@ -11,17 +15,23 @@
       status: "",
       message: "",
       errors: [],
-      draft: null
+      draft: null,
+      historyProviderId: ""
     },
     payables: {
       search: "",
       providerId: "",
       state: "",
-      message: ""
+      message: "",
+      errors: []
     },
     payments: {
       draft: null,
       mode: "new",
+      view: "FORM",
+      documentSearch: "",
+      historyDraft: { dateFrom: monthStart(), dateTo: today(), providerId: "", bankAccountId: "", state: "", document: "", search: "" },
+      detail: null,
       message: "",
       errors: []
     },
@@ -37,7 +47,7 @@
 
   function routeTabs(route) {
     return `
-      <div class="subnav-tabs">
+      <div class="subnav-tabs subnav-tabs-compact">
         ${BlessERP.navigation.groupMap[route.groupId].routes.map(item => `
           <button class="subnav-tab ${item.id === route.id ? "active" : ""}" data-route-link="${esc(item.id)}">${esc(item.label)}</button>
         `).join("")}
@@ -65,6 +75,69 @@
         && (!uiState.providers.type || item.providerType === uiState.providers.type)
         && (!uiState.providers.status || item.status === uiState.providers.status);
     });
+  }
+
+  function providerIdentity(value = "") {
+    return portfolioService.providerIdentity
+      ? portfolioService.providerIdentity(value)
+      : String(value || "").trim().toUpperCase().replace(/[^0-9A-Z]/g, "");
+  }
+
+  function providerPurchaseHistory(provider) {
+    if (!provider) return [];
+    const identity = providerIdentity(provider.taxId || provider.ruc);
+    const seen = new Set();
+    return purchaseService.purchases()
+      .filter(item => providerIdentity(item.supplierRuc) === identity)
+      .filter(item => {
+        const key = item.duplicateKey || item.accessKey || item.authorizationNumber || item.id || item.documentNumber;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => String(b.issueDate || b.createdAt || "").localeCompare(String(a.issueDate || a.createdAt || "")));
+  }
+
+  function providerHistoryModal() {
+    const provider = portfolioService.providers().find(item => item.id === uiState.providers.historyProviderId);
+    if (!provider) return "";
+    const history = providerPurchaseHistory(provider);
+    const validTotal = history
+      .filter(item => String(item.status || "").toUpperCase() !== "ANULADO")
+      .reduce((sum, item) => sum + Number(item.totals?.total || 0), 0);
+    return `
+      <div class="erp-modal-backdrop" data-provider-history-close>
+        <article class="erp-modal-card provider-history-modal" role="dialog" aria-modal="true" aria-labelledby="provider-history-title" data-provider-history-dialog>
+          <header class="erp-modal-header">
+            <div>
+              <p class="section-kicker">HISTORIAL DE PROVEEDOR</p>
+              <h3 id="provider-history-title">${esc(provider.name)}</h3>
+              <small>${esc(provider.taxId)} · ${esc(String(history.length))} documento(s) · Total ${money(validTotal)}</small>
+            </div>
+            <button class="secondary-button" type="button" data-provider-history-close>Cerrar</button>
+          </header>
+          <div class="provider-history-body">
+            <div class="compact-table-wrap">
+              <table class="compact-table">
+                <thead><tr><th>Fecha</th><th>Documento</th><th>Origen</th><th>Estado</th><th>Retencion</th><th>Total</th></tr></thead>
+                <tbody>
+                  ${history.map(item => `
+                    <tr>
+                      <td>${esc(item.issueDate || "-")}</td>
+                      <td><strong>${esc(item.documentNumber || "-")}</strong></td>
+                      <td>${esc(item.source || "MANUAL")}</td>
+                      <td>${statusBadge(item.status || "BORRADOR")}</td>
+                      <td>${esc(item.retentionStatus || "-")}</td>
+                      <td>${money(item.totals?.total || 0)}</td>
+                    </tr>
+                  `).join("") || `<tr><td colspan="6"><div class="empty-inline">Este proveedor todavia no tiene compras registradas.</div></td></tr>`}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </article>
+      </div>
+    `;
   }
 
   function ensureProviderDraft(provider = null) {
@@ -99,10 +172,10 @@
         <div>
           <p class="section-kicker">${esc(route.groupLabel.toUpperCase())}</p>
           <h1>Proveedores</h1>
-          <p>Catalogo base de proveedores, con ficha compacta y preparacion para movimientos de cartera.</p>
+          <p>Catalogo unico compartido por Compras y Cartera. Cada XML crea o actualiza por RUC sin repetir; tambien puede registrar proveedores manualmente.</p>
         </div>
         <div class="page-header-side">
-          <span class="status-badge authorized">Catalogo local activo</span>
+          <span class="status-badge authorized">Catálogo de proveedores</span>
         </div>
       </section>
       ${routeTabs(route)}
@@ -239,6 +312,7 @@
                   <td>
                     <div class="row-actions">
                       <button class="row-action-button" type="button" data-provider-edit="${esc(item.id)}">Editar</button>
+                      <button class="row-action-button" type="button" data-provider-history="${esc(item.id)}">Historial (${esc(String(item.purchaseCount || 0))})</button>
                       <button class="row-action-button" type="button" data-provider-toggle="${esc(item.id)}">${item.status === "activo" ? "Inactivar" : "Activar"}</button>
                     </div>
                   </td>
@@ -248,6 +322,7 @@
           </table>
         </div>
       </article>
+      ${providerHistoryModal()}
     `;
     bindProviders();
   }
@@ -262,6 +337,8 @@
 
   function renderPayables(container, route) {
     const rows = payableRows();
+    const page = BlessERP.performance?.paginate?.(rows, "accounting-payables", { pageSize: 50 })
+      || { items: rows.slice(0, 50), total: rows.length, pageSize: 50 };
     const providerSummary = uiState.payables.providerId ? portfolioService.providerPortfolioSummary(uiState.payables.providerId) : null;
     const summary = {
       totalPending: rows.filter(item => ["PENDIENTE", "PARCIAL", "VENCIDO"].includes(item.state)).reduce((sum, item) => sum + item.balance, 0),
@@ -282,10 +359,11 @@
       </section>
       ${routeTabs(route)}
       ${uiState.payables.message ? `<section class="inline-feedback success">${esc(uiState.payables.message)}</section>` : ""}
+      ${uiState.payables.errors.length ? `<section class="inline-feedback danger">${uiState.payables.errors.map(item => `<div>${esc(item)}</div>`).join("")}</section>` : ""}
       <section class="summary-grid summary-grid-payables">
         <article class="summary-card"><span>Total pendiente</span><strong>${money(summary.totalPending)}</strong><small>Documentos abiertos</small></article>
         <article class="summary-card"><span>Total vencido</span><strong>${money(summary.totalOverdue)}</strong><small>Solo documentos vencidos</small></article>
-        <article class="summary-card"><span>Total pagado</span><strong>${money(summary.totalPaid)}</strong><small>Aplicado localmente</small></article>
+        <article class="summary-card"><span>Total pagado</span><strong>${money(summary.totalPaid)}</strong><small>Pagos confirmados</small></article>
         <article class="summary-card"><span>Documentos abiertos</span><strong>${esc(String(summary.docsOpen))}</strong><small>Cartera vigente</small></article>
       </section>
       <section class="panel-card compact-toolbar-card">
@@ -309,6 +387,9 @@
             </select>
           </label>
           <div class="compact-toolbar-actions">
+            <button class="secondary-button" type="button" data-opening-balances-template>Plantilla saldos</button>
+            <button class="secondary-button" type="button" data-opening-balances-import="CXP">Importar saldos</button>
+            <input type="file" accept=".xlsx" hidden data-opening-balances-file="CXP">
             <button class="secondary-button" type="button" data-route-link="portfolios-payments-single">Nuevo pago</button>
             <button class="secondary-button" type="button" data-route-link="portfolios-payments-bulk">Pago masivo</button>
           </div>
@@ -347,42 +428,30 @@
           <table class="compact-table compact-table-payables">
             <thead>
               <tr>
-                <th>Proveedor</th>
                 <th>RUC</th>
+                <th>Proveedor</th>
                 <th>Documento</th>
                 <th>Tipo</th>
                 <th>Fecha emision</th>
-                <th>Fecha contab.</th>
-                <th>Vencimiento</th>
                 <th>Total</th>
                 <th>Retenciones</th>
                 <th>Anticipos</th>
-                <th>Pagado</th>
-                <th>Saldo</th>
                 <th>Estado</th>
-                <th>Asiento</th>
-                <th>Dias venc.</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              ${rows.map(item => `
+              ${page.items.map(item => `
                 <tr>
-                  <td><strong>${esc(item.providerName)}</strong><small>${esc(item.providerCode || "")}</small></td>
                   <td>${esc(item.providerRuc)}</td>
+                  <td><strong>${esc(item.providerName)}</strong><small>${esc(item.providerCode || "")}</small></td>
                   <td>${esc(item.documentNumber)}</td>
                   <td>${esc(purchaseService.voucherLabel(item.voucherType))}</td>
                   <td>${esc(item.issueDate)}</td>
-                  <td>${esc(item.accountingDate)}</td>
-                  <td>${esc(item.dueDate || "-")}</td>
                   <td>${money(item.totalDocument)}</td>
                   <td>${money(item.retentionApplied)}</td>
                   <td>${money(item.advanceApplied)}</td>
-                  <td>${money(item.paid)}</td>
-                  <td><strong>${money(item.balance)}</strong></td>
                   <td>${statusBadge(item.state)}</td>
-                  <td>${esc(item.originEntryNumber || "-")}</td>
-                  <td>${esc(String(item.overdueDays || 0))}</td>
                   <td>
                     <div class="row-actions">
                       ${!["PAGADO", "ANULADO"].includes(item.state) ? `<button class="row-action-button" type="button" data-payable-pay="${esc(item.id)}">Pagar</button>` : ""}
@@ -390,19 +459,23 @@
                     </div>
                   </td>
                 </tr>
-              `).join("") || `<tr><td colspan="16"><div class="empty-inline">No hay cuentas por pagar para estos filtros.</div></td></tr>`}
+              `).join("") || `<tr><td colspan="10"><div class="empty-inline">No hay cuentas por pagar para estos filtros.</div></td></tr>`}
             </tbody>
           </table>
         </div>
+        ${BlessERP.performance?.renderPager?.(page) || ""}
       </article>
     `;
     bindPayables();
   }
 
-  function paymentDraftFromPayable(payableId = "") {
+  function paymentDraftFromPayable(payableInput = "") {
     const draft = portfolioService.emptyPayment();
-    if (!payableId) return draft;
-    const payable = portfolioService.payables().find(item => item.id === payableId);
+    if (!payableInput) return draft;
+    const payable = typeof payableInput === "object"
+      ? clone(payableInput)
+      : (BlessERP.services?.portfolioReadV2?.row?.("ap", payableInput)
+        || null);
     if (!payable) return draft;
     draft.providerId = payable.providerId;
     draft.providerName = payable.providerName;
@@ -410,6 +483,10 @@
     draft.applications = [{
       payableId: payable.id,
       purchaseId: payable.purchaseId,
+      source: payable.source,
+      state: payable.state,
+      canonicalStatus: payable.canonicalStatus,
+      companyId: payable.companyId || payable.company_id || "",
       documentNumber: payable.documentNumber,
       supplierName: payable.providerName,
       supplierRuc: payable.providerRuc,
@@ -428,33 +505,124 @@
     uiState.payments.message = "";
     uiState.payments.mode = payment?.id ? "edit" : "new";
     uiState.payments.draft = payment ? portfolioService.normalizePayment(payment) : portfolioService.emptyPayment();
+    uiState.payments.documentSearch = "";
   }
 
-  function applicationsForProvider(providerId, existing = []) {
-    return portfolioService.pendingPayablesByProvider(providerId).map(item => {
-      const found = (existing || []).find(app => app.payableId === item.id);
-      return {
-        payableId: item.id,
-        purchaseId: item.purchaseId,
-        documentNumber: item.documentNumber,
-        supplierName: item.providerName,
-        supplierRuc: item.providerRuc,
-        providerId: item.providerId,
-        originalBalance: item.balance,
-        withholdingApplied: item.retentionApplied,
-        advanceApplied: found?.advanceApplied || 0,
-        amount: found?.amount || 0,
-        resultingBalance: found ? found.resultingBalance : item.balance
-      };
-    });
+  function paymentApplicationFromDocument(item, current = {}) {
+    return {
+      payableId: item.id,
+      purchaseId: item.purchaseId,
+      source: item.source,
+      state: item.state,
+      canonicalStatus: item.canonicalStatus,
+      companyId: item.companyId || item.company_id || "",
+      documentNumber: item.documentNumber,
+      supplierName: item.providerName,
+      supplierRuc: item.providerRuc,
+      providerId: item.providerId,
+      originalBalance: item.balance,
+      withholdingApplied: item.retentionApplied,
+      advanceApplied: Number(current.advanceApplied || 0),
+      amount: Number(current.amount || 0),
+      resultingBalance: Number(current.resultingBalance ?? item.balance)
+    };
+  }
+
+  function paymentSearchResults() {
+    const providerId = uiState.payments.draft?.providerId || "";
+    if (!providerId) return [];
+    const selectedIds = new Set((uiState.payments.draft?.applications || []).map(item => item.payableId));
+    const state = paymentRead()?.snapshot?.()?.payment?.lookup || {};
+    if (!state.loaded || state.appliedFilters?.providerId !== providerId) return [];
+    return (state.items || []).filter(item => !selectedIds.has(item.id));
+  }
+
+  function paymentSearchResultsHtml() {
+    if (!uiState.payments.draft?.providerId) return `<div class="empty-inline">Seleccione primero un proveedor.</div>`;
+    const state = paymentRead()?.snapshot?.()?.payment?.lookup || {};
+    if (!state.loaded || state.appliedFilters?.providerId !== uiState.payments.draft.providerId) {
+      return `<div class="empty-inline">Escriba un documento opcional y pulse Buscar.</div>`;
+    }
+    const rows = paymentSearchResults();
+    return rows.map(item => `
+      <div class="info-row">
+        <span><strong>${esc(item.documentNumber)}</strong><small>${esc(item.issueDate || "-")} · vence ${esc(item.dueDate || "-")}</small></span>
+        <span>${money(item.balance)} <button class="row-action-button" type="button" data-payment-add-document="${esc(item.id)}">Agregar</button></span>
+      </div>
+    `).join("") || `<div class="empty-inline">No hay documentos pendientes que coincidan.</div>`;
+  }
+
+  function bindPaymentSearchResultActions() {
+    document.querySelectorAll("[data-payment-add-document]").forEach(button => button.addEventListener("click", () => {
+      uiState.payments.draft = collectPaymentDraft();
+      const document = paymentSearchResults().find(item => item.id === button.dataset.paymentAddDocument);
+      if (!document) return;
+      uiState.payments.draft.applications = [
+        ...(uiState.payments.draft.applications || []),
+        paymentApplicationFromDocument(document)
+      ];
+      BlessERP.layout.renderPage();
+    }));
+  }
+
+  function renderPaymentSearchResults() {
+    const container = document.querySelector("#payment-document-results");
+    if (container) container.innerHTML = paymentSearchResultsHtml();
+    bindPaymentSearchResultActions();
+  }
+
+  function ensurePaymentRead() {
+    const service = paymentRead();
+    service?.setActiveRoute?.("portfolios-payments-single");
+    if (!service || paymentReadBooting || service.snapshot?.().started) return;
+    paymentReadBooting = true;
+    service.start(() => BlessERP.layout?.renderPage?.()).catch(error => {
+      uiState.payments.errors = [error.message || "Backend de pagos y cobros pendiente de actualización."];
+    }).finally(() => { paymentReadBooting = false; BlessERP.layout?.renderPage?.(); });
+  }
+
+  function paymentHistoryView(route) {
+    const state = paymentRead()?.snapshot?.() || {};
+    const data = state.payment?.history || {};
+    const filters = uiState.payments.historyDraft;
+    const banks = BlessERP.services?.banks?.accountsWithSummary?.({ status: "activa" }) || [];
+    const pages = Math.max(1, Math.ceil(Number(data.total || 0) / Number(data.pageSize || 25)));
+    return `
+      <section class="page-header"><div><p class="section-kicker">${esc(route.groupLabel.toUpperCase())}</p><h1>Pagos individuales</h1><p>Formulario operativo separado del historial.</p></div></section>
+      ${routeTabs(route)}
+      <div class="subnav-tabs"><button class="subnav-tab" data-payment-view="FORM">Registrar pago</button><button class="subnav-tab active" data-payment-view="HISTORY">Historial</button></div>
+      ${state.error ? `<section class="inline-feedback danger">${esc(state.error)}</section>` : ""}
+      <article class="panel-card"><div class="panel-card-head"><div><p class="section-kicker">HISTORIAL</p><h3>Consultar pagos</h3></div></div>
+        <form id="payment-history-filters" class="compact-form-grid">
+          <label class="compact-field"><span>Desde</span><input name="dateFrom" type="date" value="${esc(filters.dateFrom)}"></label>
+          <label class="compact-field"><span>Hasta</span><input name="dateTo" type="date" value="${esc(filters.dateTo)}"></label>
+          <label class="compact-field"><span>Proveedor</span><select name="providerId"><option value="">Todos</option>${portfolioService.providers().map(x => `<option value="${esc(x.id)}" ${filters.providerId===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select></label>
+          <label class="compact-field"><span>Cuenta bancaria</span><select name="bankAccountId"><option value="">Todas</option>${banks.map(x => `<option value="${esc(x.id)}" ${filters.bankAccountId===x.id?"selected":""}>${esc(x.code || x.bankName || x.id)}</option>`).join("")}</select></label>
+          <label class="compact-field"><span>Estado</span><select name="state"><option value="">Todos</option>${["BORRADOR","CONFIRMADO","ANULADO"].map(x => `<option value="${x}" ${filters.state===x?"selected":""}>${x}</option>`).join("")}</select></label>
+          <label class="compact-field"><span>Documento</span><input name="document" value="${esc(filters.document)}"></label>
+          <label class="compact-field"><span>Buscar</span><input name="search" value="${esc(filters.search)}"></label>
+          <label class="compact-field"><span>Filas</span><select name="pageSize"><option value="25" ${data.pageSize===25?"selected":""}>25</option><option value="50" ${data.pageSize===50?"selected":""}>50</option></select></label>
+        </form>
+        <div class="editor-actions"><button class="primary-button" type="button" data-payment-history-query>Consultar</button></div>
+        <div class="compact-table-wrap"><table class="compact-table"><thead><tr><th>Fecha</th><th>Número</th><th>Proveedor</th><th>Medio</th><th>Cuenta</th><th>Total</th><th>Estado</th><th>Acción</th></tr></thead><tbody>
+          ${data.loaded ? (data.items || []).map(x => `<tr><td>${esc(x.date)}</td><td>${esc(x.number)}</td><td>${esc(x.partyName || "-")}</td><td>${esc(x.method || "-")}</td><td>${esc(x.accountCode || "-")}</td><td>${money(x.total)}</td><td>${statusBadge(x.status)}</td><td><div class="row-actions"><button class="row-action-button" data-payment-history-detail="${esc(x.id)}" data-source="${esc(x.source)}">Ver detalle</button>${x.source==="LEGACY"&&x.status==="BORRADOR"?`<button class="row-action-button" data-payment-history-edit="${esc(x.id)}">Editar</button>`:""}${x.status==="CONFIRMADO"?`<button class="row-action-button" data-payment-history-annul="${esc(x.id)}">Anular</button>`:""}</div></td></tr>`).join("") || `<tr><td colspan="8"><div class="empty-inline">No hay resultados.</div></td></tr>` : `<tr><td colspan="8"><div class="empty-inline">Selecciona filtros y pulsa Consultar.</div></td></tr>`}
+        </tbody></table></div>
+        ${data.loaded && data.total>data.pageSize ? `<div class="table-pager"><button class="secondary-button" data-payment-history-page="${Math.max(1,data.page-1)}" ${data.page<=1?"disabled":""}>Anterior</button><span>Página ${data.page} de ${pages} · ${data.total} pagos</span><button class="secondary-button" data-payment-history-page="${Math.min(pages,data.page+1)}" ${data.page>=pages?"disabled":""}>Siguiente</button></div>` : ""}
+      </article>
+      ${uiState.payments.detail ? `<article class="panel-card"><div class="panel-card-head"><div><p class="section-kicker">DETALLE LAZY</p><h3>${esc(uiState.payments.detail.item?.payment_code || uiState.payments.detail.item?.paymentNumber || "Pago")}</h3></div><button class="secondary-button" data-payment-detail-close>Cerrar</button></div><div class="info-stack"><div class="info-row"><strong>Aplicaciones</strong><span>${esc(String((uiState.payments.detail.applications || []).length))}</span></div><div class="info-row"><strong>Asiento</strong><span>${esc(uiState.payments.detail.journal?.header?.entry_number || "-")}</span></div><div class="info-row"><strong>Tesorería</strong><span>${esc(uiState.payments.detail.item?.bankTransaction?.transaction_code || "Sin vínculo canónico")}</span></div></div></article>` : ""}`;
   }
 
   function renderPaymentsSingle(container, route) {
+    ensurePaymentRead();
+    if (uiState.payments.view === "HISTORY") {
+      container.innerHTML = paymentHistoryView(route);
+      bindPaymentsSingle();
+      return;
+    }
     if (!uiState.payments.draft) ensurePaymentDraft();
     const draft = uiState.payments.draft;
     const accounts = portfolioService.activePaymentAccountOptions();
     const provider = draft.providerId ? portfolioService.findProviderById(draft.providerId) : null;
-    const history = portfolioService.payments().filter(item => item.providerId === draft.providerId);
     const total = draft.applications.reduce((sum, item) => sum + Number(item.amount || 0), 0);
     container.innerHTML = `
       <section class="page-header">
@@ -468,6 +636,7 @@
         </div>
       </section>
       ${routeTabs(route)}
+      <div class="subnav-tabs"><button class="subnav-tab active" data-payment-view="FORM">Registrar pago</button><button class="subnav-tab" data-payment-view="HISTORY">Historial</button></div>
       ${uiState.payments.message ? `<section class="inline-feedback success">${esc(uiState.payments.message)}</section>` : ""}
       ${uiState.payments.errors.length ? `<section class="inline-feedback danger">${uiState.payments.errors.map(item => `<div>${esc(item)}</div>`).join("")}</section>` : ""}
       <section class="placeholder-grid purchase-editor-layout">
@@ -513,10 +682,16 @@
           <div class="journal-lines-head">
             <div>
               <p class="section-kicker">DETALLE</p>
-              <h3>Documentos pendientes del proveedor</h3>
+              <h3>Buscar y agregar documentos pendientes</h3>
             </div>
             <button class="secondary-button" type="button" data-payment-fill>Saldo completo</button>
           </div>
+          <label class="compact-field full">
+            <span>Buscar por número, RUC o fecha</span>
+            <input id="payment-document-search" autocomplete="off" placeholder="Número, RUC o fecha (opcional)" value="${esc(uiState.payments.documentSearch)}" ${draft.providerId ? "" : "disabled"}>
+          </label>
+          <div class="editor-actions"><button class="secondary-button" type="button" data-payment-document-query ${draft.providerId ? "" : "disabled"}>Buscar documentos</button></div>
+          <div id="payment-document-results" class="info-stack">${paymentSearchResultsHtml()}</div>
           <div class="compact-table-wrap">
             <table class="compact-table compact-table-payments-detail">
               <thead>
@@ -527,6 +702,7 @@
                   <th>Retencion aplicada</th>
                   <th>Anticipo aplicado</th>
                   <th>Saldo posterior</th>
+                  <th>Acción</th>
                 </tr>
               </thead>
               <tbody>
@@ -538,8 +714,9 @@
                     <td>${money(app.withholdingApplied || 0)}</td>
                     <td><input name="advanceApplied" type="number" step="0.01" min="0" value="${esc(String(app.advanceApplied || 0))}" readonly></td>
                     <td><strong>${money(app.resultingBalance)}</strong></td>
+                    <td><button class="row-action-button" type="button" data-payment-remove-document="${esc(app.payableId)}">Quitar</button></td>
                   </tr>
-                `).join("") || `<tr><td colspan="6"><div class="empty-inline">Seleccione un proveedor para cargar sus documentos pendientes.</div></td></tr>`}
+                `).join("") || `<tr><td colspan="7"><div class="empty-inline">Busque y agregue uno o varios documentos pendientes.</div></td></tr>`}
               </tbody>
             </table>
           </div>
@@ -561,39 +738,6 @@
           <p class="panel-note">El pago confirmado genera asiento <code>Dr Cuentas por pagar / Cr Cuenta de pago</code>. No se permite exceder el saldo del documento.</p>
         </article>
       </section>
-      <article class="panel-card">
-        <div class="panel-card-head">
-          <div>
-            <p class="section-kicker">HISTORIAL</p>
-            <h3>Pagos individuales registrados</h3>
-          </div>
-          <span class="status-badge partial">${esc(String(history.length))} registros</span>
-        </div>
-        <div class="compact-table-wrap">
-          <table class="compact-table">
-            <thead><tr><th>Fecha</th><th>Numero</th><th>Proveedor</th><th>Medio</th><th>Total</th><th>Estado</th><th>Asiento</th><th>Acciones</th></tr></thead>
-            <tbody>
-              ${history.map(item => `
-                <tr>
-                  <td>${esc(item.paymentDate)}</td>
-                  <td>${esc(item.paymentNumber)}</td>
-                  <td>${esc(item.providerName)}</td>
-                  <td>${esc(item.paymentMethod)}</td>
-                  <td>${money(item.total)}</td>
-                  <td>${statusBadge(item.status)}</td>
-                  <td>${esc(item.entryNumber || "-")}</td>
-                  <td>
-                    <div class="row-actions">
-                      ${item.status === "BORRADOR" ? `<button class="row-action-button" type="button" data-payment-edit="${esc(item.id)}">Editar</button><button class="row-action-button" type="button" data-payment-post-row="${esc(item.id)}">Confirmar</button>` : ""}
-                      ${item.status === "CONFIRMADO" ? `<button class="row-action-button" type="button" data-payment-annul="${esc(item.id)}">Anular</button>` : ""}
-                    </div>
-                  </td>
-                </tr>
-              `).join("") || `<tr><td colspan="8"><div class="empty-inline">No hay pagos individuales registrados.</div></td></tr>`}
-            </tbody>
-          </table>
-        </div>
-      </article>
     `;
     bindPaymentsSingle();
   }
@@ -628,29 +772,86 @@
     document.querySelector("#payment-total")?.replaceChildren(document.createTextNode(money(total)));
   }
 
-  function ensureApplicationsForSelectedProvider() {
-    const providerId = uiState.payments.draft?.providerId || "";
-    if (!providerId) {
-      uiState.payments.draft.applications = [];
-      return;
-    }
-    uiState.payments.draft.applications = applicationsForProvider(providerId, uiState.payments.draft.applications);
-  }
-
   function bindPaymentsSingle() {
+    document.querySelectorAll("[data-payment-view]").forEach(button => button.addEventListener("click", () => {
+      uiState.payments.view = button.dataset.paymentView === "HISTORY" ? "HISTORY" : "FORM";
+      uiState.payments.detail = null;
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelector("#payment-history-filters")?.addEventListener("change", event => {
+      if (event.target.name === "pageSize") return;
+      uiState.payments.historyDraft = { ...uiState.payments.historyDraft, [event.target.name]: event.target.value };
+    });
+    document.querySelector("[data-payment-history-query]")?.addEventListener("click", async () => {
+      const form = document.querySelector("#payment-history-filters");
+      if (!form) return;
+      uiState.payments.historyDraft = Object.fromEntries(["dateFrom","dateTo","providerId","bankAccountId","state","document","search"].map(name => [name, form.elements[name]?.value || ""]));
+      try { await paymentRead()?.queryHistory?.("payment", uiState.payments.historyDraft, { page: 1, pageSize: Number(form.elements.pageSize?.value || 25) }); }
+      catch (error) { uiState.payments.errors = [error.message]; }
+      BlessERP.layout.renderPage();
+    });
+    document.querySelectorAll("[data-payment-history-page]").forEach(button => button.addEventListener("click", async () => {
+      const data = paymentRead()?.snapshot?.()?.payment?.history || {};
+      await paymentRead()?.queryHistory?.("payment", data.appliedFilters, { page: Number(button.dataset.paymentHistoryPage), pageSize: data.pageSize }).catch(error => { uiState.payments.errors = [error.message]; });
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelectorAll("[data-payment-history-detail]").forEach(button => button.addEventListener("click", async () => {
+      try { uiState.payments.detail = await paymentRead()?.detail?.("payment", button.dataset.paymentHistoryDetail, button.dataset.source); }
+      catch (error) { uiState.payments.errors = [error.message]; }
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelectorAll("[data-payment-history-edit]").forEach(button => button.addEventListener("click", async () => {
+      try {
+        const detail = await paymentRead()?.detail?.("payment", button.dataset.paymentHistoryEdit, "LEGACY");
+        ensurePaymentDraft(detail.item);
+        uiState.payments.view = "FORM";
+      } catch (error) { uiState.payments.errors = [error.message]; }
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelectorAll("[data-payment-history-annul]").forEach(button => button.addEventListener("click", async () => {
+      const reason = window.prompt("Motivo de la reversión del pago:", "Corrección de pago") || "";
+      if (!reason.trim()) return;
+      const result = await portfolioService.annulPaymentV2(button.dataset.paymentHistoryAnnul, reason.trim());
+      uiState.payments.errors = result.errors || [];
+      uiState.payments.message = result.ok ? "Pago anulado y reversado cuando correspondía." : (result.message || "");
+      if (result.ok) await paymentRead()?.refresh?.("payment", "history").catch(() => {});
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelector("[data-payment-detail-close]")?.addEventListener("click", () => { uiState.payments.detail = null; BlessERP.layout.renderPage(); });
     document.querySelector("[data-payment-reset]")?.addEventListener("click", () => {
       ensurePaymentDraft();
       BlessERP.layout.renderPage();
     });
     document.querySelector("#payment-form")?.addEventListener("change", event => {
+      const previousProviderId = uiState.payments.draft?.providerId || "";
       uiState.payments.draft = collectPaymentDraft();
       if (event.target.name === "providerId") {
-        ensureApplicationsForSelectedProvider();
+        if (previousProviderId !== uiState.payments.draft.providerId) {
+          uiState.payments.draft.applications = [];
+          uiState.payments.documentSearch = "";
+        }
         BlessERP.layout.renderPage();
         return;
       }
       renderPaymentTotals();
     });
+    document.querySelector("#payment-document-search")?.addEventListener("input", event => {
+      uiState.payments.documentSearch = event.target.value;
+    });
+    document.querySelector("[data-payment-document-query]")?.addEventListener("click", async () => {
+      uiState.payments.draft = collectPaymentDraft();
+      try {
+        await paymentRead()?.queryLookup?.("payment", { providerId: uiState.payments.draft.providerId, search: uiState.payments.documentSearch }, { page: 1, pageSize: 25 });
+      } catch (error) { uiState.payments.errors = [error.message]; }
+      BlessERP.layout.renderPage();
+    });
+    bindPaymentSearchResultActions();
+    document.querySelectorAll("[data-payment-remove-document]").forEach(button => button.addEventListener("click", () => {
+      uiState.payments.draft = collectPaymentDraft();
+      uiState.payments.draft.applications = (uiState.payments.draft.applications || [])
+        .filter(item => item.payableId !== button.dataset.paymentRemoveDocument);
+      BlessERP.layout.renderPage();
+    }));
     document.querySelector(".compact-table-payments-detail tbody")?.addEventListener("input", renderPaymentTotals);
     document.querySelector("[data-payment-fill]")?.addEventListener("click", () => {
       uiState.payments.draft = collectPaymentDraft();
@@ -673,7 +874,8 @@
       uiState.payments.message = `Pago ${result.payment.paymentNumber} guardado en borrador.`;
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-payment-confirm]")?.addEventListener("click", () => {
+    document.querySelector("[data-payment-confirm]")?.addEventListener("click", async event => {
+      event.currentTarget.disabled = true;
       let current = collectPaymentDraft();
       if (!current.id) {
         const saved = portfolioService.savePayment(current);
@@ -684,7 +886,7 @@
         }
         current = saved.payment;
       }
-      const result = portfolioService.confirmPayment(current.id);
+      const result = await portfolioService.confirmPaymentV2(current.id);
       uiState.payments.errors = result.errors || [];
       uiState.payments.message = "";
       if (!result.ok) {
@@ -692,7 +894,7 @@
         return;
       }
       ensurePaymentDraft(result.payment);
-      uiState.payments.message = `Pago confirmado con asiento ${result.entry.entryNumber}.`;
+      uiState.payments.message = `Pago confirmado por Supabase${result.entry?.entryNumber ? ` con asiento ${result.entry.entryNumber}` : ""}.`;
       BlessERP.layout.renderPage();
     });
     document.querySelectorAll("[data-payment-edit]").forEach(button => button.addEventListener("click", () => {
@@ -701,16 +903,20 @@
       ensurePaymentDraft(payment);
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-payment-post-row]").forEach(button => button.addEventListener("click", () => {
-      const result = portfolioService.confirmPayment(button.dataset.paymentPostRow);
-      uiState.payments.message = result.ok ? `Pago confirmado con asiento ${result.entry.entryNumber}.` : "";
+    document.querySelectorAll("[data-payment-post-row]").forEach(button => button.addEventListener("click", async () => {
+      button.disabled = true;
+      const result = await portfolioService.confirmPaymentV2(button.dataset.paymentPostRow);
+      uiState.payments.message = result.ok ? `Pago confirmado por Supabase${result.entry?.entryNumber ? ` con asiento ${result.entry.entryNumber}` : ""}.` : "";
       uiState.payments.errors = result.errors || [];
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-payment-annul]").forEach(button => button.addEventListener("click", () => {
-      const result = portfolioService.annulPayment(button.dataset.paymentAnnul);
+    document.querySelectorAll("[data-payment-annul]").forEach(button => button.addEventListener("click", async () => {
+      const reason = window.prompt("Motivo de la reversión del pago:", "Corrección de pago") || "";
+      if (!reason.trim()) return;
+      button.disabled = true;
+      const result = await portfolioService.annulPaymentV2(button.dataset.paymentAnnul, reason.trim());
       uiState.payments.message = result.ok ? "Pago anulado y reversado cuando correspondia." : (result.message || "");
-      uiState.payments.errors = [];
+      uiState.payments.errors = result.errors || [];
       BlessERP.layout.renderPage();
     }));
   }
@@ -1075,8 +1281,9 @@
       uiState.providers.errors = [];
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-provider-save]")?.addEventListener("click", () => {
-      const result = portfolioService.saveProvider(collectProviderDraft());
+    document.querySelector("[data-provider-save]")?.addEventListener("click", async event => {
+      event.currentTarget.disabled = true;
+      const result = await portfolioService.saveProviderV2(collectProviderDraft());
       uiState.providers.errors = result.errors || [];
       uiState.providers.message = "";
       if (!result.ok) {
@@ -1093,8 +1300,18 @@
       ensureProviderDraft(provider);
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-provider-toggle]").forEach(button => button.addEventListener("click", () => {
-      const result = portfolioService.toggleProviderStatus(button.dataset.providerToggle);
+    document.querySelectorAll("[data-provider-history]").forEach(button => button.addEventListener("click", () => {
+      uiState.providers.historyProviderId = button.dataset.providerHistory;
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelectorAll("[data-provider-history-close]").forEach(element => element.addEventListener("click", event => {
+      if (event.target.closest("[data-provider-history-dialog]") && !event.target.hasAttribute("data-provider-history-close")) return;
+      uiState.providers.historyProviderId = "";
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelectorAll("[data-provider-toggle]").forEach(button => button.addEventListener("click", async () => {
+      button.disabled = true;
+      const result = await portfolioService.toggleProviderStatusV2(button.dataset.providerToggle);
       uiState.providers.message = result.ok ? "Estado del proveedor actualizado." : (result.message || "");
       uiState.providers.errors = [];
       BlessERP.layout.renderPage();
@@ -1102,6 +1319,36 @@
   }
 
   function bindPayables() {
+    document.querySelector("[data-opening-balances-template]")?.addEventListener("click", async event => {
+      const button = event.currentTarget;
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = "Generando...";
+      try {
+        const result = await BlessERP.services.openingBalancesXlsx?.generateTemplate?.();
+        if (!result?.ok) {
+          uiState.payables.errors = result?.errors || ["No se pudo generar la plantilla."];
+          BlessERP.layout.renderPage();
+        }
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    });
+    document.querySelector('[data-opening-balances-import="CXP"]')?.addEventListener("click", () => {
+      document.querySelector('[data-opening-balances-file="CXP"]')?.click();
+    });
+    document.querySelector('[data-opening-balances-file="CXP"]')?.addEventListener("change", async event => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      uiState.payables.message = "";
+      uiState.payables.errors = [];
+      const result = await BlessERP.services.openingBalancesXlsx?.importFile?.(file, { kind: "CXP" });
+      if (result?.ok) uiState.payables.message = `${result.count} saldo(s) inicial(es) CXP importado(s) y contabilizado(s).`;
+      else uiState.payables.errors = result?.errors || ["No se pudo importar la plantilla."];
+      BlessERP.layout.renderPage();
+    });
     document.querySelector("#payable-search")?.addEventListener("input", event => {
       uiState.payables.search = event.target.value;
       BlessERP.layout.renderPage();
@@ -1118,15 +1365,31 @@
       uiState.payables.providerId = button.dataset.payableProvider;
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-payable-pay]").forEach(button => button.addEventListener("click", () => {
-      ensurePaymentDraft(paymentDraftFromPayable(button.dataset.payablePay));
+    document.querySelectorAll("[data-payable-pay]").forEach(button => button.addEventListener("click", async event => {
+      event.currentTarget.disabled = true;
+      const payable = BlessERP.services?.portfolioReadV2?.row?.("ap", button.dataset.payablePay) || null;
+      if (!payable) {
+        uiState.payables.errors = ["No se encontró la CxP canónica seleccionada."];
+        BlessERP.layout.renderPage();
+        return;
+      }
+      const resolved = await BlessERP.services?.supplierFinanceV2?.resolveProvider?.({
+        providerId: payable.providerId,
+        taxId: payable.providerRuc
+      });
+      if (!resolved?.ok || !resolved.provider) {
+        uiState.payables.errors = resolved?.errors || [resolved?.message || "No se pudo resolver el proveedor canónico de la CxP."];
+        BlessERP.layout.renderPage();
+        return;
+      }
+      ensurePaymentDraft(paymentDraftFromPayable(payable));
       BlessERP.state.setRoute("portfolios-payments-single");
       BlessERP.layout.renderApp();
     }));
   }
 
   function render(container, route) {
-    if (route.id === "portfolios-suppliers") {
+    if (["portfolios-suppliers", "purchases-providers"].includes(route.id)) {
       renderProviders(container, route);
       return;
     }

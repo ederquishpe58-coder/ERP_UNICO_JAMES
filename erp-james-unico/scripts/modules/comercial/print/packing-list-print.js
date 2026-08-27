@@ -52,7 +52,7 @@
         <div class="doc-header">
           <div class="doc-company">
             <span class="doc-kicker">Centro de impresion</span>
-            <strong class="doc-company-logo">BLESS FLOWER</strong>
+            ${printUtils.renderCompanyBrand(company)}
             <h2 class="doc-title">PACKING LIST</h2>
             <p class="doc-subtitle">Salida de packing separada del invoice. ${showPrices ? "Modo con valores." : "Modo sin valores."}</p>
           </div>
@@ -60,6 +60,7 @@
             <h4>Cabecera</h4>
             ${printUtils.renderInfoRows([
               ["Pedido", order.number],
+              ["Packing List", order.packingListNumber || "-"],
               ["Fecha vuelo", utils.dateLabel(order.flightDate)],
               ["Cliente final / marca", brand?.name || "-"],
               ["Destino", order.destination || "-"],

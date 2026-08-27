@@ -1,12 +1,19 @@
 {
-  "name": "erp-unico-james-root",
+  "name": "jaeder-systems-root",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "workspaces": [
+    "erp-james-unico"
+  ],
   "scripts": {
-    "build": "cd erp-james-unico && node build.mjs",
-    "build:standalone": "cd erp-james-unico && node build-standalone.mjs",
-    "validate": "cd erp-james-unico && node validate-shell.mjs && node validate-operational-flow.mjs",
-    "validate:shell": "cd erp-james-unico && node validate-shell.mjs",
-    "validate:operations": "cd erp-james-unico && node validate-operational-flow.mjs"
+    "build": "npm --workspace jaeder-systems run build",
+    "build:standalone": "npm --workspace jaeder-systems run build:standalone",
+    "validate": "npm --workspace jaeder-systems run validate",
+    "validate:shell": "npm --workspace jaeder-systems run validate:shell",
+    "validate:operations": "npm --workspace jaeder-systems run validate:operations",
+    "validate:release": "npm --workspace jaeder-systems run validate:release"
   }
 }

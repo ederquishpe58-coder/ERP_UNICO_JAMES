@@ -20,7 +20,7 @@
       id: "reservation",
       label: "Reservas",
       contract: "reservationContract",
-      module: "Comercial / Exportaciones -> Pedido Maestro",
+      module: "Comercial / Exportaciones -> Crear pedido",
       pendingReal: "Reserva real sobre inventario operativo"
     },
     {
@@ -231,7 +231,7 @@
         id: "reservation-created",
         label: "Reserva creada",
         status: "OK",
-        module: "Pedido Maestro",
+      module: "Crear pedido",
         fecha_hora: reservations[0].fecha_hora || reservations[0].fecha_pedido || "",
         detail: `${reservations.length} reserva(s) demo ligadas al pedido.`
       });
@@ -242,7 +242,7 @@
         id: "box-created",
         label: "Caja creada",
         status: "OK",
-        module: "Pedido Maestro / Despacho",
+      module: "Crear pedido / Cuarto frío",
         fecha_hora: order?.updatedAt || "",
         detail: `${dispatch.cajas.length} caja(s) preparadas para despacho demo.`
       });
@@ -264,7 +264,7 @@
         id: "box-scanned",
         label: "Caja escaneada",
         status: scanStatus.summary.pending ? "ADVERTENCIA" : "OK",
-        module: "Scanner / Zebra demo",
+        module: "Despacho operativo",
         fecha_hora: scans[scans.length - 1]?.fecha_hora || "",
         detail: `${scanStatus.summary.scanned} caja(s) escaneadas demo, ${scanStatus.summary.pending} pendiente(s).`
       });
@@ -286,7 +286,7 @@
         id: "dispatch-confirmed",
         label: "Despacho confirmado demo",
         status: "OK",
-        module: "Despacho operativo / Pedido Maestro",
+      module: "Cuarto frío / Crear pedido",
         fecha_hora: dispatch.fecha_hora_despacho || "",
         detail: "Despacho demo confirmado sin afectar inventario real."
       });

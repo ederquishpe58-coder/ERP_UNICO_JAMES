@@ -11,8 +11,8 @@
     if (!accounts.receivable.code) {
       warnings.push("No existe cuenta contable configurada para cuentas por cobrar clientes.");
     }
-    if (!accounts.exportSales.code) {
-      warnings.push("No existe cuenta contable configurada para ventas exportacion.");
+    if (!accounts.sales.code) {
+      warnings.push(`No existe cuenta contable configurada para ventas ${String(accounts.market || "").toLowerCase()}.`);
     }
     if (!accounts.customerAdvances.code) {
       warnings.push("No existe cuenta contable preparada para anticipos de clientes.");
@@ -77,7 +77,7 @@
       descuento: preview.totals.discount,
       iva: preview.totals.iva,
       total_usd: preview.totals.totalUsd,
-      cuenta_ingreso_sugerida: preview.accounts.exportSales.code || "",
+      cuenta_ingreso_sugerida: preview.accounts.sales.code || "",
       cuenta_cxc_sugerida: preview.accounts.receivable.code || "",
       centro_costo_sugerido: preview.costCenter.code || "",
       estado_comercial: workflow?.normalizeStatus ? workflow.normalizeStatus(order.status) : String(order.status || "").trim().toUpperCase(),
@@ -94,7 +94,7 @@
     const brand = utils.findBrand(order.brandId);
     const metrics = utils.getOrderMetrics(order);
     const totals = previewUtils.buildCommercialTotals(order);
-    const accounts = previewUtils.resolveSuggestedAccounts(appState);
+    const accounts = previewUtils.resolveSuggestedAccounts(order);
     const costCenter = previewUtils.resolveSuggestedCostCenter(order);
     const warnings = buildWarnings(accounts, costCenter);
     const errors = buildErrors(order, customer, totals);

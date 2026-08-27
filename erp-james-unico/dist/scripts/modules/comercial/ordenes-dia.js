@@ -6,9 +6,14 @@
   function render(appState) {
     const ui = stateApi.getUi(appState);
     const orders = stateApi.getOrders(appState);
-    const availableDates = orders.map(item => item.issuedAt).filter(Boolean).sort();
-    const selectedDate = ui.ordersDayDate || BlessERP.utils.today() || availableDates[availableDates.length - 1] || "";
+    const latestDate = orders.reduce((latest, item) => {
+      const issuedAt = String(item?.issuedAt || "");
+      return issuedAt && issuedAt > latest ? issuedAt : latest;
+    }, "");
+    const selectedDate = ui.ordersDayDate || BlessERP.utils.today() || latestDate || "";
     const rows = orders.filter(order => order.issuedAt === selectedDate);
+    const pagination = BlessERP.performance?.paginate?.(rows, "commercial-orders-day", { pageSize: 25 })
+      || { items: rows.slice(0, 25), total: rows.length, pageSize: 25 };
 
     return `
       <section class="page-header">
@@ -23,7 +28,7 @@
         <div class="panel-card-head"><div><p class="section-kicker">ORDENES</p><h3>Ordenes registradas el ${utils.esc(utils.dateLabel(selectedDate))}</h3></div><span>${rows.length} orden(es)</span></div>
         <div class="compact-table-wrap"><table class="compact-table commercial-orders-day-table">
           <thead><tr><th>Orden</th><th>Cliente</th><th>Marca</th><th>Cajas</th><th>Cajas completas</th><th>Bunches</th><th>Escaneados</th><th>Pendientes</th><th>Estado armado</th><th>Estado comercial</th><th>Acciones</th></tr></thead>
-          <tbody>${rows.map(order => {
+          <tbody>${pagination.items.map(order => {
             const progress = BlessERP.comercialOrderFulfillment.getOrderFulfillment(appState, order.id);
             const customer = utils.findCustomer(order.customerId);
             const brand = utils.findBrand(order.brandId);
@@ -42,6 +47,7 @@
             </tr>`;
           }).join("") || `<tr><td colspan="11">No hay ordenes registradas para este dia.</td></tr>`}</tbody>
         </table></div>
+        ${BlessERP.performance?.renderPager?.(pagination) || ""}
       </section>
     `;
   }
@@ -49,15 +55,17 @@
   function bind(container, appState) {
     container.querySelector("[data-orders-day-date]")?.addEventListener("change", event => {
       stateApi.setOrdersDayDate(appState, event.target.value);
+      BlessERP.performance?.resetPage?.("commercial-orders-day");
       BlessERP.layout.renderPage();
     });
     container.querySelector("[data-orders-day-new]")?.addEventListener("click", () => {
-      stateApi.createNewOrder(appState);
+      stateApi.startNewOrderWorkspace(appState);
       BlessERP.state.setRoute("commercial-order-master");
       BlessERP.layout.renderApp();
     });
     container.querySelectorAll("[data-orders-day-open]").forEach(button => button.addEventListener("click", () => {
       stateApi.setCurrentOrder(appState, button.dataset.ordersDayOpen);
+      BlessERP.comercialOrderDetail?.open?.(button.dataset.ordersDayOpen);
       BlessERP.state.setRoute("commercial-order-detail");
       BlessERP.layout.renderApp();
     }));

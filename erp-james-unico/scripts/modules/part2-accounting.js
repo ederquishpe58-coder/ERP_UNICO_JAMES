@@ -3,28 +3,27 @@
   const { esc, money, clone } = BlessERP.utils;
   const journalService = BlessERP.services.journal;
   const chartService = BlessERP.services.chartOfAccounts;
-  const companyService = BlessERP.services.companySettings;
+  const accountingReadService = () => BlessERP.services.accountingReadV2;
 
   const uiState = {
     journal: {
-      search: "",
-      dateFrom: "",
-      dateTo: "",
-      status: "",
-      originModule: "",
+      draftFilters: {
+        search: "", dateFrom: "", dateTo: "", status: "", originModule: "",
+        entryNumber: "", reference: "", pageSize: 25
+      },
       draft: null,
       mode: "view",
       message: "",
-      errors: []
+      errors: [],
+      starting: false
     },
     ledger: {
-      accountCode: "",
-      dateFrom: "",
-      dateTo: "",
-      status: "",
-      costCenter: "",
-      auxiliary: "",
-      message: ""
+      draftFilters: {
+        accountRecordId: "", dateFrom: "", dateTo: "", status: "", search: "", pageSize: 25
+      },
+      message: "",
+      errors: [],
+      starting: false
     }
   };
 
@@ -50,23 +49,38 @@
     return `<span class="status-badge ${css}">${esc(status)}</span>`;
   }
 
-  function filteredJournalEntries() {
-    return journalService.sortEntries(journalService.all()).filter(entry => {
-      const haystack = [
-        entry.entryNumber,
-        entry.accountingDate,
-        entry.concept,
-        entry.originModule,
-        entry.sourceDocument,
-        entry.externalReference,
-        ...(entry.lines || []).map(line => `${line.accountCode} ${line.accountName} ${line.lineDescription}`)
-      ].join(" ").toLowerCase();
-      return (!uiState.journal.search || haystack.includes(uiState.journal.search.toLowerCase()))
-        && (!uiState.journal.dateFrom || entry.accountingDate >= uiState.journal.dateFrom)
-        && (!uiState.journal.dateTo || entry.accountingDate <= uiState.journal.dateTo)
-        && (!uiState.journal.status || entry.status === uiState.journal.status)
-        && (!uiState.journal.originModule || entry.originModule === uiState.journal.originModule);
-    });
+  function startReadService(routeId) {
+    const section = routeId === "accounting-ledger" ? uiState.ledger : uiState.journal;
+    accountingReadService()?.setActiveRoute?.(routeId);
+    if (section.starting) return;
+    section.starting = true;
+    Promise.resolve(accountingReadService()?.start?.(() => {
+      if (BlessERP.state?.currentRoute?.()?.id === routeId) BlessERP.layout.renderPage();
+    })).catch(error => {
+      section.errors = [error.message || "Backend de lectura contable no disponible."];
+    }).finally(() => { section.starting = false; });
+  }
+
+  function readSnapshot() {
+    return accountingReadService()?.snapshot?.() || {
+      error: "Backend de lectura contable no disponible.",
+      journal: { loaded: false, loading: false, items: [], total: 0, summary: {}, page: 1, pageSize: 25 },
+      ledger: { loaded: false, loading: false, items: [], total: 0, summary: {}, page: 1, pageSize: 25, account: null }
+    };
+  }
+
+  function validDateRange(filters = {}) {
+    return !filters.dateFrom || !filters.dateTo || filters.dateFrom <= filters.dateTo;
+  }
+
+  function simplePager(scope, state) {
+    const pages = Math.max(1, Math.ceil(Number(state.total || 0) / Number(state.pageSize || 25)));
+    if (!state.loaded || pages <= 1) return "";
+    return `<div class="table-pager">
+      <button class="secondary-button" type="button" data-${scope}-page="${Math.max(1, state.page - 1)}" ${state.page <= 1 ? "disabled" : ""}>Anterior</button>
+      <span>Pagina ${esc(String(state.page))} de ${esc(String(pages))}</span>
+      <button class="secondary-button" type="button" data-${scope}-page="${Math.min(pages, state.page + 1)}" ${state.page >= pages ? "disabled" : ""}>Siguiente</button>
+    </div>`;
   }
 
   function ensureJournalDraft(entry = null, mode = "new") {
@@ -114,7 +128,7 @@
         <form id="journal-entry-form" class="journal-entry-grid">
           <label class="compact-field"><span>Numero de asiento</span><input name="entryNumber" value="${esc(entry.entryNumber)}" readonly></label>
           <label class="compact-field"><span>Fecha contable</span><input name="accountingDate" type="date" value="${esc(entry.accountingDate)}" ${readOnly ? "disabled" : ""}></label>
-          <label class="compact-field"><span>Periodo contable</span><input name="accountingPeriod" value="${esc(entry.accountingPeriod)}" ${readOnly ? "disabled" : ""}></label>
+          <label class="compact-field"><span>Periodo contable</span><input name="accountingPeriod" value="${esc(entry.accountingPeriod)}" readonly></label>
           <label class="compact-field">
             <span>Modulo origen</span>
             <select name="originModule" ${readOnly ? "disabled" : ""}>
@@ -186,22 +200,24 @@
     `;
   }
 
-  function journalSummaryCards() {
-    const summary = journalService.journalSummaries(companyService.settings().activePeriod);
+  function journalSummaryCards(summary = {}) {
     return `
       <section class="summary-grid summary-grid-accounting">
-        <article class="summary-card"><span>Asientos en borrador</span><strong>${esc(String(summary.drafts))}</strong><small>Pendientes de revision o contabilizacion</small></article>
-        <article class="summary-card"><span>Asientos contabilizados</span><strong>${esc(String(summary.contabilized))}</strong><small>Del periodo activo</small></article>
-        <article class="summary-card"><span>Asientos descuadrados</span><strong>${esc(String(summary.outOfBalance))}</strong><small>Borradores con diferencia</small></article>
-        <article class="summary-card"><span>Ultimo asiento</span><strong>${esc(summary.latest?.entryNumber || "-")}</strong><small>${esc(summary.latest?.concept || "Sin registros")}</small></article>
-        <article class="summary-card"><span>Total debe del periodo</span><strong>${money(summary.totalDebit)}</strong><small>Asientos con efecto contable</small></article>
-        <article class="summary-card"><span>Total haber del periodo</span><strong>${money(summary.totalCredit)}</strong><small>Asientos con efecto contable</small></article>
+        <article class="summary-card"><span>Asientos consultados</span><strong>${esc(String(summary.totalEntries || 0))}</strong><small>Universo filtrado</small></article>
+        <article class="summary-card"><span>Borradores</span><strong>${esc(String(summary.drafts || 0))}</strong><small>Pendientes de contabilizar</small></article>
+        <article class="summary-card"><span>Contabilizados</span><strong>${esc(String(summary.posted || 0))}</strong><small>Con efecto contable</small></article>
+        <article class="summary-card"><span>Asientos descuadrados</span><strong>${esc(String(summary.outOfBalance || 0))}</strong><small>Calculado server-side</small></article>
+        <article class="summary-card"><span>Total debe</span><strong>${money(summary.totalDebit || 0)}</strong><small>Universo filtrado</small></article>
+        <article class="summary-card"><span>Total haber</span><strong>${money(summary.totalCredit || 0)}</strong><small>Diferencia ${money(Math.abs(Number(summary.difference || 0)))}</small></article>
       </section>
     `;
   }
 
   function renderJournal(container, route) {
-    const rows = filteredJournalEntries();
+    startReadService("accounting-journal");
+    const readState = readSnapshot();
+    const journalState = readState.journal;
+    const filters = uiState.journal.draftFilters;
     container.innerHTML = `
       <section class="page-header">
         <div>
@@ -215,40 +231,44 @@
       </section>
       ${routeTabs(route)}
       ${uiState.journal.message ? `<section class="inline-feedback success">${esc(uiState.journal.message)}</section>` : ""}
-      ${journalSummaryCards()}
+      ${(uiState.journal.errors || []).length || readState.error ? `<section class="inline-feedback danger">${esc((uiState.journal.errors || [])[0] || readState.error)}</section>` : ""}
+      ${journalState.loaded ? journalSummaryCards(journalState.summary) : ""}
       <section class="panel-card compact-toolbar-card">
-        <div class="compact-toolbar compact-toolbar-journal">
+        <form id="journal-search-form" class="compact-toolbar compact-toolbar-journal">
           <label class="compact-inline-field">
             <span>Buscar</span>
-            <input id="journal-search" placeholder="Numero, concepto, cuenta o modulo" value="${esc(uiState.journal.search)}">
+            <input id="journal-search" placeholder="Numero, concepto, referencia o modulo" value="${esc(filters.search)}">
           </label>
           <label class="compact-inline-field">
             <span>Fecha desde</span>
-            <input id="journal-date-from" type="date" value="${esc(uiState.journal.dateFrom)}">
+            <input id="journal-date-from" type="date" value="${esc(filters.dateFrom)}">
           </label>
           <label class="compact-inline-field">
             <span>Fecha hasta</span>
-            <input id="journal-date-to" type="date" value="${esc(uiState.journal.dateTo)}">
+            <input id="journal-date-to" type="date" value="${esc(filters.dateTo)}">
           </label>
           <label class="compact-inline-field">
             <span>Estado</span>
             <select id="journal-status">
               <option value="">Todos</option>
-              ${journalService.statuses.map(status => `<option value="${esc(status)}" ${uiState.journal.status === status ? "selected" : ""}>${esc(status)}</option>`).join("")}
+              ${journalService.statuses.map(status => `<option value="${esc(status)}" ${filters.status === status ? "selected" : ""}>${esc(status)}</option>`).join("")}
             </select>
           </label>
           <label class="compact-inline-field">
             <span>Modulo origen</span>
             <select id="journal-origin">
               <option value="">Todos</option>
-              ${journalService.originModules.map(origin => `<option value="${esc(origin)}" ${uiState.journal.originModule === origin ? "selected" : ""}>${esc(origin)}</option>`).join("")}
+              ${journalService.originModules.map(origin => `<option value="${esc(origin)}" ${filters.originModule === origin ? "selected" : ""}>${esc(origin)}</option>`).join("")}
             </select>
           </label>
+          <label class="compact-inline-field"><span>Numero asiento</span><input id="journal-entry-number" value="${esc(filters.entryNumber)}"></label>
+          <label class="compact-inline-field"><span>Documento / referencia</span><input id="journal-reference" value="${esc(filters.reference)}"></label>
+          <label class="compact-inline-field"><span>Filas</span><select id="journal-page-size"><option value="25" ${filters.pageSize === 25 ? "selected" : ""}>25</option><option value="50" ${filters.pageSize === 50 ? "selected" : ""}>50</option></select></label>
           <div class="compact-toolbar-actions">
+            <button class="primary-button" type="submit" ${journalState.loading ? "disabled" : ""}>${journalState.loading ? "Consultando..." : "Consultar"}</button>
             <button class="secondary-button" type="button" data-journal-new>Nuevo asiento</button>
-            <button class="secondary-button" type="button" data-journal-export>Exportar</button>
           </div>
-        </div>
+        </form>
       </section>
       ${renderJournalEditor()}
       <article class="panel-card">
@@ -257,7 +277,7 @@
             <p class="section-kicker">ASIENTOS</p>
             <h3>Libro Diario</h3>
           </div>
-          <span class="status-badge partial">${esc(String(rows.length))} registros visibles</span>
+          <span class="status-badge partial">${journalState.loaded ? `${esc(String(journalState.total))} registros` : "Sin consultar"}</span>
         </div>
         <div class="compact-table-wrap">
           <table class="compact-table">
@@ -275,32 +295,29 @@
               </tr>
             </thead>
             <tbody>
-              ${rows.map(entry => {
-                const totals = journalService.linesTotal(entry.lines);
-                const diff = journalService.difference(entry.lines);
-                return `
+              ${journalState.loaded ? journalState.items.map(entry => `
                   <tr>
                     <td>${esc(entry.accountingDate)}</td>
                     <td><strong>${esc(entry.entryNumber)}</strong><small>${esc(entry.accountingPeriod)}</small></td>
                     <td><strong>${esc(entry.concept)}</strong><small>${esc(entry.sourceDocument || entry.externalReference || entry.observation || "")}</small></td>
                     <td>${esc(entry.originModule)}</td>
                     <td>${statusBadge(entry.status)}</td>
-                    <td>${money(totals.debit)}</td>
-                    <td>${money(totals.credit)}</td>
-                    <td><span class="difference-pill ${diff === 0 ? "balanced" : "unbalanced"}">${money(Math.abs(diff))}</span></td>
+                    <td>${money(entry.totalDebit)}</td>
+                    <td>${money(entry.totalCredit)}</td>
+                    <td><span class="difference-pill ${entry.difference === 0 ? "balanced" : "unbalanced"}">${money(Math.abs(entry.difference))}</span><small>${esc(String(entry.lineCount))} lineas</small></td>
                     <td>
                       <div class="row-actions">
-                        <button class="row-action-button" type="button" data-journal-view="${esc(entry.id)}">Ver</button>
-                        ${entry.status === "BORRADOR" ? `<button class="row-action-button" type="button" data-journal-edit="${esc(entry.id)}">Editar</button><button class="row-action-button" type="button" data-journal-post-row="${esc(entry.id)}">Contabilizar</button><button class="row-action-button" type="button" data-journal-cancel="${esc(entry.id)}">Anular</button><button class="row-action-button" type="button" data-journal-delete="${esc(entry.id)}">Eliminar</button>` : ""}
-                        ${entry.status === "CONTABILIZADO" ? `<button class="row-action-button" type="button" data-journal-reverse="${esc(entry.id)}">Reversar</button>` : ""}
+                        <button class="row-action-button" type="button" data-journal-view="${esc(entry.entryKey)}" data-source-kind="${esc(entry.sourceKind)}">Ver</button>
+                        ${entry.sourceKind === "LEGACY" && entry.status === "BORRADOR" ? `<button class="row-action-button" type="button" data-journal-edit="${esc(entry.entryKey)}" data-source-kind="${esc(entry.sourceKind)}">Editar</button><button class="row-action-button" type="button" data-journal-post-row="${esc(entry.entryKey)}">Contabilizar</button><button class="row-action-button" type="button" data-journal-cancel="${esc(entry.entryKey)}">Anular</button><button class="row-action-button" type="button" data-journal-delete="${esc(entry.entryKey)}">Eliminar</button>` : ""}
+                        ${entry.sourceKind === "FINANCIAL_V2" && entry.status === "CONTABILIZADO" ? `<button class="row-action-button" type="button" data-journal-reverse="${esc(entry.entryKey)}">Reversar</button>` : ""}
                       </div>
                     </td>
                   </tr>
-                `;
-              }).join("") || `<tr><td colspan="9"><div class="empty-inline">No hay asientos para estos filtros.</div></td></tr>`}
+                `).join("") || `<tr><td colspan="9"><div class="empty-inline">No hay asientos para estos filtros.</div></td></tr>` : `<tr><td colspan="9"><div class="empty-inline">Selecciona los filtros y pulsa Consultar.</div></td></tr>`}
             </tbody>
           </table>
         </div>
+        ${simplePager("journal", journalState)}
       </article>
     `;
     bindJournal();
@@ -311,7 +328,10 @@
     const form = document.querySelector("#journal-entry-form");
     if (form) {
       entry.accountingDate = form.elements.accountingDate?.value || entry.accountingDate;
-      entry.accountingPeriod = form.elements.accountingPeriod?.value || entry.accountingPeriod;
+      entry.accountingPeriod = journalService.accountingPeriodForDate?.(
+        entry.accountingDate,
+        form.elements.accountingPeriod?.value || entry.accountingPeriod
+      ) || String(entry.accountingDate || "").slice(0, 7) || entry.accountingPeriod;
       entry.concept = form.elements.concept?.value || entry.concept;
       entry.originModule = form.elements.originModule?.value || entry.originModule;
       entry.sourceDocument = form.elements.sourceDocument?.value || "";
@@ -350,13 +370,44 @@
   }
 
   function bindJournal() {
-    document.querySelector("#journal-search")?.addEventListener("input", event => { uiState.journal.search = event.target.value; BlessERP.layout.renderPage(); });
-    document.querySelector("#journal-date-from")?.addEventListener("change", event => { uiState.journal.dateFrom = event.target.value; BlessERP.layout.renderPage(); });
-    document.querySelector("#journal-date-to")?.addEventListener("change", event => { uiState.journal.dateTo = event.target.value; BlessERP.layout.renderPage(); });
-    document.querySelector("#journal-status")?.addEventListener("change", event => { uiState.journal.status = event.target.value; BlessERP.layout.renderPage(); });
-    document.querySelector("#journal-origin")?.addEventListener("change", event => { uiState.journal.originModule = event.target.value; BlessERP.layout.renderPage(); });
+    const syncJournalDraftFilters = () => {
+      Object.assign(uiState.journal.draftFilters, {
+        search: document.querySelector("#journal-search")?.value || "",
+        dateFrom: document.querySelector("#journal-date-from")?.value || "",
+        dateTo: document.querySelector("#journal-date-to")?.value || "",
+        status: document.querySelector("#journal-status")?.value || "",
+        originModule: document.querySelector("#journal-origin")?.value || "",
+        entryNumber: document.querySelector("#journal-entry-number")?.value || "",
+        reference: document.querySelector("#journal-reference")?.value || "",
+        pageSize: Number(document.querySelector("#journal-page-size")?.value || 25)
+      });
+    };
+    ["#journal-search", "#journal-date-from", "#journal-date-to", "#journal-status", "#journal-origin", "#journal-entry-number", "#journal-reference", "#journal-page-size"]
+      .forEach(selector => document.querySelector(selector)?.addEventListener("change", syncJournalDraftFilters));
+    document.querySelector("#journal-search-form")?.addEventListener("submit", async event => {
+      event.preventDefault();
+      syncJournalDraftFilters();
+      uiState.journal.errors = [];
+      if (!validDateRange(uiState.journal.draftFilters)) {
+        uiState.journal.errors = ["La fecha Desde no puede ser posterior a Hasta."];
+        BlessERP.layout.renderPage();
+        return;
+      }
+      try {
+        await accountingReadService().queryJournal(uiState.journal.draftFilters, { page: 1, pageSize: uiState.journal.draftFilters.pageSize });
+      } catch (error) {
+        uiState.journal.errors = [error.message];
+      }
+      BlessERP.layout.renderPage();
+    });
+    document.querySelectorAll("[data-journal-page]").forEach(button => button.addEventListener("click", async () => {
+      const current = readSnapshot().journal;
+      try {
+        await accountingReadService().queryJournal(current.appliedFilters, { page: Number(button.dataset.journalPage), pageSize: current.pageSize });
+      } catch (error) { uiState.journal.errors = [error.message]; }
+      BlessERP.layout.renderPage();
+    }));
     document.querySelector("[data-journal-new]")?.addEventListener("click", () => { ensureJournalDraft(); BlessERP.layout.renderPage(); });
-    document.querySelector("[data-journal-export]")?.addEventListener("click", () => { uiState.journal.message = "La exportacion del Libro Diario quedara en una siguiente fase."; BlessERP.layout.renderPage(); });
     document.querySelector("[data-journal-close]")?.addEventListener("click", () => { clearJournalDraft(); BlessERP.layout.renderPage(); });
     document.querySelector("[data-journal-add-line]")?.addEventListener("click", () => {
       uiState.journal.draft = collectJournalForm();
@@ -371,6 +422,13 @@
     }));
     document.querySelector("#journal-entry-form")?.addEventListener("input", updateJournalTotalsView);
     document.querySelector(".journal-lines-table tbody")?.addEventListener("input", updateJournalTotalsView);
+    document.querySelector('#journal-entry-form [name="accountingDate"]')?.addEventListener("change", event => {
+      const periodInput = document.querySelector('#journal-entry-form [name="accountingPeriod"]');
+      if (!periodInput) return;
+      periodInput.value = journalService.accountingPeriodForDate?.(event.target.value, periodInput.value)
+        || String(event.target.value || "").slice(0, 7)
+        || periodInput.value;
+    });
     document.querySelector("[data-journal-save]")?.addEventListener("click", () => {
       const result = journalService.saveDraft(collectJournalForm());
       uiState.journal.errors = result.errors || [];
@@ -381,16 +439,18 @@
       }
       uiState.journal.draft = clone(result.entry);
       uiState.journal.message = "Borrador guardado correctamente.";
+      void accountingReadService()?.refreshActive?.();
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-journal-post]")?.addEventListener("click", () => {
+    document.querySelector("[data-journal-post]")?.addEventListener("click", async event => {
+      event.currentTarget.disabled = true;
       const saved = journalService.saveDraft(collectJournalForm());
       if (!saved.ok) {
         uiState.journal.errors = saved.errors || [];
         BlessERP.layout.renderPage();
         return;
       }
-      const result = journalService.postEntry(saved.entry.id);
+      const result = await journalService.postEntryV2(saved.entry);
       uiState.journal.errors = result.errors || [];
       uiState.journal.message = "";
       if (!result.ok) {
@@ -399,59 +459,65 @@
         return;
       }
       clearJournalDraft();
-      uiState.journal.message = "Asiento contabilizado correctamente.";
+      uiState.journal.message = `Asiento ${result.entry?.entryNumber || ""} contabilizado y confirmado en Supabase.`;
+      await accountingReadService()?.refreshActive?.();
       BlessERP.layout.renderPage();
     });
-    document.querySelectorAll("[data-journal-view]").forEach(button => button.addEventListener("click", () => {
-      const entry = journalService.all().find(item => item.id === button.dataset.journalView);
-      if (!entry) return;
-      ensureJournalDraft(entry, "view");
+    document.querySelectorAll("[data-journal-view]").forEach(button => button.addEventListener("click", async () => {
+      try {
+        const entry = await accountingReadService().journalDetail(button.dataset.journalView, button.dataset.sourceKind);
+        ensureJournalDraft(entry, "view");
+      } catch (error) { uiState.journal.errors = [error.message]; }
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-journal-edit]").forEach(button => button.addEventListener("click", () => {
-      const entry = journalService.all().find(item => item.id === button.dataset.journalEdit);
-      if (!entry) return;
-      ensureJournalDraft(entry, "edit");
+    document.querySelectorAll("[data-journal-edit]").forEach(button => button.addEventListener("click", async () => {
+      try {
+        const entry = await accountingReadService().journalDetail(button.dataset.journalEdit, button.dataset.sourceKind);
+        ensureJournalDraft(entry, "edit");
+      } catch (error) { uiState.journal.errors = [error.message]; }
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-journal-post-row]").forEach(button => button.addEventListener("click", () => {
-      const result = journalService.postEntry(button.dataset.journalPostRow);
+    document.querySelectorAll("[data-journal-post-row]").forEach(button => button.addEventListener("click", async () => {
+      button.disabled = true;
+      const result = await journalService.postEntryV2(button.dataset.journalPostRow);
       uiState.journal.errors = result.errors || [];
-      uiState.journal.message = result.ok ? "Asiento contabilizado correctamente." : "";
+      uiState.journal.message = result.ok ? `Asiento ${result.entry?.entryNumber || ""} confirmado en Supabase.` : "";
+      if (result.ok) await accountingReadService()?.refreshActive?.();
       BlessERP.layout.renderPage();
     }));
     document.querySelectorAll("[data-journal-cancel]").forEach(button => button.addEventListener("click", () => {
       const result = journalService.cancelDraft(button.dataset.journalCancel);
       uiState.journal.message = result.ok ? "Borrador anulado." : (result.message || "");
       uiState.journal.errors = [];
+      if (result.ok) void accountingReadService()?.refreshActive?.();
       BlessERP.layout.renderPage();
     }));
     document.querySelectorAll("[data-journal-delete]").forEach(button => button.addEventListener("click", () => {
       const result = journalService.deleteDraft(button.dataset.journalDelete);
       uiState.journal.message = result.ok ? "Borrador eliminado." : (result.message || "");
       uiState.journal.errors = [];
+      if (result.ok) void accountingReadService()?.refreshActive?.();
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-journal-reverse]").forEach(button => button.addEventListener("click", () => {
-      const result = journalService.reverseEntry(button.dataset.journalReverse);
+    document.querySelectorAll("[data-journal-reverse]").forEach(button => button.addEventListener("click", async () => {
+      const reason = window.prompt("Motivo obligatorio de la reversión contable:", "Corrección contable autorizada");
+      if (!reason) return;
+      button.disabled = true;
+      const result = await journalService.reverseEntryV2(button.dataset.journalReverse, reason);
       uiState.journal.message = result.ok ? `Se generó el reverso ${result.entry.entryNumber}.` : (result.message || "");
-      uiState.journal.errors = [];
+      uiState.journal.errors = result.ok ? [] : (result.errors || []);
+      if (result.ok) await accountingReadService()?.refreshActive?.();
       BlessERP.layout.renderPage();
     }));
   }
 
   function renderLedger(container, route) {
+    startReadService("accounting-ledger");
     const accountOptions = chartService.movementOptions();
-    const filters = {
-      accountCode: uiState.ledger.accountCode,
-      dateFrom: uiState.ledger.dateFrom,
-      dateTo: uiState.ledger.dateTo,
-      status: uiState.ledger.status,
-      costCenter: uiState.ledger.costCenter,
-      auxiliary: uiState.ledger.auxiliary
-    };
-    const detailed = uiState.ledger.accountCode ? journalService.ledgerByAccount(uiState.ledger.accountCode, filters) : null;
-    const summary = uiState.ledger.accountCode ? [] : journalService.ledgerSummary(filters);
+    const readState = readSnapshot();
+    const ledgerState = readState.ledger;
+    const filters = uiState.ledger.draftFilters;
+    const summary = ledgerState.summary || {};
 
     container.innerHTML = `
       <section class="page-header">
@@ -466,47 +532,49 @@
       </section>
       ${routeTabs(route)}
       ${uiState.ledger.message ? `<section class="inline-feedback success">${esc(uiState.ledger.message)}</section>` : ""}
+      ${(uiState.ledger.errors || []).length || readState.error ? `<section class="inline-feedback danger">${esc((uiState.ledger.errors || [])[0] || readState.error)}</section>` : ""}
       <section class="panel-card compact-toolbar-card">
-        <div class="compact-toolbar compact-toolbar-ledger">
+        <form id="ledger-search-form" class="compact-toolbar compact-toolbar-ledger">
           <label class="compact-inline-field">
             <span>Cuenta contable</span>
             <select id="ledger-account">
-              <option value="">Vista general agrupada</option>
-              ${accountOptions.map(account => `<option value="${esc(account.code)}" ${uiState.ledger.accountCode === account.code ? "selected" : ""}>${esc(account.code)} - ${esc(account.name)}</option>`).join("")}
+              <option value="">Seleccionar cuenta</option>
+              ${accountOptions.map(account => `<option value="${esc(account.id)}" ${filters.accountRecordId === account.id ? "selected" : ""}>${esc(account.code)} - ${esc(account.name)}</option>`).join("")}
             </select>
           </label>
-          <label class="compact-inline-field"><span>Fecha desde</span><input id="ledger-date-from" type="date" value="${esc(uiState.ledger.dateFrom)}"></label>
-          <label class="compact-inline-field"><span>Fecha hasta</span><input id="ledger-date-to" type="date" value="${esc(uiState.ledger.dateTo)}"></label>
+          <label class="compact-inline-field"><span>Fecha desde</span><input id="ledger-date-from" type="date" value="${esc(filters.dateFrom)}"></label>
+          <label class="compact-inline-field"><span>Fecha hasta</span><input id="ledger-date-to" type="date" value="${esc(filters.dateTo)}"></label>
           <label class="compact-inline-field">
             <span>Estado</span>
             <select id="ledger-status">
               <option value="">Todos</option>
-              <option value="CONTABILIZADO" ${uiState.ledger.status === "CONTABILIZADO" ? "selected" : ""}>CONTABILIZADO</option>
-              <option value="REVERSADO" ${uiState.ledger.status === "REVERSADO" ? "selected" : ""}>REVERSADO</option>
+              <option value="CONTABILIZADO" ${filters.status === "CONTABILIZADO" ? "selected" : ""}>CONTABILIZADO</option>
+              <option value="REVERSADO" ${filters.status === "REVERSADO" ? "selected" : ""}>REVERSADO</option>
             </select>
           </label>
-          <label class="compact-inline-field"><span>Centro de costo</span><input id="ledger-cost-center" placeholder="Preparado" value="${esc(uiState.ledger.costCenter)}"></label>
-          <label class="compact-inline-field"><span>Auxiliar</span><input id="ledger-auxiliary" placeholder="Preparado" value="${esc(uiState.ledger.auxiliary)}"></label>
-        </div>
+          <label class="compact-inline-field"><span>Buscar / referencia</span><input id="ledger-search" value="${esc(filters.search)}"></label>
+          <label class="compact-inline-field"><span>Filas</span><select id="ledger-page-size"><option value="25" ${filters.pageSize === 25 ? "selected" : ""}>25</option><option value="50" ${filters.pageSize === 50 ? "selected" : ""}>50</option></select></label>
+          <div class="compact-toolbar-actions"><button class="primary-button" type="submit" ${ledgerState.loading ? "disabled" : ""}>${ledgerState.loading ? "Consultando..." : "Consultar"}</button></div>
+        </form>
       </section>
-      ${detailed ? `
+      ${ledgerState.loaded ? `
         <section class="summary-grid summary-grid-ledger">
-          <article class="summary-card"><span>Saldo inicial</span><strong>${money(detailed.initialBalance)}</strong><small>${esc(detailed.account.name)}</small></article>
-          <article class="summary-card"><span>Total debe</span><strong>${money(detailed.totals.debit)}</strong><small>Movimientos del rango</small></article>
-          <article class="summary-card"><span>Total haber</span><strong>${money(detailed.totals.credit)}</strong><small>Movimientos del rango</small></article>
-          <article class="summary-card"><span>Saldo final</span><strong>${money(detailed.finalBalance)}</strong><small>Naturaleza ${esc(detailed.account.nature)}</small></article>
+          <article class="summary-card"><span>Saldo inicial</span><strong>${money(summary.initialBalance || 0)}</strong><small>${esc(ledgerState.account?.name || "")}</small></article>
+          <article class="summary-card"><span>Total debe</span><strong>${money(summary.totalDebit || 0)}</strong><small>Movimientos del rango</small></article>
+          <article class="summary-card"><span>Total haber</span><strong>${money(summary.totalCredit || 0)}</strong><small>Movimientos del rango</small></article>
+          <article class="summary-card"><span>Saldo final</span><strong>${money(summary.finalBalance || 0)}</strong><small>${esc(String(summary.movementCount || 0))} movimientos · naturaleza ${esc(ledgerState.account?.nature || "")}</small></article>
         </section>
         <article class="panel-card">
           <div class="panel-card-head">
             <div><p class="section-kicker">DETALLE</p><h3>Mayor por cuenta</h3></div>
-            ${statusBadge(detailed.account.nature)}
+            ${statusBadge(ledgerState.account?.nature || "")}
           </div>
           <div class="compact-table-wrap">
             <table class="compact-table">
               <thead><tr><th>Fecha</th><th>Numero</th><th>Concepto</th><th>Documento origen</th><th>Debe</th><th>Haber</th><th>Saldo</th><th>Modulo origen</th><th>Estado</th></tr></thead>
               <tbody>
-                <tr><td colspan="6"><strong>Saldo inicial</strong></td><td><strong>${money(detailed.initialBalance)}</strong></td><td colspan="2"></td></tr>
-                ${detailed.rows.map(row => `
+                <tr><td colspan="6"><strong>Saldo inicial del rango</strong></td><td><strong>${money(summary.initialBalance || 0)}</strong></td><td colspan="2"></td></tr>
+                ${ledgerState.items.map(row => `
                   <tr>
                     <td>${esc(row.date)}</td>
                     <td>${esc(row.entryNumber)}</td>
@@ -519,34 +587,19 @@
                     <td>${statusBadge(row.status)}</td>
                   </tr>
                 `).join("") || `<tr><td colspan="9"><div class="empty-inline">No hay movimientos contabilizados para esta cuenta.</div></td></tr>`}
-                <tr><td colspan="4"><strong>Saldo final</strong></td><td><strong>${money(detailed.totals.debit)}</strong></td><td><strong>${money(detailed.totals.credit)}</strong></td><td><strong>${money(detailed.finalBalance)}</strong></td><td colspan="2"></td></tr>
+                <tr><td colspan="4"><strong>Totales del rango</strong></td><td><strong>${money(summary.totalDebit || 0)}</strong></td><td><strong>${money(summary.totalCredit || 0)}</strong></td><td><strong>${money(summary.finalBalance || 0)}</strong></td><td colspan="2"></td></tr>
               </tbody>
             </table>
           </div>
+          ${simplePager("ledger", ledgerState)}
         </article>
       ` : `
         <article class="panel-card">
           <div class="panel-card-head">
-            <div><p class="section-kicker">RESUMEN</p><h3>Mayor general agrupado por cuenta</h3></div>
-            <span class="status-badge partial">${esc(String(summary.length))} cuentas</span>
+            <div><p class="section-kicker">MAYOR</p><h3>Consulta por cuenta</h3></div>
+            <span class="status-badge partial">Sin consultar</span>
           </div>
-          <div class="compact-table-wrap">
-            <table class="compact-table">
-              <thead><tr><th>Cuenta</th><th>Nombre</th><th>Naturaleza</th><th>Debe</th><th>Haber</th><th>Saldo</th></tr></thead>
-              <tbody>
-                ${summary.map(row => `
-                  <tr>
-                    <td><strong>${esc(row.accountCode)}</strong></td>
-                    <td>${esc(row.accountName)}</td>
-                    <td>${esc(row.nature)}</td>
-                    <td>${money(row.debit)}</td>
-                    <td>${money(row.credit)}</td>
-                    <td>${money(row.balance)}</td>
-                  </tr>
-                `).join("") || `<tr><td colspan="6"><div class="empty-inline">No hay movimientos contabilizados para estos filtros.</div></td></tr>`}
-              </tbody>
-            </table>
-          </div>
+          <div class="empty-inline">Selecciona una cuenta, define el rango y pulsa Consultar.</div>
         </article>
       `}
     `;
@@ -554,12 +607,37 @@
   }
 
   function bindLedger() {
-    document.querySelector("#ledger-account")?.addEventListener("change", event => { uiState.ledger.accountCode = event.target.value; BlessERP.layout.renderPage(); });
-    document.querySelector("#ledger-date-from")?.addEventListener("change", event => { uiState.ledger.dateFrom = event.target.value; BlessERP.layout.renderPage(); });
-    document.querySelector("#ledger-date-to")?.addEventListener("change", event => { uiState.ledger.dateTo = event.target.value; BlessERP.layout.renderPage(); });
-    document.querySelector("#ledger-status")?.addEventListener("change", event => { uiState.ledger.status = event.target.value; BlessERP.layout.renderPage(); });
-    document.querySelector("#ledger-cost-center")?.addEventListener("input", event => { uiState.ledger.costCenter = event.target.value; });
-    document.querySelector("#ledger-auxiliary")?.addEventListener("input", event => { uiState.ledger.auxiliary = event.target.value; });
+    const syncLedgerDraftFilters = () => {
+      Object.assign(uiState.ledger.draftFilters, {
+        accountRecordId: document.querySelector("#ledger-account")?.value || "",
+        dateFrom: document.querySelector("#ledger-date-from")?.value || "",
+        dateTo: document.querySelector("#ledger-date-to")?.value || "",
+        status: document.querySelector("#ledger-status")?.value || "",
+        search: document.querySelector("#ledger-search")?.value || "",
+        pageSize: Number(document.querySelector("#ledger-page-size")?.value || 25)
+      });
+    };
+    ["#ledger-account", "#ledger-date-from", "#ledger-date-to", "#ledger-status", "#ledger-search", "#ledger-page-size"]
+      .forEach(selector => document.querySelector(selector)?.addEventListener("change", syncLedgerDraftFilters));
+    document.querySelector("#ledger-search-form")?.addEventListener("submit", async event => {
+      event.preventDefault();
+      syncLedgerDraftFilters();
+      uiState.ledger.errors = [];
+      if (!uiState.ledger.draftFilters.accountRecordId) uiState.ledger.errors.push("Selecciona una cuenta contable antes de consultar.");
+      if (!validDateRange(uiState.ledger.draftFilters)) uiState.ledger.errors.push("La fecha Desde no puede ser posterior a Hasta.");
+      if (uiState.ledger.errors.length) { BlessERP.layout.renderPage(); return; }
+      try {
+        await accountingReadService().queryLedger(uiState.ledger.draftFilters, { page: 1, pageSize: uiState.ledger.draftFilters.pageSize });
+      } catch (error) { uiState.ledger.errors = [error.message]; }
+      BlessERP.layout.renderPage();
+    });
+    document.querySelectorAll("[data-ledger-page]").forEach(button => button.addEventListener("click", async () => {
+      const current = readSnapshot().ledger;
+      try {
+        await accountingReadService().queryLedger(current.appliedFilters, { page: Number(button.dataset.ledgerPage), pageSize: current.pageSize });
+      } catch (error) { uiState.ledger.errors = [error.message]; }
+      BlessERP.layout.renderPage();
+    }));
   }
 
   BlessERP.modules = BlessERP.modules || {};

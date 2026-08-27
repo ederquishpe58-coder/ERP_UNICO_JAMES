@@ -1,5 +1,6 @@
 (function(){
   const BlessERP = window.BlessERP = window.BlessERP || {};
+  const DEFAULT_BUNCH_INTAKE_RESPONSIBLE = "DIGITADOR GENERAL";
 
   function todayLocal() {
     const now = new Date();
@@ -14,13 +15,14 @@
   }
 
   function createReceptionDraft(seed = {}) {
+    const operational = isOperationalDeployment();
     const draft = {
       id: "",
       date: todayLocal(),
-      supplier: "FINCA CANGAHUA",
-      block: "BQ-01",
-      receptionist: "Juan S.",
-      responsible: "Juan S.",
+      supplier: operational ? "" : "FINCA CANGAHUA",
+      block: operational ? "" : "BQ-01",
+      receptionist: operational ? "" : "Juan S.",
+      responsible: operational ? "" : "Juan S.",
       observation: "",
       status: "BORRADOR",
       items: [],
@@ -33,7 +35,7 @@
   function createReceptionItemDraft(seed = {}) {
     const draft = {
       id: "",
-      variety: "EXPLORER",
+      variety: "",
       stemType: "LARGO",
       meshCount: 1,
       stemsPerMesh: 25,
@@ -45,67 +47,105 @@
   }
 
   function createLabelDraft(seed = {}) {
+    const buncherEmployeeId = seed.buncher_employee_id || seed.buncherEmployeeId || seed.employee_id || seed.employeeId || "";
+    const operational = isOperationalDeployment();
     return {
-      date: "2026-07-09",
+      date: operational ? todayLocal() : "2026-07-09",
       colorDay: "ROJO",
-      supplier: "FINCA CANGAHUA",
-      block: "BQ-01",
-      buncher: "Pedro M.",
-      variety: "EXPLORER",
+      supplier: operational ? "" : "FINCA CANGAHUA",
+      block: operational ? "" : "BQ-01",
+      buncher: operational ? "" : "Pedro M.",
+      buncher_employee_id: buncherEmployeeId,
+      buncherEmployeeId,
+      variety: operational ? "" : "EXPLORER",
       length: 50,
       category: "EXPORTACION",
       stemsPerBunch: 25,
-      quantity: 24,
+      quantity: operational ? 1 : 24,
       labelType: "NORMAL",
       observation: "",
-      ...seed
+      ...seed,
+      printWidthMm: 76.2,
+      printHeightMm: 58
     };
   }
 
   function createScannerDraft(seed = {}) {
     return {
       type: "RAMO",
-      code: "0000000002",
+      code: isOperationalDeployment() ? "" : "0000000002",
       moduleOrigin: "Etiquetas de ramos",
       observation: "",
+      labelColor: "",
       ...seed
     };
   }
 
   function createYieldMeshDraft(seed = {}) {
+    const classifierEmployeeId = seed.classifier_employee_id || seed.classifierEmployeeId || seed.employee_id || seed.employeeId || "";
+    const operational = isOperationalDeployment();
     return {
-      date: "2026-07-10",
-      supplier: "FINCA CANGAHUA",
-      block: "BQ-01",
-      variety: "EXPLORER",
-      classifier: "Rocio T.",
-      responsible: "Juan S.",
-      meshCount: 18,
-      extraStems: 12,
+      date: operational ? todayLocal() : "2026-07-10",
+      supplier: operational ? "" : "FINCA CANGAHUA",
+      block: operational ? "" : "BQ-01",
+      variety: operational ? "" : "EXPLORER",
+      classifier: operational ? "" : "Rocio T.",
+      classifier_employee_id: classifierEmployeeId,
+      classifierEmployeeId,
+      responsible: operational ? "" : "Juan S.",
+      meshCount: operational ? 0 : 18,
+      extraStems: operational ? 0 : 12,
       observation: "",
       ...seed
     };
   }
 
-  function createYieldScannerDraft(seed = {}) {
+  function createMeshHistoryFilters(seed = {}) {
     return {
-      date: "2026-07-10",
-      code: "0000000002",
-      classifier: "Rocio T.",
-      buncher: "Pedro M.",
-      responsible: "Juan S.",
+      code: "",
+      from: "",
+      to: "",
+      supplier: "",
+      block: "",
+      variety: "",
+      length: "",
+      worker: "",
+      user: "",
+      state: "",
+      ...seed
+    };
+  }
+
+  function createYieldScannerDraft(seed = {}) {
+    const classifierEmployeeId = seed.classifier_employee_id || seed.classifierEmployeeId || "";
+    const buncherEmployeeId = seed.buncher_employee_id || seed.buncherEmployeeId || seed.employee_id || seed.employeeId || "";
+    const operational = isOperationalDeployment();
+    return {
+      date: operational ? todayLocal() : "2026-07-10",
+      code: operational ? "" : "0000000002",
+      classifier: operational ? "" : "Rocio T.",
+      buncher: operational ? "" : "Pedro M.",
+      classifier_employee_id: classifierEmployeeId,
+      classifierEmployeeId,
+      buncher_employee_id: buncherEmployeeId,
+      buncherEmployeeId,
+      responsible: operational ? "" : "Juan S.",
       observation: "",
       ...seed
     };
   }
 
   function createParameterDraft(seed = {}) {
+    const employeeId = seed.employee_id || seed.employeeId || "";
     return {
       id: "",
       type: "suppliers",
       code: "",
       name: "",
+      employee_id: employeeId,
+      employeeId,
       assignedBlock: "",
+      labelColor: "",
       active: true,
       observation: "",
       ...seed
@@ -113,57 +153,95 @@
   }
 
   function createClassificationAssignmentDraft(seed = {}) {
+    const classifierEmployeeId = seed.classifier_employee_id || seed.classifierEmployeeId || seed.employee_id || seed.employeeId || "";
+    const operational = isOperationalDeployment();
     return {
-      receptionId: "REC-OPS-001",
-      receptionItemId: "REC-ITEM-001",
-      supplier: "FINCA CANGAHUA",
-      block: "BQ-01",
-      variety: "EXPLORER",
-      classifier: "Rocio T.",
-      meshCount: 1,
-      extraStems: 0,
+      receptionId: operational ? "" : "REC-OPS-001",
+      receptionItemId: operational ? "" : "REC-ITEM-001",
+      supplier: operational ? "" : "FINCA CANGAHUA",
+      block: operational ? "" : "BQ-01",
+      variety: operational ? "" : "EXPLORER",
+      classifier: operational ? "" : "Rocio T.",
+      classifier_employee_id: classifierEmployeeId,
+      classifierEmployeeId,
+      meshCount: "",
+      extraStems: "",
       observation: "",
       ...seed
     };
   }
 
   function createClassificationResultDraft(seed = {}) {
+    const classifierEmployeeId = seed.classifier_employee_id || seed.classifierEmployeeId || seed.employee_id || seed.employeeId || "";
+    const operational = isOperationalDeployment();
     return {
-      assignmentId: "ASG-OPS-001",
-      supplier: "FINCA CANGAHUA",
-      block: "BQ-01",
-      classifier: "Rocio T.",
-      variety: "EXPLORER",
-      nationalStems: 0,
-      observation: "",
+      assignmentId: operational ? "" : "ASG-OPS-001",
+      supplier: operational ? "" : "FINCA CANGAHUA",
+      block: operational ? "" : "BQ-01",
+      classifier: operational ? "" : "Rocio T.",
+      classifier_employee_id: classifierEmployeeId,
+      classifierEmployeeId,
+      variety: operational ? "" : "EXPLORER",
+      nationalStems: "",
+      nationalOidioStems: "",
+      nationalVellosoStems: "",
+      nationalBotrytisStems: "",
+      nationalMaltratoStems: "",
       ...seed
     };
   }
 
   function createBunchIntakeDraft(seed = {}) {
     return {
-      code: "0000000002",
-      responsible: "Juan S.",
+      code: "",
+      responsible: DEFAULT_BUNCH_INTAKE_RESPONSIBLE,
       observation: "",
       ...seed
     };
   }
 
   function createMasterData() {
-    const rows = (prefix, values) => values.map((name, index) => ({
-      id: `${prefix}-${String(index + 1).padStart(3, "0")}`,
-      code: `${prefix}${String(index + 1).padStart(3, "0")}`,
-      name,
-      active: true,
-      observation: "Parametro operativo local/demo."
-    }));
+    const rows = (prefix, values) => values.map((value, index) => {
+      const seed = value && typeof value === "object" ? value : { name: value };
+      const employeeId = seed.employee_id || seed.employeeId || "";
+      return {
+        id: seed.id || `${prefix}-${String(index + 1).padStart(3, "0")}`,
+        code: seed.code || `${prefix}${String(index + 1).padStart(3, "0")}`,
+        name: seed.name || "",
+        employee_id: employeeId,
+        employeeId,
+        user_id: seed.user_id || seed.userId || "",
+        labelColor: seed.labelColor || seed.color || "",
+        active: seed.active !== false,
+        observation: seed.observation || "Parametro operativo local/demo."
+      };
+    });
     const suppliers = rows("PRO", ["FINCA CANGAHUA", "BLOSSOM HILLS", "SANTA ROSA FARMS"]);
     ["BQ-01", "BQ-02", "BLOQUE A"].forEach((block, index) => { suppliers[index].assignedBlock = block; });
     return {
       suppliers,
-      classifiers: rows("CLA", ["Rocio T.", "Daniela C.", "Camila V."]),
-      bunchers: rows("EMB", ["Pedro M.", "Eder Q.", "Mateo G."]),
-      receptionists: rows("REC", ["Juan S.", "Andrea P.", "Mateo G."]),
+      classifiers: rows("CLA", [
+        { name: "Rocio T.", employee_id: "EMP-BLF-OPS-001" },
+        { name: "Daniela C.", employee_id: "EMP-BLF-OPS-002" },
+        { name: "Camila V.", employee_id: "EMP-BLF-OPS-003" }
+      ]),
+      bunchers: rows("EMB", [
+        { name: "Pedro M.", employee_id: "EMP-BLF-OPS-004", labelColor: "ROJO" },
+        { name: "Eder Q.", employee_id: "EMP-BLF-OPS-005", labelColor: "AZUL" },
+        { name: "Mateo G.", employee_id: "EMP-BLF-OPS-006", labelColor: "VERDE" }
+      ]),
+      receptionists: rows("REC", [
+        { name: "Juan S.", employee_id: "EMP-BLF-OPS-007" },
+        { name: "Andrea P.", employee_id: "EMP-BLF-OPS-008" },
+        { name: "Mateo G.", employee_id: "EMP-BLF-OPS-006" }
+      ]),
+      digitizers: rows("DIG", []),
+      scanners: rows("ESC", []),
+      responsibles: rows("RSP", [
+        { name: "Juan S.", employee_id: "EMP-BLF-OPS-007" },
+        { name: "Andrea P.", employee_id: "EMP-BLF-OPS-008" },
+        { name: "Marco A.", employee_id: "EMP-BLF-OPS-009" }
+      ]),
       varieties: rows("VAR", ["EXPLORER", "MONDIAL", "PLAYA BLANCA", "PINK MONDIAL", "NINA", "QUICKSAND"]),
       lengths: rows("LON", ["40", "50", "60", "70"]),
       stemTypes: rows("TAL", ["LARGO", "CORTO"]),
@@ -172,14 +250,26 @@
   }
 
   function createYieldWorkday(seed = {}) {
+    const now = new Date();
+    const localNow = new Date(now.getTime() - (now.getTimezoneOffset() * 60000));
     return {
-      date: "2026-07-10",
+      id: "",
+      date: localNow.toISOString().slice(0, 10),
       status: "SIN_INICIAR",
       startedAt: "",
       pausedAt: "",
       resumedAt: "",
       endedAt: "",
-      observation: "Jornada demo preparada para rendimientos.",
+      pauses: [],
+      totalPausedMs: 0,
+      startedBy: "",
+      startedByUserId: "",
+      closedBy: "",
+      closedByUserId: "",
+      summary: null,
+      syncState: "LOCAL",
+      cloudId: "",
+      observation: "Jornada laboral pendiente de inicio.",
       ...seed
     };
   }
@@ -187,8 +277,8 @@
   function createYieldSettings(seed = {}) {
     return {
       workdayHours: 8,
-      classifierDailyGoal: 233,
-      classifierHourlyGoal: 29.1,
+      classifierDailyGoal: 264,
+      classifierHourlyGoal: 33,
       buncherHourlyGoal: 25,
       buncherDailyGoal: 200,
       ...seed
@@ -388,9 +478,90 @@
     return { labels, inventory, entries };
   }
 
+  function isOperationalDeployment() {
+    const configured = typeof BlessERP.getAppMode === "function"
+      ? BlessERP.getAppMode()
+      : window.__ERP_ENV__?.VITE_APP_ENV;
+    return String(configured || "").trim().toLowerCase() !== "demo";
+  }
+
+  function withoutOperationalDemoData(store) {
+    const clean = store;
+    clean.ui = {
+      ...clean.ui,
+      selectedAvailabilityId: "",
+      selectedDispatchOrderId: "",
+      warehouseOrderId: "",
+      warehouseBoxNumber: 1,
+      warehouseScanCode: "",
+      dispatchScanCode: "",
+      dispatchAssemblyBoxNumber: 1,
+      dispatchBunchScanCode: "",
+      scannerDispatchPedidoId: "",
+      scannerDispatchCode: "",
+      scannerHidInput: "",
+      bunchSearchScanCode: "",
+      bunchSearchFilter: "",
+      bunchSearchCodes: [],
+      bunchSearchSelectedCodes: [],
+      notice: "",
+      noticeTone: "info"
+    };
+    clean.catalogs = {
+      ...clean.catalogs,
+      suppliers: [],
+      blocks: [],
+      classifiers: [],
+      bunchers: [],
+      receptionists: [],
+      digitizers: [],
+      scanners: [],
+      responsibles: []
+    };
+    clean.masterData = {
+      ...clean.masterData,
+      suppliers: [],
+      classifiers: [],
+      bunchers: [],
+      receptionists: [],
+      digitizers: [],
+      scanners: [],
+      responsibles: []
+    };
+    [
+      "availabilityDemo",
+      "demoReservations",
+      "receptions",
+      "classifierAssignments",
+      "classificationResults",
+      "classifications",
+      "bunches",
+      "destinationLots",
+      "labelBatches",
+      "roseInventory",
+      "performances",
+      "meshProcessingRecords",
+      "processedMeshHistory",
+      "processedMeshHistoryAudit",
+      "bunchEntries",
+      "scannerEvents",
+      "inventoryMovements",
+      "consumptionsDemo",
+      "kardexOperativoDemo",
+      "dispatches"
+    ].forEach(key => {
+      clean[key] = [];
+    });
+    clean.sequences = {
+      ...(clean.sequences || {}),
+      bunchLabel: 0
+    };
+    return clean;
+  }
+
   function createOperationsStore() {
     const boxValidationBunches = createBoxValidationBunchesDemo();
-    return {
+    const store = {
       ui: {
         notice: "",
         noticeTone: "info",
@@ -402,8 +573,11 @@
         availabilityFilterWarehouse: "TODOS",
         availabilityFilterState: "TODOS",
         availabilityFilterAge: "TODOS",
+        availabilityPiecesOpen: false,
+        availabilityBunchesPerPiece: 12,
         selectedDispatchOrderId: "order-demo-0001",
         dispatchViewMode: "list",
+        dispatchPreviewOrderId: "",
         dispatchDetailTab: "boxes",
         warehouseOrderId: "order-demo-0001",
         warehouseBoxNumber: 1,
@@ -417,14 +591,62 @@
         scannerDispatchPedidoId: "order-demo-0001",
         scannerDispatchCode: "BOX-60334-001",
         scannerHidInput: "",
-        scannerTechnicalTab: "diagnostico",
         parameterType: "suppliers",
         parameterDraft: createParameterDraft(),
         classificationAssignmentDraft: createClassificationAssignmentDraft(),
         classificationResultDraft: createClassificationResultDraft(),
         bunchIntakeDraft: createBunchIntakeDraft(),
         lastBunchIntakeResult: null,
+        bunchIntakeReaderConnected: true,
+        bunchSearchReaderConnected: true,
+        bunchReaderConnected: true,
+        bunchReaderTarget: "INGRESO",
+        bunchHidAutomaticMigrated: true,
+        bunchSearchScanCode: "",
+        bunchSearchFilter: "",
+        bunchSearchCodes: [],
+        bunchSearchSelectedCodes: [],
+        bunchSearchTargetLength: "",
+        bunchSearchDialog: "",
+        bunchSearchDeleteReason: "",
+        meshHistoryOpen: false,
+        meshHistoryFilters: createMeshHistoryFilters(),
+        meshHistoryAppliedFilters: createMeshHistoryFilters(),
+        meshHistorySort: "date-desc",
+        meshHistoryPage: 1,
+        meshHistoryPageSize: 10,
+        meshHistoryDialog: null,
+        meshHistoryEditDraft: null,
+        inventorySupplierReportOpen: false,
+        inventorySupplierReportFilters: {
+          from: "",
+          to: "",
+          supplier: "",
+          variety: "",
+          length: "",
+          classificationType: "",
+          reportType: "DETALLADO"
+        },
+        inventorySupplierReportAppliedFilters: {
+          from: "",
+          to: "",
+          supplier: "",
+          variety: "",
+          length: "",
+          classificationType: "",
+          reportType: "DETALLADO"
+        },
+        inventorySupplierReportSort: { field: "dateTime", direction: "desc" },
+        roseInventorySearch: "",
+        roseInventorySupplier: "",
+        roseInventoryVariety: "",
+        roseInventoryBuncher: "",
+        roseInventoryDate: "",
         yieldsView: "rendimientos",
+        yieldHistoryBuncherSearch: "",
+        yieldHistoryBuncherDate: "",
+        yieldHistoryClassifierSearch: "",
+        yieldHistoryClassifierDate: "",
         receptionHistoryMode: "DIA",
         receptionHistoryDate: "",
         receptionHistoryMonth: "",
@@ -466,6 +688,8 @@
         classifiers: ["Rocio T.", "Daniela C.", "Camila V."],
         bunchers: ["Pedro M.", "Eder Q.", "Mateo G."],
         receptionists: ["Juan S.", "Andrea P.", "Mateo G."],
+        digitizers: [],
+        scanners: [],
         responsibles: ["Juan S.", "Andrea P.", "Marco A."],
         receptionStatuses: ["BORRADOR", "RECIBIDO", "EN_CLASIFICACION", "CERRADO", "OBSERVADO"],
         inventoryStates: ["DISPONIBLE", "ASIGNADO_CAJA", "DESPACHADO", "VENCIDO", "OBSERVADO"],
@@ -475,11 +699,8 @@
       sequences: {
         bunchLabel: 4
       },
-      yieldWorkday: createYieldWorkday({
-        status: "EN_CURSO_DEMO",
-        startedAt: "2026-07-10 07:00",
-        observation: "Jornada demo iniciada para visualizar metas."
-      }),
+      yieldWorkday: createYieldWorkday(),
+      yieldWorkdayHistory: [],
       yieldSettings: createYieldSettings(),
       availabilityDemo: createAvailabilityDemoEntries(),
       demoReservations: [],
@@ -555,8 +776,13 @@
           extraStems: 12,
           totalStems: 462,
           nationalStems: 35,
+          nationalGeneralStems: 0,
+          nationalOidioStems: 12,
+          nationalVellosoStems: 8,
+          nationalBotrytisStems: 10,
+          nationalMaltratoStems: 5,
           exportableStems: 427,
-          status: "COMPLETADO",
+          status: "ENTREGADO + REGISTRADO NACIONAL",
           observation: "Entrega inicial al clasificador."
         },
         {
@@ -585,8 +811,13 @@
           assignmentId: "ASG-OPS-001",
           dateTime: "2026-07-10 10:35",
           nationalStems: 35,
+          nationalGeneralStems: 0,
+          nationalOidioStems: 12,
+          nationalVellosoStems: 8,
+          nationalBotrytisStems: 10,
+          nationalMaltratoStems: 5,
           exportableStems: 427,
-          observation: "Nacional reportado al cerrar la entrega."
+          observation: "O=12 | V=8 | B=10 | M=5"
         }
       ],
       classifications: [
@@ -659,6 +890,8 @@
           reviewStatus: "DEMO VISUAL"
         }
       ],
+      bunches: [],
+      destinationLots: [],
       labelBatches: [
         {
           id: "LBL-SCAN-0001",
@@ -824,6 +1057,8 @@
           registeredAt: "2026-07-10 08:05"
         }
       ],
+      processedMeshHistory: [],
+      processedMeshHistoryAudit: [],
       bunchEntries: [
         {
           id: "RAMO-SCAN-0001",
@@ -869,6 +1104,7 @@
           observation: "Sin Zebra real conectada."
         }
       ],
+      inventoryMovements: [],
       consumptionsDemo: [],
       kardexOperativoDemo: [],
       dispatches: [
@@ -906,15 +1142,20 @@
         }
       ]
     };
+    return isOperationalDeployment()
+      ? withoutOperationalDemoData(store)
+      : store;
   }
 
   BlessERP.operacionesData = {
+    DEFAULT_BUNCH_INTAKE_RESPONSIBLE,
     createAvailabilityDemoEntries,
     createOperationsStore,
     createBunchIntakeDraft,
     createClassificationAssignmentDraft,
     createClassificationResultDraft,
     createMasterData,
+    createMeshHistoryFilters,
     createParameterDraft,
     createReceptionDraft,
     createReceptionItemDraft,

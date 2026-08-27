@@ -1,0 +1,108 @@
+const ERROR_STATUSES = new Set([
+  "DEVUELTO",
+  "NO_AUTORIZADO",
+  "ERROR_ENVIO",
+  "PENDIENTE_REINTENTO"
+]);
+
+const QUERY_ONLY_IDENTIFIERS = new Set(["45", "70"]);
+
+function normalizedStatus(value) {
+  return String(value || "PENDIENTE").trim().toUpperCase();
+}
+
+function normalizedIdentifier(value) {
+  const match = String(value || "").trim().match(/\d+/);
+  return match ? match[0] : "";
+}
+
+function diagnosticMessage(error = {}, document = {}) {
+  const identifier = String(error.identifier || "").trim();
+  const message = String(error.message || document.last_error || "").trim();
+  return [identifier, message].filter(Boolean).join(" — ");
+}
+
+function recoveryPolicy(detail = {}) {
+  const document = detail.document || {};
+  const status = normalizedStatus(document.status);
+  const errors = Array.isArray(detail.errors) ? detail.errors : [];
+  const attempts = Array.isArray(detail.transmissionAttempts) ? detail.transmissionAttempts : [];
+  const transmissions = Array.isArray(detail.transmissions) ? detail.transmissions : [];
+  const primaryError = errors[0] || {};
+  const identifier = normalizedIdentifier(primaryError.identifier);
+  const latestAttempt = attempts[0] || {};
+  const latestTransmission = transmissions[0] || {};
+  const base = {
+    status,
+    diagnostic: {
+      stage: primaryError.stage || latestTransmission.transmission_type || "",
+      attemptedAt: latestAttempt.finished_at || latestAttempt.created_at || latestTransmission.finished_at || latestTransmission.created_at || "",
+      identifier,
+      message: String(primaryError.message || document.last_error || latestAttempt.error_message || latestTransmission.error_message || "").trim(),
+      displayMessage: diagnosticMessage(primaryError, document),
+      additionalInformation: String(primaryError.additional_information || "").trim(),
+      accessKey: String(document.access_key || ""),
+      documentNumber: String(document.full_number || ""),
+      attemptId: String(latestAttempt.id || ""),
+      transmissionId: String(primaryError.transmission_id || latestAttempt.transmission_id || latestTransmission.id || "")
+    },
+    canViewDiagnostic: ERROR_STATUSES.has(status),
+    canTransmit: false,
+    action: "NONE",
+    actionLabel: "",
+    reason: "El estado actual no permite una operación de recuperación."
+  };
+
+  if (["AUTORIZADO", "ANULADO"].includes(status)) {
+    return {
+      ...base,
+      canViewDiagnostic: false,
+      reason: status === "AUTORIZADO"
+        ? "Un comprobante autorizado no puede volver a transmitirse."
+        : "Un comprobante anulado no puede volver a transmitirse."
+    };
+  }
+
+  if (QUERY_ONLY_IDENTIFIERS.has(identifier) && ["DEVUELTO", "NO_AUTORIZADO"].includes(status)) {
+    return {
+      ...base,
+      action: "QUERY_AUTHORIZATION",
+      actionLabel: identifier === "70" ? "Consultar autorización" : "Consultar estado SRI",
+      reason: identifier === "70"
+        ? "La clave está en procesamiento. Solo se consultará autorización con la misma clave."
+        : "El secuencial ya está registrado. Primero se consultará el estado de la misma clave, sin reenviar ni regenerar el comprobante."
+    };
+  }
+
+  if (["ERROR_ENVIO", "PENDIENTE_REINTENTO"].includes(status)) {
+    const explicitlyNonRetryable = latestAttempt.retryable === false || latestTransmission.status === "FAILED";
+    if (!explicitlyNonRetryable) {
+      return {
+        ...base,
+        canTransmit: true,
+        action: "RETRY_TRANSMISSION",
+        actionLabel: "Reintentar transmisión",
+        reason: "El backend clasificó el error técnico como recuperable y reutilizará el documento existente."
+      };
+    }
+  }
+
+  if (["DEVUELTO", "NO_AUTORIZADO", "ERROR_ENVIO"].includes(status)) {
+    return {
+      ...base,
+      action: "PREPARE_CORRECTION",
+      actionLabel: "Preparar corrección",
+      reason: "La respuesta requiere corrección explícita. Esta acción solo registra la decisión; no reenvía, no cambia la clave y no reserva otro secuencial."
+    };
+  }
+
+  return base;
+}
+
+module.exports = {
+  ERROR_STATUSES,
+  QUERY_ONLY_IDENTIFIERS,
+  diagnosticMessage,
+  normalizedIdentifier,
+  recoveryPolicy
+};

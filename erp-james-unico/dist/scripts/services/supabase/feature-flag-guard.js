@@ -19,16 +19,16 @@
     const flagReader = moduleFlagReaders[normalizedName];
 
     if (!status || !status.enabled) {
-      return "Supabase global desactivado. Usando modo local/demo.";
+      return "Supabase global desactivado. Usando almacenamiento local.";
     }
     if (!isConfigured) {
-      return "Cliente Supabase no configurado. Usando modo local/demo.";
+      return "Cliente Supabase no configurado. Usando almacenamiento local.";
     }
     if (!flagReader) {
       return "Modulo Supabase no soportado por el guard actual.";
     }
     if (!flagReader()) {
-      return "Feature flag del modulo desactivada. Usando modo local/demo.";
+      return "Feature flag del modulo desactivada. Usando almacenamiento local.";
     }
     return "Modulo habilitado para una futura transicion controlada.";
   }

@@ -33,7 +33,7 @@
   }
 
   function renderDaeControl(context) {
-    const { order, brand, dae, relatedOrders } = context;
+    const { company, order, brand, dae, relatedOrders } = context;
     const state = daeState(context);
     const relatedRows = relatedOrders.map(item => {
       const relatedBrand = utils.findBrand(item.brandId);
@@ -51,7 +51,7 @@
         <div class="doc-header">
           <div class="doc-company">
             <span class="doc-kicker">Control interno</span>
-            <strong class="doc-company-logo">BLESS FLOWER</strong>
+            ${printUtils.renderCompanyBrand(company)}
             <h2 class="doc-title">CONTROL DAE</h2>
             <p class="doc-subtitle">Revision interna de vigencia, destino y pedidos vinculados demo.</p>
           </div>

@@ -3,62 +3,48 @@
 
   function activeRoute(config) {
     return {
-      status: "Base activa",
+      status: "Activo local",
       future: false,
-      ...config
-    };
-  }
-
-  function placeholderRoute(config) {
-    return {
-      status: "Pendiente integracion",
-      future: false,
-      ...config
-    };
-  }
-
-  function futureRoute(config) {
-    return {
-      status: "Fase futura: no implementado todavia",
-      future: true,
       ...config
     };
   }
 
   function operationsRoute(config) {
     return {
-      status: "Demo visual preparado",
+      status: "Activo operativo",
       future: false,
       source: "Parte 1 POSCOSECHA",
-      futureAction: "Conectar adapter controlado de Parte 1",
+      futureAction: "Mantener trazabilidad entre recepción, rendimiento, disponibilidad y cuarto frío",
       ...config
     };
   }
 
   function commercialRoute(config) {
-    return placeholderRoute({
-      source: "Parte 3 EXPORTACIONES Y VENTA",
-      futureAction: "Integrar pantalla del prototipo",
-      ...config
-    });
-  }
-
-  function commercialDemoRoute(config) {
     return {
-      status: "Demo integrado",
+      status: "Activo en pruebas",
       future: false,
       source: "Parte 3 EXPORTACIONES Y VENTA",
-      futureAction: "Continuar adapter visual por dominio",
+      futureAction: "Mantener producción bloqueada hasta completar la validación tributaria",
+      ...config
+    };
+  }
+
+  function commercialActiveRoute(config) {
+    return {
+      status: "Activo comercial",
+      future: false,
+      source: "Parte 3 EXPORTACIONES Y VENTA",
+      futureAction: "Mantener el flujo comercial conectado y auditable",
       ...config
     };
   }
 
   function commercialCatalogRoute(config) {
     return {
-      status: "Demo catalogo",
+      status: "Catálogo activo",
       future: false,
       source: "Parte 3 EXPORTACIONES Y VENTA",
-      futureAction: "Conectar CRUD cuando se apruebe la siguiente fase",
+      futureAction: "Conservar referencias históricas al editar catálogos",
       ...config
     };
   }
@@ -67,11 +53,10 @@
     { id: "core", label: "Core del sistema", shortLabel: "CS", defaultRoute: "dashboard-home", groupIds: ["dashboard"] },
     { id: "operations", label: "Operaciones / Poscosecha", shortLabel: "OP", defaultRoute: "operations-postharvest", groupIds: ["operations"] },
     { id: "commercial", label: "Comercial / Exportaciones", shortLabel: "CE", defaultRoute: "commercial-panel", groupIds: ["commercial"] },
-    { id: "administration", label: "Administración / Contabilidad", shortLabel: "AC", defaultRoute: "accounting-chart", groupIds: ["accounting", "purchases", "portfolios", "banks", "tax"] },
+    { id: "administration", label: "Administración / Contabilidad", shortLabel: "AC", defaultRoute: "payroll-generation", groupIds: ["payroll", "accounting", "purchases", "portfolios", "banks", "tax"] },
     { id: "materials-inventory", label: "Inventario suministros / empaque", shortLabel: "IE", defaultRoute: "inventory-summary", groupIds: ["inventory"] },
     { id: "reports", label: "Reportes", shortLabel: "RP", defaultRoute: "reports-dashboard", groupIds: ["reports"] },
-    { id: "settings", label: "Configuración", shortLabel: "CF", defaultRoute: "settings-company", groupIds: ["settings"] },
-    { id: "extensions", label: "Módulos futuros", shortLabel: "MF", defaultRoute: "extensions-home", groupIds: ["extensions"] }
+    { id: "settings", label: "Configuración", shortLabel: "CF", defaultRoute: "settings-company", groupIds: ["settings"] }
   ];
 
   const groups = [
@@ -85,7 +70,7 @@
           id: "dashboard-home",
           label: "Panel general",
           title: "Panel general",
-          description: "Shell unico del ERP JAMES con estado de modulos, alertas y accesos rapidos.",
+      description: "Panel principal de JAEDER SYSTEMS con estado de modulos, alertas y accesos rapidos.",
           checklist: [
             "Estado del shell unico",
             "Resumen de modulos registrados",
@@ -95,26 +80,14 @@
         }),
         activeRoute({
           id: "core-diagnostics",
-          label: "Diagnóstico / Estado del ERP",
-          title: "Diagnóstico / Estado del ERP",
-          description: "Pantalla central de verificacion del shell, modulos activos, placeholders, fuentes tecnicas y advertencias.",
+      label: "Diagnóstico / Estado del sistema",
+      title: "Diagnóstico / Estado de JAEDER SYSTEMS",
+          description: "Pantalla central de verificación del shell, módulos activos, conexiones, fuentes técnicas y límites del entorno.",
           checklist: [
             "Estado del shell unico",
-            "Modulos activos y placeholder",
+            "Modulos activos y conexiones",
             "Fuentes tecnicas por parte",
             "Advertencias de integracion"
-          ]
-        }),
-        activeRoute({
-          id: "core-guided-demo",
-          label: "Prueba guiada demo",
-          title: "Prueba guiada demo/local del ERP unico",
-          description: "Recorrido guiado para validar el ERP en modo demo/local sin tocar servicios reales, Supabase, SRI ni inventario real.",
-          checklist: [
-            "Recorrido completo del ERP demo/local",
-            "Pasos manuales por Comercial, Operaciones y Contabilidad",
-            "Registro local de observaciones y prioridad",
-            "Confirmacion final de que no se activo nada real"
           ]
         })
       ]
@@ -129,13 +102,13 @@
           id: "operations-postharvest",
           label: "Panel operativo",
           title: "Panel operativo",
-          description: "Panel visual base del modulo operativo para preparar la futura integracion de Parte 1 sin mover aun su logica pesada.",
-          integrationRisk: "Acople alto con inventario de rosas, etiquetas y flujo operativo original.",
+          description: "Panel operativo para recepción, clasificación, etiquetas, inventario, rendimiento, disponibilidad y cuarto frío.",
+          integrationRisk: "Los cambios deben conservar la trazabilidad entre inventario de rosas, etiquetas, pedidos y nómina.",
           checklist: [
             "Panel operativo compacto",
-            "Tarjetas de integracion por frente",
+            "Accesos por frente operativo",
             "Separacion respecto al inventario administrativo",
-            "Base para futuras pantallas reales"
+            "Estado del flujo diario"
           ]
         }),
         operationsRoute({
@@ -150,8 +123,8 @@
           id: "operations-reception",
           label: "Recepción de flor",
           title: "Recepción de flor",
-          description: "Pantalla placeholder para lotes, proveedor, variedad, mallas y tallos recibidos.",
-          integrationRisk: "La recepcion original esta unida a flujo operativo y trazabilidad de Parte 1.",
+          description: "Registro de lotes, proveedor, variedad, mallas y tallos recibidos.",
+          integrationRisk: "La recepción alimenta clasificación, rendimiento y trazabilidad del lote.",
           checklist: [
             "Lotes y proveedor",
             "Variedad y tallos",
@@ -163,8 +136,8 @@
           id: "operations-grading",
           label: "Clasificación",
           title: "Clasificación",
-          description: "Pantalla placeholder para clasificacion por medida, calidad y categoria comercial.",
-          integrationRisk: "La clasificacion original afecta rendimiento, inventario y etiquetas.",
+          description: "Registro de clasificación por medida, calidad y categoría comercial.",
+          integrationRisk: "La clasificación alimenta rendimiento, inventario y etiquetas.",
           checklist: [
             "Clasificacion por medida",
             "Calidad comercial",
@@ -174,15 +147,15 @@
         }),
         operationsRoute({
           id: "operations-labels",
-          label: "Etiquetas de ramos",
-          title: "Etiquetas de ramos",
-          description: "Pantalla placeholder para digitacion, impresion de etiquetas y trazabilidad de ramos.",
-          integrationRisk: "El flujo original depende de codigos, estados y herramientas de impresion.",
+          label: "Etiquetas Zebra",
+          title: "Crear e imprimir etiquetas Zebra",
+          description: "Digitación temporal de composición e impresión ZPL directa, sin guardar etiquetas ni modificar inventario.",
+          integrationRisk: "La creación no persiste datos; el inventario nace únicamente cuando se escanea el código estructurado.",
           checklist: [
             "Digitacion operativa",
-            "Etiquetas de ramos",
-            "Busqueda de etiquetas",
-            "Base para scanner y Zebra"
+            "Tabla compacta de composición",
+            "Autocompletado desde Poscosecha",
+            "Impresión directa Zebra Browser Print"
           ]
         }),
         operationsRoute({
@@ -197,7 +170,7 @@
           id: "operations-roses-inventory",
           label: "Inventario de rosas",
           title: "Inventario de rosas",
-          description: "Pantalla placeholder para disponibilidad real, etiquetas en frio y control de flor.",
+          description: "Inventario de ramos escaneados, etiquetas en frío, movimientos y control de flor.",
           integrationRisk: "No debe mezclarse con inventario administrativo ni con stock contable.",
           checklist: [
             "Inventario de flor",
@@ -216,28 +189,15 @@
             "Variedad y medida",
             "Tallos disponibles",
             "Demanda pendiente sin reservas",
-            "Contrato con Pedido Maestro"
-          ]
-        }),
-        operationsRoute({
-          id: "operations-warehouse",
-          label: "Bodega de rosas",
-          title: "Bodega de rosas",
-          description: "Bandeja de pedidos enviados por Comercial e historial de pedidos completados.",
-          integrationRisk: "La bodega original esta ligada a inventario de rosas y despacho operativo.",
-          checklist: [
-            "Pedidos pendientes por preparar",
-            "Orden de llegada",
-            "Avance de cajas",
-            "Historial de pedidos completados"
+            "Contrato con pedidos comerciales"
           ]
         }),
         operationsRoute({
           id: "operations-yields",
           label: "Rendimientos",
           title: "Rendimientos",
-          description: "Pantalla placeholder para medir rendimiento por proveedor, variedad y proceso.",
-          integrationRisk: "Los rendimientos originales dependen de clasificacion, lotes y recepcion.",
+          description: "Rendimiento por proveedor y proceso, junto con los registros laborales de clasificadores y embonchadores.",
+          integrationRisk: "El rendimiento laboral depende de tallos clasificados y bonches ingresados dentro del periodo.",
           checklist: [
             "Rendimiento por lote",
             "Indicadores por proveedor",
@@ -246,29 +206,29 @@
           ]
         }),
         operationsRoute({
-          id: "operations-scanner",
-          label: "Scanner / Zebra técnico",
-          title: "Scanner / Zebra técnico",
-          description: "Validacion compacta del lector HID y acceso a las estaciones de ingreso de ramos y armado en Bodega.",
-          integrationRisk: "La integracion original depende de hardware y flujo de etiquetas en Parte 1.",
+          id: "operations-yield-screen",
+          label: "PANTALLA DE RENDIMIENTOS",
+          title: "Pantalla de rendimientos",
+          description: "Presentacion de produccion para television o monitor externo.",
+          integrationRisk: "Solo lectura de rendimientos operativos registrados.",
           checklist: [
-            "Diagnostico de lectura HID",
-            "Acceso a ingreso de ramos",
-            "Acceso a Bodega / armado",
-            "Historial tecnico"
+            "Top 3, Top 5 y resto de embonchadores",
+            "Top 3, Top 5 y resto de clasificadores",
+            "Actualizacion automatica",
+            "Pantalla completa"
           ]
         }),
         operationsRoute({
           id: "operations-dispatch",
-          label: "Despacho operativo",
-          title: "Despacho operativo",
-          description: "Pantalla placeholder para cierre de cajas, salida operativa y trazabilidad de despacho.",
-          integrationRisk: "El despacho original depende de bodega, cajas y trazabilidad operativa completa.",
+          label: "Cuarto frío",
+          title: "Cuarto frío · Escáner de cajas",
+          description: "Pedidos enviados desde Comercial, selección de caja y lectura automática de ramos con Zebra.",
+          integrationRisk: "Integra pedidos, cajas, lectura HID y disponibilidad sin requerir confirmación de despacho.",
           checklist: [
-            "Despacho de cajas",
-            "Destino operativo",
-            "Control de salida",
-            "Relacion con pedido futuro"
+            "Pedidos preparados por Comercial",
+            "Escáner de cajas",
+            "Avance guardado con cada lectura",
+            "Caja y pedido completados automáticamente"
           ]
         })
       ]
@@ -279,59 +239,93 @@
       shortLabel: "CE",
       defaultRoute: "commercial-panel",
       routes: [
-        commercialDemoRoute({
+        commercialActiveRoute({
           id: "commercial-panel",
           label: "Panel comercial",
           title: "Panel comercial",
-          description: "Modulo comercial demo integrado dentro del shell unico, desacoplado del prototipo monolitico original.",
-          integrationRisk: "Aun faltan adapters para disponibilidad real, ventas-contabilidad y salidas documentales finales.",
+          description: "Panel de pedidos, catálogos, disponibilidad compartida, documentos e integración multiempresa.",
+          integrationRisk: "La emisión SRI se mantiene en ambiente de pruebas; producción continúa bloqueada.",
           checklist: [
             "Panel comercial operativo",
-            "Pedido Maestro modular",
-            "Historial y previews demo",
-            "Separacion frente a contabilidad"
+            "Crear pedido y PO Nuevo",
+            "Historial e impresión",
+            "Disponibilidad compartida"
           ]
         }),
-        commercialDemoRoute({
+        commercialActiveRoute({
           id: "commercial-orders-day",
           label: "Órdenes del día",
           title: "Órdenes del día",
           description: "Bandeja diaria de ordenes con avance por cajas, bunches escaneados y pendientes.",
-          integrationRisk: "El armado es demo y no descuenta inventario real.",
-          checklist: ["Ordenes por dia", "Avance de cajas", "Acceso al armado", "Sin cierre automatico"]
+          integrationRisk: "El consumo físico depende del escaneo y del cierre operativo de Bodega.",
+          checklist: ["Ordenes por dia", "Avance de cajas", "Acceso al armado", "Seguimiento operativo"]
         }),
-        commercialDemoRoute({
+        commercialActiveRoute({
+          id: "commercial-preorders",
+          label: "PO Nuevo",
+          title: "PO Nuevo",
+          description: "Borradores comerciales opcionales que pueden confirmarse y generar un pedido prellenado.",
+          integrationRisk: "No afecta inventario, reservas, Bodega ni SRI; solo transfiere datos hacia Crear pedido.",
+          checklist: [
+            "Borrador independiente",
+            "Confirmacion interna del PO",
+            "Generacion de pedido prellenado",
+            "Sin autorizacion SRI"
+          ]
+        }),
+        commercialActiveRoute({
           id: "commercial-order-master",
-          label: "Pedido Maestro",
-          title: "Pedido Maestro",
-          description: "Pantalla central del flujo comercial demo con cliente, marca, DAE, logistica, cajas, packing e impresion.",
-          integrationRisk: "La disponibilidad real y la facturacion final aun no se conectan en esta fase.",
+          label: "Crear pedido",
+          title: "Crear pedido",
+          description: "Formulario central para crear pedidos y editar los pedidos abiertos desde el historial.",
+          integrationRisk: "La disponibilidad se comparte con Poscosecha; la factura SRI se autoriza después desde su bandeja de pruebas.",
           checklist: [
             "Cliente principal y marca",
             "Logistica editable",
             "Cajas y variedades",
-            "Centro de impresion demo"
+            "Edicion desde Pedidos / Historial"
           ]
         }),
-        commercialDemoRoute({
+        commercialActiveRoute({
           id: "commercial-order-detail",
-          label: "Seguimiento de orden",
-          title: "Seguimiento de orden",
-          description: "Vista comercial de avance por cajas; el armado se consulta desde Bodega y se ejecuta en el detalle operativo del pedido.",
-          integrationRisk: "No debe duplicar el escaneo operativo ni asignar flor desde Comercial.",
-          checklist: ["Cajas desplegables", "Lineas por variedad y medida", "Avance de Bodega", "Acceso a Bodega"]
+          label: "Seguimiento de pedidos",
+          title: "Seguimiento de pedidos",
+          description: "Consulta separada del avance de Cuarto frío y coordinación diaria de guías y DAE.",
+          integrationRisk: "Es una vista de consulta; no duplica el escaneo ni modifica inventario desde Comercial.",
+          checklist: ["Estado de preparación", "Detalle por caja", "Composición real de mixtos abiertos", "Coordinación diaria"]
         }),
-        commercialDemoRoute({
+        commercialActiveRoute({
+          id: "commercial-order-coordination",
+          label: "Coordinación diaria",
+          title: "Coordinación diaria",
+          description: "Editor general por fecha para completar guías y DAE marítimas de los pedidos.",
+          integrationRisk: "Actualiza el pedido original antes de crear el comprobante SRI; no duplica órdenes ni documentos.",
+          checklist: ["Pedidos por fecha", "Guía madre", "Guía hija", "DAE marítima", "Guardado general"]
+        }),
+        commercialActiveRoute({
           id: "commercial-order-history",
           label: "Pedidos / Historial",
           title: "Pedidos / Historial",
-          description: "Bandeja demo para seguimiento de pedidos, estados, vuelos y vistas de impresion.",
-          integrationRisk: "La trazabilidad definitiva y la auditoria plena se completaran en una fase posterior.",
+          description: "Bandeja central para seguimiento, seleccion e impresion directa de documentos comerciales.",
+          integrationRisk: "Los pedidos se anulan con historial; no deben eliminarse físicamente ni reutilizar su secuencial.",
           checklist: [
             "Listado por fecha",
             "Estado del pedido",
             "Cliente y destino",
-            "Acciones de continuidad"
+            "Impresion comercial masiva"
+          ]
+        }),
+        commercialActiveRoute({
+          id: "commercial-availability-reservations",
+          label: "Disponibilidad",
+          title: "Disponibilidad compartida",
+          description: "Consulta el inventario físico de Bless Flower y descuenta la demanda activa de Bless e Imperio sin crear inventario propio en Imperio.",
+          integrationRisk: "Imperio solo consulta y compromete disponibilidad comercial; el inventario físico continúa perteneciendo exclusivamente a Bless Flower.",
+          checklist: [
+            "Variedad y medida",
+            "Ramos y tallos disponibles",
+            "Demanda de Bless e Imperio",
+            "Actualización automática entre dispositivos"
           ]
         }),
         commercialCatalogRoute({
@@ -339,7 +333,7 @@
           label: "Clientes principales",
           title: "Clientes principales",
           description: "Catalogo editable del cliente principal interno, sus datos comerciales y condiciones de credito.",
-          integrationRisk: "El mantenimiento es local/demo y no conecta cartera ni facturacion real.",
+          integrationRisk: "Los datos se guardan por empresa en el almacenamiento local y deben conservar sus referencias históricas.",
           checklist: [
             "Clientes internos",
             "Datos de contacto",
@@ -352,7 +346,7 @@
           label: "Marcas / Clientes finales",
           title: "Marcas / Clientes finales",
           description: "Catalogo editable de marcas y clientes finales relacionados con un cliente principal.",
-          integrationRisk: "El mantenimiento es local/demo y las agencias siguen en su catalogo separado.",
+          integrationRisk: "Las agencias se administran en su catálogo separado y el destino debe provenir de la marca seleccionada.",
           checklist: [
             "Cliente principal obligatorio",
             "Marca y razon social final",
@@ -360,25 +354,12 @@
             "Agencia y reglas de PO"
           ]
         }),
-        commercialDemoRoute({
-          id: "commercial-availability-reservations",
-          label: "Disponibilidad",
-          title: "Disponibilidad para venta",
-          description: "Inventario fisico disponible menos demanda pendiente de pedidos activos, sin reservar ramos individualmente.",
-          integrationRisk: "No debe crear inventario ni modificar clasificacion operativa de Parte 1.",
-          checklist: [
-            "Consulta comercial de solo lectura",
-            "Pedidos activos desde VALIDADO_COMERCIAL",
-            "Disponibilidad real para venta",
-            "Contrato con Operaciones"
-          ]
-        }),
         commercialCatalogRoute({
           id: "commercial-cargo-agencies",
           label: "Agencias de carga",
           title: "Agencias de carga",
-          description: "Catalogo demo de agencias de carga y cuartos frios sugeridos.",
-          integrationRisk: "La coordinacion operativa final aun no se desacopla por completo.",
+          description: "Catalogo editable de agencias de carga y cuartos frios sugeridos.",
+          integrationRisk: "La coordinación con sistemas externos de la carguera continúa siendo manual.",
           checklist: [
             "Agencias de carga",
             "Coordinacion",
@@ -387,18 +368,18 @@
           ]
         }),
         commercialCatalogRoute({
-          id: "commercial-destinations",
-          label: "Destinos / Países",
-          title: "Destinos / Países",
-          description: "Catalogo editable de destinos, paises y transporte sugerido para Marca, DAE y Pedido Maestro.",
-          integrationRisk: "El catalogo es local/demo y no conecta fuentes aduaneras externas.",
-          checklist: ["Codigo de destino", "Pais relacionado", "Transporte sugerido", "Uso en Marca y DAE"]
+          id: "commercial-countries",
+          label: "Paises",
+          title: "Paises",
+          description: "Catalogo único de países; cada país funciona también como destino para clientes finales, DAEs y pedidos.",
+          integrationRisk: "Debe ser la unica fuente de paises del modulo comercial y conservar referencias historicas.",
+          checklist: ["Codigo interno", "Nombre unico", "Estado activo o inactivo", "Uso en catalogos comerciales"]
         }),
         commercialCatalogRoute({
           id: "commercial-daes",
           label: "DAEs",
           title: "DAE / Aduana",
-          description: "Catalogo demo de DAEs activas y su caducidad para autoasignacion desde Pedido Maestro.",
+          description: "Catalogo editable de DAEs activas y su caducidad para asignación desde Crear pedido.",
           integrationRisk: "La parte aduanera debe mantenerse separada del SRI real y de SENAE automatizado.",
           checklist: [
             "Numero DAE",
@@ -411,8 +392,8 @@
           id: "commercial-airlines",
           label: "Líneas aéreas",
           title: "Líneas aéreas",
-          description: "Catalogo demo de lineas aereas y prefijos AWB.",
-          integrationRisk: "La linea aerea definitiva debera coordinarse luego con salidas documentales reales.",
+          description: "Catalogo editable de lineas aereas y prefijos AWB.",
+          integrationRisk: "La línea aérea es opcional al crear la DAE y debe coincidir con los documentos del embarque.",
           checklist: [
             "Catalogo base",
             "Datos de vuelo",
@@ -425,73 +406,84 @@
           label: "Productos exportables",
           title: "Productos exportables",
           description: "Vista comercial de variedades activas provenientes de Parametros de Operaciones / Poscosecha.",
-          integrationRisk: "No crea variedades ni inventario; depende del catalogo maestro operativo local/demo.",
+          integrationRisk: "Es una consulta: no crea variedades ni inventario y depende del catálogo maestro de Poscosecha.",
           checklist: [
             "Variedades activas de Operaciones",
             "Genero y especie",
             "Codigos HTS y NANDINA",
-            "Fuente unica para Pedido Maestro"
+            "Fuente unica para Crear pedido"
           ]
         }),
         commercialCatalogRoute({
           id: "commercial-box-types",
           label: "Tipos de caja",
           title: "Tipos de caja",
-          description: "Catalogo predeterminado de tipos de box, equivalencias y pesos usados por Pedido Maestro.",
+          description: "Catalogo predeterminado de tipos de box, equivalencias y pesos usados al crear pedidos.",
           integrationRisk: "Los tipos son base del pedido y no deben editarse sin revisar empaque, documentos y reportes.",
-          checklist: ["Codigos FB/HB/QB/EB/JB", "Conversion a full", "Pesos", "Uso en Pedido Maestro"]
+          checklist: ["Codigos FB/HB/QB/EB/JB", "Conversion a full", "Pesos", "Uso en Crear pedido"]
         }),
-        commercialDemoRoute({
-          id: "commercial-invoice-packing",
-          label: "Invoice / Packing carguera",
-          title: "Invoice / Packing carguera",
-          description: "Preview demo dinamico del documento carguera basado en el Pedido Maestro activo.",
-          integrationRisk: "No debe confundirse con factura cliente ni con facturacion SRI real.",
-          checklist: [
-            "Documento preliminar",
-            "Totales de cajas",
-            "Variedades y tallos",
-            "Formato de impresion"
-          ]
+        commercialRoute({
+          id: "commercial-senae-liquidation",
+          label: "Liquidación SENAE",
+          title: "Liquidación SENAE V2",
+          description: "Reporte read-only de facturas SRI autorizadas locales y de exportación por fecha de emisión.",
+          integrationRisk: "Solo debe incluir facturas tipo 01 autorizadas de la empresa activa.",
+          checklist: ["Rango por issue_date", "Facturas tipo 01 autorizadas", "Local y Exportador", "XLSX con identidad de empresa"]
         }),
-        commercialDemoRoute({
-          id: "commercial-client-invoice",
-          label: "Factura Comercial Cliente",
-          title: "Factura Comercial Cliente",
-          description: "Vista demo separada del Invoice / Packing carguera y de la futura factura SRI.",
-          integrationRisk: "No debe confundirse con factura electronica autorizada ni generar CxC real en esta fase.",
+        commercialRoute({
+          id: "commercial-credit-notes",
+          label: "Notas de crédito",
+          title: "Notas de crédito",
+          description: "Emisión total o parcial de notas de crédito vinculadas a facturas SRI autorizadas.",
+          integrationRisk: "La cartera solo debe modificarse cuando la nota de crédito quede autorizada por el SRI.",
           checklist: [
-            "Documento comercial cliente",
-            "Vista agrupada o detallada",
-            "Impresion demo",
-            "Sin SRI ni contabilidad real"
-          ]
-        }),
-        commercialDemoRoute({
-          id: "commercial-print-center",
-          label: "Centro de impresión",
-          title: "Centro de impresión",
-          description: "Centro demo para agrupar packing, invoice, hoja de ruta, MP, etiquetas y control DAE.",
-          integrationRisk: "La impresion final aun requiere plantillas definitivas y salidas reales aprobadas.",
-          checklist: [
-            "Packing",
-            "Invoice",
-            "Hoja de ruta",
-            "Etiquetas"
+            "Factura autorizada como documento origen",
+            "Selección de variedades y cantidades",
+            "Motivo obligatorio",
+            "XML y RIDE de la nota autorizada"
           ]
         }),
         commercialRoute({
           id: "commercial-sri-authorization",
-          label: "Autorización SRI futura",
-          title: "Autorización SRI futura",
-          description: "Pantalla placeholder para dejar reservado el frente tributario sin implementar SRI real.",
-          integrationRisk: "No debe mezclarse con Invoice / Packing ni con contabilidad definitiva en esta fase.",
+          label: "Documentos electrónicos SRI",
+          title: "Documentos electrónicos SRI",
+          description: "Bandeja de documentos para emisión y autorización SRI en ambiente de pruebas.",
+          integrationRisk: "Producción permanece bloqueada hasta validar XML, firma P12 y respuestas oficiales.",
           checklist: [
-            "Reservado para fase futura",
-            "Sin SRI real",
-            "Sin contabilidad automatica",
-            "No implementar todavia"
+            "Ficha técnica 2.34",
+            "XML y XSD oficiales",
+            "Firma P12 solo en backend",
+            "Transmisión inmediata"
           ]
+        })
+      ]
+    },
+    {
+      id: "payroll",
+      label: "Rol de pagos",
+      shortLabel: "RP",
+      defaultRoute: "payroll-generation",
+      routes: [
+        activeRoute({
+          id: "payroll-employees",
+          label: "Personal y tarifas",
+          title: "Personal y tarifas del rol",
+          description: "Personal conectado con Parámetros de Poscosecha y valores básicos para calcular el rol.",
+          checklist: ["Sin proveedores", "Clasificadores por tallos", "Embonchadores por bonches", "Tarifas fáciles de revisar"]
+        }),
+        activeRoute({
+          id: "payroll-generation",
+          label: "Crear rol",
+          title: "Crear rol de pagos",
+          description: "Seleccione el periodo y los trabajadores; el sistema calcula automáticamente sueldo, horas, rendimiento y comisiones.",
+          checklist: ["Elegir periodo", "Seleccionar trabajadores", "Calcular y revisar", "Aprobar"]
+        }),
+        activeRoute({
+          id: "payroll-approved",
+          label: "Historial e impresión",
+          title: "Historial e impresión del rol",
+        description: "Consulte roles terminados, registre pagos e imprima el comprobante individual con la identidad de la empresa activa.",
+          checklist: ["Consultar rol", "Registrar pago", "Imprimir individual o todos", "Anular con motivo"]
         })
       ]
     },
@@ -510,7 +502,19 @@
             "Arbol jerarquico desplegable",
             "Filtros por codigo y nombre",
             "Cuentas padre y cuentas de movimiento",
-            "Importacion y exportacion del plan"
+            "Creacion y edicion con auditoria"
+          ]
+        }),
+        activeRoute({
+          id: "accounting-sales",
+          label: "Ventas contables",
+          title: "Facturas de venta, cobros y retenciones",
+          description: "Control contable de facturas autorizadas, notas de crédito, cobros y retenciones recibidas, sin mezclar pedidos comerciales.",
+          checklist: [
+            "Facturas SRI autorizadas",
+            "Notas de crédito aplicadas",
+            "Cobros y retenciones recibidas",
+            "Saldos iniciales mediante XML"
           ]
         }),
         activeRoute({
@@ -521,8 +525,8 @@
           checklist: [
             "Asientos manuales y automaticos",
             "Filtros por fecha y origen",
-            "Impresion y exportacion",
-            "Detalle por documento origen"
+            "Contabilizacion y anulacion",
+            "Reversion con trazabilidad"
           ]
         }),
         activeRoute({
@@ -534,19 +538,19 @@
             "Consulta por cuenta",
             "Rangos de fecha",
             "Saldo acumulado",
-            "Enlace a libro diario y origen"
+            "Detalle de movimientos contabilizados"
           ]
         }),
         activeRoute({
           id: "accounting-financials",
-          label: "Estados financieros",
-          title: "Estados financieros",
-          description: "Base para balance general, estado de resultados y reportes financieros.",
+          label: "Balance y estados",
+          title: "Balance de comprobacion y estados financieros",
+          description: "Balance de comprobacion, balance general y estado de resultados con control automatico de diferencias.",
           checklist: [
             "Balance general",
             "Estado de resultados",
-            "Comparativos por periodo",
-            "Vista exportable para gerencia"
+            "Balance de comprobacion",
+            "Movimiento por cuenta"
           ]
         })
       ]
@@ -567,6 +571,18 @@
             "Lectura de proveedor y autorizacion",
             "Revision previa del comprobante",
             "Separacion entre carga y contabilizacion"
+          ]
+        }),
+        activeRoute({
+          id: "purchases-providers",
+          label: "Proveedores",
+          title: "Proveedores de compras",
+          description: "Catalogo de proveedores creado y actualizado automaticamente desde los XML de compra.",
+          checklist: [
+            "Creacion automatica por RUC",
+            "Datos fiscales extraidos del XML",
+            "Edicion y complemento de la ficha",
+            "Relacion directa con compras y cuentas por pagar"
           ]
         }),
         activeRoute({
@@ -594,6 +610,18 @@
           ]
         }),
         activeRoute({
+          id: "purchases-supplier-settlements",
+          label: "Liquidaciones",
+          title: "Liquidaciones de proveedores y productores",
+          description: "Convierte recepciones confirmadas en costos históricos y obligaciones por pagar sin duplicarlas.",
+          checklist: [
+            "Recepciones pendientes por proveedor",
+            "Precio por tallo o ramo",
+            "Liquidación y cuenta por pagar transaccionales",
+            "Costo trazable desde la recepción"
+          ]
+        }),
+        activeRoute({
           id: "purchases-withholdings-issued",
           label: "Retenciones emitidas",
           title: "Retenciones emitidas en compras",
@@ -603,6 +631,18 @@
             "Documento soporte",
             "Lineas y bases imponibles",
             "Resumen y exportacion futura"
+          ]
+        }),
+        activeRoute({
+          id: "purchases-retention-report",
+          label: "Reporte de retenciones",
+          title: "Reporte de retenciones",
+          description: "Consulta tributaria bajo demanda de retenciones emitidas y recibidas.",
+          checklist: [
+            "Fechas tributarias inclusivas",
+            "Emitidas y recibidas diferenciadas",
+            "Resumen calculado en servidor",
+            "Consulta y exportacion con los mismos filtros"
           ]
         }),
         activeRoute({
@@ -675,9 +715,9 @@
         }),
         activeRoute({
           id: "portfolios-payments-single",
-          label: "Pagos individuales",
-          title: "Pagos individuales",
-          description: "Registro futuro de pagos unitarios a proveedores u obligaciones.",
+          label: "Pagos",
+          title: "Registrar pago",
+          description: "Pantalla sencilla para escoger la obligación, indicar cómo se pagó y guardar.",
           checklist: [
             "Documento a pagar",
             "Cuenta de salida",
@@ -686,39 +726,15 @@
           ]
         }),
         activeRoute({
-          id: "portfolios-payments-bulk",
-          label: "Pagos masivos",
-          title: "Pagos masivos",
-          description: "Base para operaciones de pago por lote y aplicacion multiple.",
-          checklist: [
-            "Seleccion multiple de documentos",
-            "Total aplicado",
-            "Cuenta bancaria o caja",
-            "Comprobante consolidado"
-          ]
-        }),
-        activeRoute({
           id: "portfolios-collections-single",
-          label: "Cobros individuales",
-          title: "Cobros individuales",
-          description: "Cobros parciales o totales por cliente con asiento contable y enlace a bancos/caja.",
+          label: "Cobros",
+          title: "Registrar cobro",
+          description: "Pantalla sencilla para escoger la factura, registrar el valor recibido y su banco o caja.",
           checklist: [
             "Factura o documento por cobrar",
             "Banco o caja de ingreso",
             "Comprobante de cobro",
             "Relacion con Libro Diario y Mayor"
-          ]
-        }),
-        activeRoute({
-          id: "portfolios-collections-bulk",
-          label: "Cobros masivos",
-          title: "Cobros masivos",
-          description: "Cobros por lote para varios documentos, con resumen, confirmacion y asiento unico.",
-          checklist: [
-            "Seleccion multiple de cuentas por cobrar",
-            "Total aplicado",
-            "Cuenta de ingreso",
-            "Confirmacion del lote y reverso si aplica"
           ]
         })
       ]
@@ -764,6 +780,27 @@
             "Cruce interno vs banco",
             "Resumen por cuenta"
           ]
+        }),
+        activeRoute({
+          id: "banks-cash",
+          label: "Cajas",
+          title: "Cuentas de caja",
+          description: "Caja general y cajas internas con saldo derivado de movimientos confirmados.",
+          checklist: ["Cuenta contable", "Saldo inicial", "Ingresos y egresos", "Auditoria"]
+        }),
+        activeRoute({
+          id: "banks-transfers",
+          label: "Transferencias",
+          title: "Transferencias de tesoreria",
+          description: "Movimientos atomicos entre bancos y cajas.",
+          checklist: ["Banco a banco", "Caja a banco", "Banco a caja", "Partida doble"]
+        }),
+        activeRoute({
+          id: "banks-cash-flow",
+          label: "Flujo de efectivo",
+          title: "Flujo de efectivo",
+          description: "Vista separada de movimientos reales y esperados.",
+          checklist: ["Saldo inicial", "Ingresos", "Egresos", "Real versus esperado"]
         })
       ]
     },
@@ -969,16 +1006,16 @@
             "Consumos por periodo"
           ]
         }),
-        futureRoute({
+        activeRoute({
           id: "reports-commercial",
           label: "Reportes comerciales",
           title: "Reportes comerciales",
-          description: "Reservado para la fase futura cuando se conecte la capa comercial y exportadora.",
+          description: "Rentabilidad de pedidos y ventas por rango de fechas, separada del Historial de pedidos.",
           checklist: [
-            "Pedidos y embarques",
-            "Packing e invoice",
-            "Ventas por cliente y destino",
-            "No implementar todavia"
+            "Rentabilidad por pedido",
+            "Detalle por variedad y medida",
+            "Filtros por fecha",
+            "Descarga XLSX bajo demanda"
           ]
         })
       ]
@@ -993,7 +1030,7 @@
           id: "settings-company",
           label: "Empresa",
           title: "Empresa",
-          description: "Datos generales de la empresa y parametros base del ERP unico.",
+      description: "Datos generales de la empresa y parametros base de JAEDER SYSTEMS.",
           checklist: [
             "Razon social y nombre comercial",
             "Periodo contable",
@@ -1017,7 +1054,7 @@
           id: "settings-audit",
           label: "Auditoria",
           title: "Auditoria",
-          description: "Bitacora interna de acciones importantes del ERP con filtros por modulo, usuario, fecha y resultado.",
+      description: "Bitacora interna de acciones importantes de JAEDER SYSTEMS con filtros por modulo, usuario, fecha y resultado.",
           checklist: [
             "Eventos importantes por modulo",
             "Filtro por usuario y accion",
@@ -1029,10 +1066,10 @@
           id: "settings-sequences",
           label: "Secuenciales",
           title: "Secuenciales",
-          description: "Catalogo interno de numeracion para asientos, compras, pagos, cobros, bancos, inventario y ATS preliminar.",
+          description: "Numeracion SRI por empresa, establecimiento, punto de emision y tipo de comprobante; incluye tambien los secuenciales internos.",
           checklist: [
-            "Series y numeracion",
-            "Reserva de secuenciales",
+            "Establecimiento y punto de emision por empresa",
+            "Factura 01 y comprobante de retencion 07",
             "Control por documento",
             "Visor de proximos numeros"
           ]
@@ -1050,72 +1087,15 @@
           ]
         }),
         activeRoute({
-          id: "settings-sri",
-          label: "Parametros SRI",
-          title: "Parametros SRI",
-          description: "Panel reservado para datos SRI de la empresa sin tocar aun integracion real.",
+          id: "settings-synchronization",
+          label: "Sincronización",
+          title: "Centro de sincronización",
+          description: "Operaciones pendientes, errores y conflictos persistentes entre dispositivos.",
           checklist: [
-            "Datos tributarios",
-            "Establecimiento y punto de emision",
-            "Ambiente y tipo de emision",
-            "Preparacion para fase futura"
-          ]
-        })
-      ]
-    },
-    {
-      id: "extensions",
-      label: "Módulos futuros",
-      shortLabel: "MF",
-      defaultRoute: "extensions-home",
-      future: true,
-      routes: [
-        futureRoute({
-          id: "extensions-home",
-          label: "Mapa futuro",
-          title: "Módulos futuros",
-          description: "Espacio reservado para expansiones posteriores del ERP unico.",
-          checklist: [
-            "LLC USA",
-            "CRM",
-            "Marketing",
-            "Costos y movil"
-          ]
-        }),
-        futureRoute({
-          id: "extensions-usa-llc",
-          label: "LLC USA",
-          title: "LLC USA",
-          description: "Modulo futuro reservado para la operacion LLC USA.",
-          checklist: [
-            "Clientes y documentos",
-            "Flujo internacional",
-            "Reportes dedicados",
-            "No implementar todavia"
-          ]
-        }),
-        futureRoute({
-          id: "extensions-crm",
-          label: "CRM",
-          title: "CRM",
-          description: "Modulo futuro para seguimiento comercial y relacion con clientes.",
-          checklist: [
-            "Prospectos",
-            "Seguimiento",
-            "Actividades",
-            "No implementar todavia"
-          ]
-        }),
-        futureRoute({
-          id: "extensions-marketing",
-          label: "Marketing",
-          title: "Marketing",
-          description: "Espacio futuro para acciones comerciales y marketing.",
-          checklist: [
-            "Campanas",
-            "Segmentos",
-            "Analitica",
-            "No implementar todavia"
+            "Estado permanente de la cola",
+            "Resolución explícita de conflictos",
+            "Reintento y recuperación desde Supabase",
+            "Respaldo local antes de reemplazar datos"
           ]
         })
       ]

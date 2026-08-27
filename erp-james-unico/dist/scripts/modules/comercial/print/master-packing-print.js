@@ -12,7 +12,7 @@
   }
 
   function renderMasterPacking(context) {
-    const { order, brand, agency, metrics, boxGroups } = context;
+    const { company, order, brand, agency, metrics, boxGroups } = context;
     const byType = Object.entries(boxGroups.reduce((accumulator, group) => {
       const current = accumulator[group.boxType] || { boxes: 0, fullEquivalent: 0 };
       current.boxes += 1;
@@ -54,7 +54,7 @@
         <div class="doc-header">
           <div class="doc-company">
             <span class="doc-kicker">Reporte interno</span>
-            <strong class="doc-company-logo">BLESS FLOWER</strong>
+            ${printUtils.renderCompanyBrand(company)}
             <h2 class="doc-title">MP / MASTER PACKING</h2>
             <p class="doc-subtitle">Consolidado interno del pedido para revision comercial y logistica demo.</p>
           </div>

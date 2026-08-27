@@ -4,8 +4,81 @@
   const stateApi = BlessERP.comercialState;
   const utils = BlessERP.comercialUtils;
   const workflow = BlessERP.comercialWorkflow;
+  const deferredRenderTokens = new Map();
+  let panelCache = null;
 
-  function renderPanel(appState) {
+  function renderRouteLoading({ title, description, status, detail }) {
+    return `
+      <section class="page-header">
+        <div><p class="section-kicker">COMERCIAL / EXPORTACIONES</p><h1>${utils.esc(title)}</h1><p>${utils.esc(description)}</p></div>
+        <div class="page-header-side"><span class="order-tracking-loading-status"><span class="jaeder-loading-spinner" aria-hidden="true"></span>${utils.esc(status)}</span></div>
+      </section>
+      <section class="order-tracking-progress" data-jaeder-deferred-content role="status" aria-live="polite" aria-busy="true">
+        <div class="order-tracking-skeleton-grid" aria-hidden="true">
+          ${Array.from({ length: 3 }, () => `<article><span class="order-tracking-skeleton-line short"></span><span class="order-tracking-skeleton-line metric"></span><span class="order-tracking-skeleton-line"></span></article>`).join("")}
+        </div>
+        <section class="panel-card order-tracking-skeleton-panel" aria-hidden="true">
+          <div class="order-tracking-skeleton-filters"><span class="order-tracking-skeleton-line"></span><span class="order-tracking-skeleton-line"></span></div>
+          ${Array.from({ length: 5 }, () => `<div class="order-tracking-skeleton-row"><span></span><span></span><span></span><span></span></div>`).join("")}
+        </section>
+        <p>${utils.esc(detail)}</p>
+      </section>
+    `;
+  }
+
+  function renderRouteDeferred(container, appState, routeId, loading, renderContent, bindContent) {
+    const token = Number(deferredRenderTokens.get(routeId) || 0) + 1;
+    deferredRenderTokens.set(routeId, token);
+    container.innerHTML = renderRouteLoading(loading);
+    const complete = () => {
+      if (token !== deferredRenderTokens.get(routeId) || BlessERP.state.currentRoute().id !== routeId) return;
+      try {
+        BlessERP.performance?.measureSync?.(`render:${routeId}:contenido`, () => {
+          container.innerHTML = renderContent();
+          bindContent();
+          BlessERP.layout.finalizeDeferredContent?.(container);
+        }, { routeId });
+        BlessERP.performance?.finishRouteTransition?.(routeId, {
+          domNodes: container.querySelectorAll("*").length,
+          progressive: true
+        });
+      } catch (error) {
+        container.innerHTML = `<section class="panel-card"><h2>No se pudo abrir ${utils.esc(loading.title)}</h2><p>${utils.esc(error?.message || "Error de carga")}</p></section>`;
+        BlessERP.performance?.finishRouteTransition?.(routeId, { error: true, progressive: true });
+        console.error(`[JAEDER][${routeId}]`, error);
+      }
+    };
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(complete));
+    } else {
+      window.setTimeout(complete, 20);
+    }
+  }
+
+  function renderTrackingLoading() {
+    return renderRouteLoading({
+      title: "Seguimiento de pedidos",
+      description: "Consulte el avance de Cuarto frio y el contenido real ingresado en cada caja.",
+      status: "Preparando pedidos...",
+      detail: "Organizando estados, cajas y ramos ingresados. La pantalla se completará automáticamente."
+    });
+  }
+
+  function renderTrackingDeferred(container, appState) {
+    renderRouteDeferred(container, appState, "commercial-order-detail", {
+      title: "Seguimiento de pedidos",
+      description: "Consulte el avance de Cuarto frio y el contenido real ingresado en cada caja.",
+      status: "Preparando pedidos...",
+      detail: "Organizando estados, cajas y ramos ingresados. La pantalla se completará automáticamente."
+    }, () => BlessERP.comercialOrderDetail.render(appState, "SEGUIMIENTO"), () => {
+      BlessERP.comercialOrderDetail.bind(container, appState);
+    });
+  }
+
+  function renderPanelLegacy(appState) {
+    const revision = Number(BlessERP.state?.dataRevision?.() || 0);
+    const companyId = String(BlessERP.services?.companyContext?.activeCompanyId?.() || appState?.db?.activeCompanyId || "");
+    if (panelCache?.revision === revision && panelCache.companyId === companyId) return panelCache.html;
     const orders = stateApi.getOrders(appState);
     const currentOrder = stateApi.currentOrder(appState);
     const reservations = stateApi.getReservations(appState);
@@ -43,49 +116,51 @@
     const ordersPendingConsumptionDemo = cycleRows.filter(item => String(item.estado_ciclo || "").toUpperCase() === "DESPACHADO_DEMO" && !(item.consumos || []).some(row => String(row.estado_consumo || "").toUpperCase() === "SIMULADO")).length;
     const ordersWithCycleErrors = cycleRows.filter(item => (item.errores || []).length).length;
     const cards = [
-      ["commercial-order-master", "Pedido Maestro", "Centro del flujo comercial demo con cliente, marca, DAE, logistica, cajas y documentos."],
-      ["commercial-order-history", "Pedidos / Historial", "Bandeja de pedidos demo con acciones de apertura, duplicado y preview."],
-      ["commercial-customers-brands", "Clientes principales", "Catalogo local/demo de compradores, contacto y condiciones comerciales."],
+      ["commercial-preorders", "PO Nuevo", "Borradores opcionales que no afectan inventario ni SRI y pueden generar un pedido prellenado."],
+      ["commercial-order-master", "Crear pedido", "Formulario para registrar una orden nueva y editar pedidos existentes desde el historial."],
+      ["commercial-order-detail", "Seguimiento de pedidos", "Avance de Cuarto frio, contenido real por caja y coordinacion diaria."],
+      ["commercial-order-coordination", "Coordinacion diaria", "Editor general por fecha para guias y DAE maritimas."],
+      ["commercial-order-history", "Pedidos / Historial", "Bandeja central de pedidos, documentos comerciales e impresion directa."],
+      ["commercial-customers-brands", "Clientes principales", "Catálogo editable de compradores, contactos y condiciones comerciales."],
       ["commercial-brands", "Marcas / Clientes finales", "Marcas relacionadas con cada cliente principal, destino, agencia y reglas de PO."],
-      ["commercial-availability-reservations", "Disponibilidad", "Inventario disponible menos demanda pendiente de pedidos activos."],
-      ["commercial-invoice-packing", "Invoice / Packing carguera", "Preview dinamico del documento comercial de carguera."],
-      ["commercial-client-invoice", "Factura Comercial Cliente", "Documento comercial cliente demo separado del invoice carguera y de la futura factura SRI."],
-      ["commercial-print-center", "Centro de impresion", "Salida visual demo para invoice, packing, HR, MP, etiquetas y control DAE."],
-      ["commercial-daes", "DAE / Aduana", "Catalogo demo de DAEs activas y caducidad."],
-      ["commercial-sri-authorization", "Autorizacion SRI futura", "Placeholder tributario reservado para otra fase."]
+      ["commercial-countries", "Paises", "Catalogo unico de paises para clientes, marcas, destinos y DAEs."],
+      ["commercial-daes", "DAE / Aduana", "Catálogo editable de DAEs activas y caducidad."],
+      ["commercial-senae-liquidation", "Liquidación SENAE", "Facturas SRI autorizadas locales y de exportación por fecha de emisión."],
+      ["commercial-credit-notes", "Notas de crédito", "Correcciones totales o parciales vinculadas a facturas SRI autorizadas."],
+      ["commercial-sri-authorization", "Documentos electronicos SRI", "Bandeja de emision y autorizacion en ambiente de pruebas."]
     ];
 
-    return `
+    const html = `
       <section class="page-header">
         <div>
           <p class="section-kicker">COMERCIAL / EXPORTACIONES</p>
           <h1>Panel comercial</h1>
-          <p>Modulo comercial demo integrado desde la referencia de Parte 3, separado por dominio y sin copiar el app.js monolitico del prototipo.</p>
+          <p>Pedidos, catálogos, disponibilidad compartida, documentos comerciales y facturación electrónica por empresa.</p>
         </div>
         <div class="page-header-side">
-          <span class="status-badge partial">Demo integrado</span>
+          <span class="status-badge authorized">Activo comercial</span>
         </div>
       </section>
       <section class="summary-grid">
         <article class="summary-card">
-          <span>Pedidos demo</span>
+          <span>Pedidos</span>
           <strong>${utils.esc(orders.length)}</strong>
           <small>Pedidos guardados localmente</small>
         </article>
         <article class="summary-card">
-          <span>Total USD demo</span>
+          <span>Total USD</span>
           <strong>${utils.esc(utils.money(portfolio.totalUsd))}</strong>
           <small>Historial comercial integrado</small>
         </article>
         <article class="summary-card">
           <span>Pedidos listos despacho</span>
           <strong>${utils.esc(dispatchReady)}</strong>
-          <small>Checklist despacho demo aprobado</small>
+          <small>Checklist operativo aprobado</small>
         </article>
         <article class="summary-card">
-          <span>Despachados demo</span>
+          <span>Despachados</span>
           <strong>${utils.esc(dispatchedDemo)}</strong>
-          <small>Sin afectar inventario real</small>
+          <small>Consumo vinculado al despacho</small>
         </article>
         <article class="summary-card">
           <span>Despacho observado</span>
@@ -100,17 +175,17 @@
         <article class="summary-card">
           <span>Etiquetas pendientes</span>
           <strong>${utils.esc(pendingLabels)}</strong>
-          <small>No listas para despacho demo</small>
+          <small>No listas para despacho</small>
         </article>
         <article class="summary-card">
           <span>Pendientes checklist</span>
           <strong>${utils.esc(dispatchPendingChecklist)}</strong>
-          <small>Advertencias despacho demo</small>
+          <small>Advertencias de despacho</small>
         </article>
         <article class="summary-card">
           <span>Errores despacho</span>
           <strong>${utils.esc(Math.max(dispatchCriticalErrors, ordersWithCycleErrors))}</strong>
-          <small>Despacho o ciclo operativo demo</small>
+          <small>Despacho o ciclo operativo</small>
         </article>
         <article class="summary-card">
           <span>Disponibilidad para venta</span>
@@ -118,34 +193,34 @@
           <small>Inventario menos pedidos activos</small>
         </article>
         <article class="summary-card">
-          <span>Ramos reservados demo</span>
+          <span>Ramos comprometidos</span>
           <strong>${utils.esc(utils.number(reservedBunches))}</strong>
           <small>availabilityContract + reservationContract</small>
         </article>
         <article class="summary-card">
-          <span>Pedidos con reserva demo</span>
+          <span>Pedidos con compromiso</span>
           <strong>${utils.esc(ordersWithReservations)}</strong>
           <small>Con enlace al ciclo operativo</small>
         </article>
         <article class="summary-card">
-          <span>Pedidos con consumo demo</span>
+          <span>Pedidos con consumo</span>
           <strong>${utils.esc(ordersWithConsumptionDemo)}</strong>
           <small>Consumo simulado en Operaciones</small>
         </article>
         <article class="summary-card">
-          <span>Pendientes consumo demo</span>
+          <span>Pendientes de consumo</span>
           <strong>${utils.esc(ordersPendingConsumptionDemo)}</strong>
           <small>Despachados sin consumo simulado</small>
         </article>
         <article class="summary-card">
           <span>Ramos reservados operaciones</span>
           <strong>${utils.esc(utils.number(reservedBunches))}</strong>
-          <small>Ramos enlazados desde Operaciones demo</small>
+          <small>Ramos enlazados desde Operaciones</small>
         </article>
         <article class="summary-card">
           <span>Pedidos con errores ciclo</span>
           <strong>${utils.esc(ordersWithCycleErrors)}</strong>
-          <small>Requieren revisar flujo operativo demo</small>
+          <small>Requieren revisar el flujo operativo</small>
         </article>
         <article class="summary-card">
           <span>Pedido activo</span>
@@ -175,7 +250,7 @@
         <article class="summary-card">
           <span>Cajas sin reserva</span>
           <strong>${utils.esc(boxesWithoutReservation)}</strong>
-          <small>No bloquea, pero requiere revisar Pedido Maestro</small>
+          <small>No bloquea, pero requiere revisar el pedido</small>
         </article>
         <article class="summary-card">
           <span>Reservas sin usar</span>
@@ -203,22 +278,22 @@
           <small>Pedidos con preview generado</small>
         </article>
         <article class="summary-card">
-          <span>Facturas demo pendientes</span>
+          <span>Facturas pendientes</span>
           <strong>${utils.esc(accountingPortfolio.pendingClientInvoices)}</strong>
-          <small>Pendientes de contabilizar futuro</small>
+          <small>Pendientes de revisión contable</small>
         </article>
       </section>
       <section class="hero-banner">
         <div>
           <strong>Conexiones y alertas</strong>
-          <span>${utils.esc(portfolio.alerts.length ? `${portfolio.alerts.length} alertas comerciales activas. ${dispatchReady} pedido(s) listos despacho, ${dispatchObserved} observado(s), ${expiringDaes} DAE(s) proximas a caducar.` : `Sin alertas comerciales criticas. ${dispatchReady} pedido(s) listos despacho, ${ordersWithReservations} pedido(s) enlazados con reservas demo.`)}</span>
+          <span>${utils.esc(portfolio.alerts.length ? `${portfolio.alerts.length} alertas comerciales activas. ${dispatchReady} pedido(s) listos despacho, ${dispatchObserved} observado(s), ${expiringDaes} DAE(s) proximas a caducar.` : `Sin alertas comerciales criticas. ${dispatchReady} pedido(s) listos despacho, ${ordersWithReservations} pedido(s) con flor comprometida.`)}</span>
         </div>
-        <button class="secondary-button" data-route-link="core-diagnostics">Ver diagnostico del ERP</button>
+              <button class="secondary-button" data-route-link="core-diagnostics">Ver diagnostico del sistema</button>
       </section>
       <section class="hero-banner">
         <div>
-          <strong>Modo comercial actual</strong>
-          <span>Datos demo. No genera factura SRI, asiento contable real ni CxC real.</span>
+          <strong>Entorno actual</strong>
+          <span>Datos guardados en este navegador. La emisión SRI está habilitada solamente en ambiente de pruebas; producción permanece bloqueada.</span>
         </div>
       </section>
       <section class="placeholder-grid">
@@ -248,7 +323,7 @@
                 <p class="section-kicker">PARTE 3 EXPORTACIONES Y VENTA</p>
                 <h3>${utils.esc(title)}</h3>
               </div>
-              <span class="status-badge partial">Demo</span>
+              <span class="status-badge authorized">Activo</span>
             </div>
             <p class="panel-note">${utils.esc(description)}</p>
             <button class="secondary-button" data-route-link="${utils.esc(routeId)}">Abrir</button>
@@ -256,37 +331,33 @@
         `).join("")}
       </section>
     `;
+    panelCache = { revision, companyId, html };
+    return html;
   }
 
-  function renderSriPlaceholder() {
+  function renderPanel(appState) {
+    const flow = BlessERP.commercialFlowV2;
+    const companyId = flow.activeCompanyId(appState);
+    const orders = (appState.db.commercial?.orders || []).filter(order => String(order.sellingCompanyId || order.companyId || order.company_id) === companyId);
+    const activeOrders = flow.activeOrders(appState);
+    const coldRoomOrders = flow.getWarehouseOrders(appState);
+    const availability = flow.getAvailabilityRows(appState);
+    const pendingBunches = activeOrders.reduce((sum, order) => sum + Number(flow.buildOrderFulfillment(order)?.pendingBunches || 0), 0);
+    const availableBunches = availability.reduce((sum, row) => sum + Number(row.availableBunches || 0), 0);
+    const cards = [
+      ["commercial-order-master", "Crear pedido", "Formulario nuevo en memoria; se confirma solamente al guardar."],
+      ["commercial-order-history", "Pedidos / Historial", "Pedidos confirmados, edición y documentos bajo demanda."],
+      ["commercial-order-detail", "Seguimiento", "Contenido por caja y avance de preparación, sin editar el pedido."],
+      ["commercial-order-coordination", "Coordinación diaria", "Editor exclusivo de DAE, guía madre y guía hija."],
+      ["commercial-availability-reservations", "Disponibilidad", "Inventario físico frente a pedidos guardados."],
+      ["commercial-sri-authorization", "Documentos electrónicos SRI", "Facturas y notas de crédito separadas del pedido operativo."]
+    ];
     return `
-      <section class="page-header">
-        <div>
-          <p class="section-kicker">COMERCIAL / EXPORTACIONES</p>
-          <h1>Autorizacion SRI futura</h1>
-          <p>Frente reservado para una fase posterior. No se integra SRI real, no genera factura electronica y no se conecta a contabilidad en esta etapa.</p>
-        </div>
-        <div class="page-header-side">
-          <span class="status-badge cancelled">Fase futura</span>
-        </div>
+      <section class="page-header"><div><p class="section-kicker">COMERCIAL / EXPORTACIONES</p><h1>Panel comercial</h1><p>Navegación ligera del flujo confirmado de pedidos.</p></div></section>
+      <section class="summary-grid">
+        ${[["Pedidos confirmados", orders.length], ["Pedidos activos", activeOrders.length], ["En Cuarto Frío", coldRoomOrders.length], ["Ramos pendientes", pendingBunches], ["Disponible spot", availableBunches]].map(item => `<article class="summary-card"><span>${item[0]}</span><strong>${item[1]}</strong></article>`).join("")}
       </section>
-      <section class="placeholder-grid">
-        <article class="panel-card">
-          <div class="panel-card-head">
-            <div>
-              <p class="section-kicker">PLACEHOLDER</p>
-              <h3>Alcance bloqueado en Fase 2A</h3>
-            </div>
-          </div>
-          <ul class="checklist-list">
-            <li>No implementar facturacion SRI real.</li>
-            <li>No implementar autorizacion SRI real.</li>
-            <li>No mezclar invoice carguera con factura electronica.</li>
-            <li>No enviar ventas a cartera ni a contabilidad.</li>
-          </ul>
-        </article>
-      </section>
-    `;
+      <section class="module-grid">${cards.map(([routeId, title, description]) => `<button type="button" class="module-card" data-route-link="${routeId}"><span class="module-icon">${title.slice(0, 2).toUpperCase()}</span><strong>${utils.esc(title)}</strong><small>${utils.esc(description)}</small></button>`).join("")}</section>`;
   }
 
   function renderStandaloneInvoice(appState) {
@@ -296,7 +367,7 @@
         <div>
           <p class="section-kicker">COMERCIAL / EXPORTACIONES</p>
           <h1>Invoice / Packing carguera</h1>
-          <p>Preview dinamico del documento comercial basado en el Pedido Maestro activo.</p>
+          <p>Preview dinamico del documento comercial basado en el pedido activo.</p>
         </div>
         <div class="page-header-side">
           <span class="status-badge partial">Demo documento</span>
@@ -304,13 +375,13 @@
       </section>
       ${BlessERP.comercialPrintSystem.renderWorkspace("INVOICE_PACKING_REFERENCIAL", order, appState, {
         title: "Invoice / Packing carguera",
-        description: "Preview dinamico del documento comercial basado en el Pedido Maestro activo.",
+        description: "Preview dinamico del documento comercial basado en el pedido activo.",
         actionsMarkup: `
           <div class="table-actions-inline">
             <button class="secondary-button" data-commercial-preview-doc="INVOICE_PACKING_REFERENCIAL">Vista previa referencial</button>
-            <button class="secondary-button" data-commercial-print-doc="INVOICE_PACKING_REFERENCIAL">Imprimir referencial</button>
+            <button class="primary-button" data-commercial-print-doc="INVOICE_PACKING_REFERENCIAL">Imprimir referencial</button>
             <button class="secondary-button" data-commercial-preview-doc="INVOICE_PACKING_REAL">Vista previa real demo</button>
-            <button class="secondary-button" data-commercial-doc-placeholder="pdf|INVOICE_PACKING_REFERENCIAL">Descargar PDF</button>
+            <button class="secondary-button" data-commercial-download-doc="INVOICE_PACKING_REFERENCIAL">Guardar PDF</button>
           </div>
         `
       })}
@@ -324,27 +395,112 @@
 
   function render(container, route, appState) {
     let html = "";
+    if (route.id !== "commercial-senae-liquidation") {
+      BlessERP.comercialSriAuthorization?.unmountSenae?.();
+    }
     if (route.id === "commercial-panel") {
-      html = renderPanel(appState);
-      container.innerHTML = html;
+      if (BlessERP.performance?.isRouteTransitionPending?.(route.id)) {
+        renderRouteDeferred(container, appState, route.id, {
+          title: "Panel comercial",
+          description: "Resumen operativo, comercial y tributario por empresa.",
+          status: "Preparando indicadores...",
+          detail: "Consolidando únicamente los indicadores visibles. Los accesos ya están disponibles desde el menú."
+        }, () => renderPanel(appState), () => {});
+        return;
+      }
+      container.innerHTML = renderPanel(appState);
       return;
     }
     if (route.id === "commercial-order-master") {
+      if (BlessERP.performance?.isRouteTransitionPending?.(route.id)) {
+        renderRouteDeferred(container, appState, route.id, {
+          title: "Crear pedido",
+          description: "Cliente, logística, cajas, variedades, cantidades y precios.",
+          status: "Preparando formulario...",
+          detail: "Cargando los catálogos y la estructura del pedido. Podrá empezar a trabajar en cuanto aparezca el formulario."
+        }, () => BlessERP.comercialPedido.render(appState), () => {
+          BlessERP.comercialPedido.bind(container, appState);
+        });
+        return;
+      }
       container.innerHTML = BlessERP.comercialPedido.render(appState);
       BlessERP.comercialPedido.bind(container, appState);
       return;
     }
+    if (route.id === "commercial-preorders") {
+      container.innerHTML = BlessERP.comercialPreorders.render(appState);
+      BlessERP.comercialPreorders.bind(container, appState);
+      return;
+    }
     if (route.id === "commercial-orders-day") {
+      if (BlessERP.performance?.isRouteTransitionPending?.(route.id)) {
+        renderRouteDeferred(container, appState, route.id, {
+          title: "Órdenes del día",
+          description: "Pedidos registrados para una fecha específica.",
+          status: "Preparando órdenes...",
+          detail: "Calculando el avance únicamente de la página visible."
+        }, () => BlessERP.comercialOrdersDay.render(appState), () => {
+          BlessERP.comercialOrdersDay.bind(container, appState);
+        });
+        return;
+      }
       container.innerHTML = BlessERP.comercialOrdersDay.render(appState);
       BlessERP.comercialOrdersDay.bind(container, appState);
       return;
     }
     if (route.id === "commercial-order-detail") {
-      container.innerHTML = BlessERP.comercialOrderDetail.render(appState);
+      if (BlessERP.performance?.isRouteTransitionPending?.(route.id)) {
+        renderTrackingDeferred(container, appState);
+        return;
+      }
+      container.innerHTML = BlessERP.comercialOrderDetail.render(appState, "SEGUIMIENTO");
       BlessERP.comercialOrderDetail.bind(container, appState);
       return;
     }
+    if (route.id === "commercial-order-coordination") {
+      if (BlessERP.performance?.isRouteTransitionPending?.(route.id)) {
+        renderRouteDeferred(container, appState, route.id, {
+          title: "Coordinación diaria",
+          description: "Guías y DAE de los pedidos de una fecha.",
+          status: "Consultando pedidos del día...",
+          detail: "La pantalla mostrará primero su estructura y luego la página de pedidos correspondiente."
+        }, () => BlessERP.comercialOrderDetail.render(appState, "COORDINACION"), () => {
+          BlessERP.comercialOrderDetail.bind(container, appState);
+        });
+        return;
+      }
+      container.innerHTML = BlessERP.comercialOrderDetail.render(appState, "COORDINACION");
+      BlessERP.comercialOrderDetail.bind(container, appState);
+      return;
+    }
+    if (route.id === "commercial-export-shipments") {
+      if (BlessERP.performance?.isRouteTransitionPending?.(route.id)) {
+        renderRouteDeferred(container, appState, route.id, {
+          title: "Expedientes de exportación",
+          description: "Pedido, despacho, DAE, guías, vuelo y documentación.",
+          status: "Preparando expedientes...",
+          detail: "Cargando únicamente la información logística canónica del módulo."
+        }, () => BlessERP.comercialExportShipments.render(appState), () => {
+          BlessERP.comercialExportShipments.bind(container, appState);
+        });
+        return;
+      }
+      container.innerHTML = BlessERP.comercialExportShipments.render(appState);
+      BlessERP.comercialExportShipments.bind(container, appState);
+      return;
+    }
     if (route.id === "commercial-order-history") {
+      if (BlessERP.performance?.isRouteTransitionPending?.(route.id)) {
+        renderRouteDeferred(container, appState, route.id, {
+          title: "Pedidos / Historial",
+          description: "Consulte y edite los pedidos comerciales registrados.",
+          status: "Preparando historial...",
+          detail: "Organizando filtros y pedidos visibles. La tabla aparecerá automáticamente sin bloquear la navegación."
+        }, () => BlessERP.comercialHistory.render(appState), () => {
+          BlessERP.comercialHistory.bind(container, appState);
+        });
+        return;
+      }
       container.innerHTML = BlessERP.comercialHistory.render(appState);
       BlessERP.comercialHistory.bind(container, appState);
       return;
@@ -373,27 +529,42 @@
       container.innerHTML = BlessERP.comercialCatalogs.renderAirlinesPage(appState);
       BlessERP.comercialCatalogs.bindAirlinesPage(container, appState);
       return;
+    } else if (route.id === "commercial-countries") {
+      container.innerHTML = BlessERP.comercialCatalogs.renderCountriesPage(appState);
+      BlessERP.comercialCatalogs.bindCountriesPage(container, appState);
+      return;
     } else if (route.id === "commercial-export-products") {
       html = BlessERP.comercialCatalogs.renderProductsPage(appState);
     } else if (route.id === "commercial-box-types") {
       html = BlessERP.comercialCatalogs.renderBoxTypesPage();
     } else if (route.id === "commercial-availability-reservations") {
+      if (BlessERP.performance?.isRouteTransitionPending?.(route.id)) {
+        renderRouteDeferred(container, appState, route.id, {
+          title: "Disponibilidad",
+          description: "Inventario físico frente a pedidos y disponibilidad comercial.",
+          status: "Calculando disponibilidad...",
+          detail: "Consolidando variedades, medidas y pedidos guardados. Los resultados se mostrarán automáticamente."
+        }, () => BlessERP.comercialAvailability.render(appState), () => {
+          BlessERP.comercialAvailability.bind(container, appState);
+        });
+        return;
+      }
       html = BlessERP.comercialAvailability.render(appState);
       container.innerHTML = html;
+      BlessERP.comercialAvailability.bind(container, appState);
       return;
     } else if (route.id === "commercial-invoice-packing") {
-      html = renderStandaloneInvoice(appState);
-      container.innerHTML = html;
+      container.innerHTML = renderStandaloneInvoice(appState);
       BlessERP.comercialPedido.bind(container, appState);
       return;
     } else if (route.id === "commercial-client-invoice") {
-      html = renderStandaloneClientInvoice(appState);
-      container.innerHTML = html;
+      container.innerHTML = renderStandaloneClientInvoice(appState);
       BlessERP.comercialPedido.bind(container, appState);
       return;
     } else if (route.id === "commercial-print-center") {
-      html = BlessERP.comercialPrint.renderPrintCenter(stateApi.currentOrder(appState), appState);
-      container.innerHTML = html;
+      const order = stateApi.currentOrder(appState);
+      container.innerHTML = BlessERP.comercialPrint.renderPrintCenter(order, appState);
+      BlessERP.comercialPrint.bind(container, appState);
       BlessERP.comercialPedido.bind(container, appState);
       return;
     } else if (route.id === "commercial-packaging-report") {
@@ -406,8 +577,35 @@
       container.innerHTML = html;
       BlessERP.comercialAccountingPreview.bind(container, appState);
       return;
+    } else if (route.id === "commercial-credit-notes") {
+      html = BlessERP.comercialSriAuthorization.renderCreditNotes(appState);
+      container.innerHTML = html;
+      BlessERP.comercialSriAuthorization.bindCreditNotes(container, appState);
+      return;
+    } else if (route.id === "commercial-senae-liquidation") {
+      html = BlessERP.comercialSriAuthorization.renderSenae(appState);
+      container.innerHTML = html;
+      BlessERP.comercialSriAuthorization.bindSenae(container, appState);
+      return;
     } else if (route.id === "commercial-sri-authorization") {
-      html = renderSriPlaceholder();
+      if (BlessERP.performance?.isRouteTransitionPending?.(route.id)) {
+        // Cada entrada a la bandeja tributaria comienza sin mes seleccionado.
+        // Los rerenders internos conservan el mes mientras el usuario trabaja.
+        BlessERP.comercialSriAuthorization.resetDocumentsEntry?.();
+        renderRouteDeferred(container, appState, route.id, {
+          title: "Documentos electrónicos SRI",
+          description: "Facturas, notas de crédito, XML y RIDE por estado tributario.",
+          status: "Preparando documentos...",
+          detail: "Organizando documentos, filtros y estados de autorización. La bandeja se completará automáticamente."
+        }, () => BlessERP.comercialSriAuthorization.render(appState), () => {
+          BlessERP.comercialSriAuthorization.bind(container, appState);
+        });
+        return;
+      }
+      html = BlessERP.comercialSriAuthorization.render(appState);
+      container.innerHTML = html;
+      BlessERP.comercialSriAuthorization.bind(container, appState);
+      return;
     } else {
       html = `
         <section class="page-header">

@@ -231,6 +231,8 @@
 
   function cellXml(reference, value, style = 4) {
     if (value?.xlsxType === "dateTime" && Number.isFinite(value.value)) return `<c r="${reference}" s="6" t="n"><v>${value.value}</v></c>`;
+    if (value?.xlsxType === "date" && Number.isFinite(value.value)) return `<c r="${reference}" s="8" t="n"><v>${value.value}</v></c>`;
+    if (value?.xlsxType === "currency" && Number.isFinite(value.value)) return `<c r="${reference}" s="9" t="n"><v>${value.value}</v></c>`;
     if (value?.xlsxType === "text") return `<c r="${reference}" s="7" t="inlineStr"><is><t xml:space="preserve">${xml(value.value)}</t></is></c>`;
     if (typeof value === "number" && Number.isFinite(value)) return `<c r="${reference}" s="${style}" t="n"><v>${value}</v></c>`;
     return `<c r="${reference}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${xml(value)}</t></is></c>`;
@@ -239,14 +241,23 @@
   function worksheetXml(sheet, report) {
     const lastColumn = columnName(sheet.headers.length - 1);
     const header = sheet.headers.map((value, index) => cellXml(`${columnName(index)}5`, value, 3)).join("");
+    const subtotalRowIndexes = new Set(sheet.subtotalRowIndexes || []);
     const rows = sheet.rows.map((row, rowIndex) => {
       const excelRow = rowIndex + 6;
-      return `<row r="${excelRow}">${row.map((value, colIndex) => cellXml(`${columnName(colIndex)}${excelRow}`, value, 4)).join("")}</row>`;
+      const style = subtotalRowIndexes.has(rowIndex) ? 5 : 4;
+      return `<row r="${excelRow}">${row.map((value, colIndex) => cellXml(`${columnName(colIndex)}${excelRow}`, value, style)).join("")}</row>`;
     }).join("");
     const totalRowNumber = sheet.totals ? sheet.rows.length + 6 : 0;
     const totals = sheet.totals ? `<row r="${totalRowNumber}">${sheet.totals.map((value, index) => cellXml(`${columnName(index)}${totalRowNumber}`, value, 5)).join("")}</row>` : "";
+    const footerStartRow = Math.max(sheet.rows.length + 6, totalRowNumber) + 3;
+    const footerRows = (sheet.footerRows || []).map((row, rowIndex) => {
+      const excelRow = footerStartRow + rowIndex;
+      return `<row r="${excelRow}" ht="22" customHeight="1">${row.map((value, colIndex) => cellXml(`${columnName(colIndex)}${excelRow}`, value, 0)).join("")}</row>`;
+    }).join("");
     const filterEndRow = Math.max(5, sheet.rows.length + 5);
-    const endRow = Math.max(filterEndRow, totalRowNumber);
+    const footerEndRow = sheet.footerRows?.length ? footerStartRow + sheet.footerRows.length - 1 : 0;
+    const endRow = Math.max(filterEndRow, totalRowNumber, footerEndRow);
+    const orientation = sheet.orientation === "portrait" ? "portrait" : "landscape";
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
       <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
         <dimension ref="A1:${lastColumn}${endRow}"/>
@@ -259,31 +270,55 @@
           <row r="3" ht="22" customHeight="1">${cellXml("C3", report.range, 2)}</row>
           <row r="4" ht="8" customHeight="1"/>
           <row r="5" ht="28" customHeight="1">${header}</row>
-          ${rows}${totals}
+          ${rows}${totals}${footerRows}
         </sheetData>
         <autoFilter ref="A5:${lastColumn}${filterEndRow}"/>
         <mergeCells count="3"><mergeCell ref="C1:${lastColumn}1"/><mergeCell ref="C2:${lastColumn}2"/><mergeCell ref="C3:${lastColumn}3"/></mergeCells>
         <pageMargins left="0.25" right="0.25" top="0.35" bottom="0.35" header="0.1" footer="0.1"/>
-        <pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>
+        <pageSetup orientation="${orientation}" fitToWidth="1" fitToHeight="0"/>
         <drawing r:id="rId1"/>
       </worksheet>`;
   }
 
-  function stylesXml() {
+  function workbookBrand(report = {}) {
+    const companyId = String(report.companyId || report.identity?.id || "");
+    const imperio = companyId === "COMP-IMPERIO-FLOWERS";
+    return imperio
+      ? {
+          name: report.identity?.commercialName || "Imperio Flowers",
+          titleFill: "FF0B63CE",
+          titleText: "FFFFFFFF",
+          subtitleFill: "FFDCEEFF",
+          subtitleText: "FF084B9A",
+          headerFill: "FF0B4F96"
+        }
+      : {
+          name: report.identity?.commercialName || "Bless Flower",
+          titleFill: "FF166534",
+          titleText: "FFFFFFFF",
+          subtitleFill: "FFDCFCE7",
+          subtitleText: "FF14532D",
+          headerFill: "FF1E3A5F"
+        };
+  }
+
+  function stylesXml(report) {
+    const brand = workbookBrand(report);
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
       <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-        <numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm"/></numFmts>
-        <fonts count="5"><font><sz val="10"/><name val="Calibri"/></font><font><b/><sz val="16"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FF14532D"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FF0F172A"/><name val="Calibri"/></font></fonts>
-        <fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF166534"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDCFCE7"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1E3A5F"/><bgColor indexed="64"/></patternFill></fill></fills>
+        <numFmts count="3"><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm"/><numFmt numFmtId="165" formatCode="yyyy-mm-dd"/><numFmt numFmtId="166" formatCode="#,##0.00;[Red](#,##0.00);-"/></numFmts>
+        <fonts count="5"><font><sz val="10"/><name val="Calibri"/></font><font><b/><sz val="16"/><color rgb="${brand.titleText}"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="${brand.subtitleText}"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="10"/><color rgb="FF0F172A"/><name val="Calibri"/></font></fonts>
+        <fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="${brand.titleFill}"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="${brand.subtitleFill}"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="${brand.headerFill}"/><bgColor indexed="64"/></patternFill></fill></fills>
         <borders count="2"><border/><border><left style="thin"><color rgb="FFCBD5E1"/></left><right style="thin"><color rgb="FFCBD5E1"/></right><top style="thin"><color rgb="FFCBD5E1"/></top><bottom style="thin"><color rgb="FFCBD5E1"/></bottom><diagonal/></border></borders>
         <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-        <cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="4" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="49" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf></cellXfs>
+        <cellXfs count="10"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="4" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="49" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="166" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf></cellXfs>
         <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
       </styleSheet>`;
   }
 
-  function drawingXml() {
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>80000</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>50000</xdr:rowOff></xdr:from><xdr:ext cx="1700000" cy="450000"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="1" name="Logo BLESS FLOWER"/><xdr:cNvPicPr/></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1700000" cy="450000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>`;
+  function drawingXml(report) {
+    const brand = workbookBrand(report);
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>0</xdr:col><xdr:colOff>594360</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>30480</xdr:rowOff></xdr:from><xdr:to><xdr:col>1</xdr:col><xdr:colOff>1478280</xdr:colOff><xdr:row>3</xdr:row><xdr:rowOff>8174</xdr:rowOff></xdr:to><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="3" name="${xml(brand.name)}"><a:extLst><a:ext uri="{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}"><a16:creationId xmlns:a16="http://schemas.microsoft.com/office/drawing/2014/main" id="{47845266-E055-462F-8C91-74FF13C730DF}"/></a:ext></a:extLst></xdr:cNvPr><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="594360" y="30480"/><a:ext cx="2118360" cy="907334"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:twoCellAnchor></xdr:wsDr>`;
   }
 
   function logoPngBytes() {
@@ -342,15 +377,15 @@
       "_rels/.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
       "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((sheet, index) => `<sheet name="${xml(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join("")}</sheets></workbook>`,
       "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join("")}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
-      "xl/styles.xml": stylesXml(),
-      "xl/media/bless-flower-logo.png": logoBytes
+      "xl/styles.xml": stylesXml(report),
+      "xl/media/company-logo.png": logoBytes
     };
     sheets.forEach((sheet, index) => {
       const number = index + 1;
       files[`xl/worksheets/sheet${number}.xml`] = worksheetXml(sheet, report);
       files[`xl/worksheets/_rels/sheet${number}.xml.rels`] = `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${number}.xml"/></Relationships>`;
-      files[`xl/drawings/drawing${number}.xml`] = drawingXml();
-      files[`xl/drawings/_rels/drawing${number}.xml.rels`] = `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/bless-flower-logo.png"/></Relationships>`;
+      files[`xl/drawings/drawing${number}.xml`] = drawingXml(report);
+      files[`xl/drawings/_rels/drawing${number}.xml.rels`] = `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/company-logo.png"/></Relationships>`;
     });
     return zipArchive(files);
   }

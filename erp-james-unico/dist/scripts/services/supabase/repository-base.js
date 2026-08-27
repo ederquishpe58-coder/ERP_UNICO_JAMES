@@ -13,7 +13,7 @@
       return {
         ok: false,
         mode,
-        message: "Repositorio Supabase pendiente. Usar servicios demo/locales."
+        message: "Repositorio Supabase pendiente. Usar servicios locales."
       };
     }
     return {
@@ -28,7 +28,7 @@
       ok: false,
       mode: getRepositoryMode(),
       entity: entityName,
-      message: "Repositorio Supabase pendiente. Usar servicios demo/locales."
+        message: "Repositorio Supabase pendiente. Usar servicios locales."
     };
   }
 

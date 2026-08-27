@@ -10,7 +10,7 @@
   const customerTypes = ["local", "exterior", "comercializadora", "floristeria", "consumidor final", "otro"];
   const customerStates = ["activo", "inactivo"];
   const paymentConditions = ["Contado", "Credito 15 dias", "Credito 30 dias", "Credito 45 dias", "Credito 60 dias"];
-  const receivableDocumentTypes = ["saldo inicial", "documento manual", "ajuste", "factura futura"];
+  const receivableDocumentTypes = ["saldo inicial", "documento manual", "ajuste", "factura futura", "factura sri"];
   const receivableStates = ["PENDIENTE", "PARCIAL", "COBRADO", "VENCIDO", "ANULADO"];
   const collectionMethods = ["banco", "caja", "transferencia", "cheque", "efectivo", "tarjeta", "otro"];
   const collectionStates = ["BORRADOR", "CONFIRMADO", "ANULADO"];
@@ -18,6 +18,34 @@
 
   function round2(value) {
     return Math.round(Number(value || 0) * 100) / 100;
+  }
+
+  const lazyCustomers = { companyId: "", rows: [], promises: new Map() };
+  function activeCompanyUuid() {
+    return String(BlessERP.portfolioReadV2Repository?.activeCompanyUuid?.()
+      || BlessERP.authAccess?.activeAccess?.()?.activeCompany?.id
+      || stateApi.state.db?.authAccess?.activeCompanyUuid
+      || "").trim();
+  }
+  function resetLazyCustomers() {
+    const companyId = activeCompanyUuid();
+    if (lazyCustomers.companyId === companyId) return companyId;
+    lazyCustomers.companyId = companyId;
+    lazyCustomers.rows = [];
+    lazyCustomers.promises.clear();
+    return companyId;
+  }
+  function mergeLazyCustomers(incoming = []) {
+    const companyId = resetLazyCustomers();
+    const merged = new Map(lazyCustomers.rows.map(item => [String(item.id || ""), clone(item)]));
+    (incoming || []).forEach(item => {
+      const id = String(item?.id || "").trim();
+      const itemCompanyId = String(item?.companyId || item?.company_id || companyId).trim();
+      if (!id || !companyId || itemCompanyId !== companyId) return;
+      merged.set(id, { ...clone(item), id, companyId });
+    });
+    lazyCustomers.rows = [...merged.values()];
+    return clone(lazyCustomers.rows);
   }
 
   function currentUser() {
@@ -79,13 +107,18 @@
   function normalizeCustomer(customer = {}) {
     const settings = companyService.settings();
     const current = clone(customer || {});
+    const customerType = String(current.customerType || "otro").trim().toLowerCase();
+    const localCustomer = customerType === "local";
+    const defaultReceivableAccount = localCustomer
+      ? (settings.defaultAccounts?.accountsReceivableCustomersLocal || settings.defaultAccounts?.accountsReceivableCustomers)
+      : (settings.defaultAccounts?.accountsReceivableCustomersExport || settings.defaultAccounts?.accountsReceivableCustomers);
     return {
       id: current.id || uid("CUS"),
       code: String(current.code || "").trim(),
       taxId: String(current.taxId || current.identification || "").trim(),
       name: String(current.name || current.legalName || "").trim(),
       commercialName: String(current.commercialName || current.name || "").trim(),
-      customerType: String(current.customerType || "otro").trim().toLowerCase(),
+      customerType,
       country: String(current.country || "Ecuador").trim(),
       city: String(current.city || "").trim(),
       address: String(current.address || "").trim(),
@@ -94,16 +127,28 @@
       paymentCondition: String(current.paymentCondition || "Credito 30 dias").trim(),
       creditDays: Number(current.creditDays ?? 30),
       creditLimit: round2(current.creditLimit || 0),
-      receivableAccountCode: String(current.receivableAccountCode || settings.defaultAccounts?.accountsReceivableCustomers || "").trim(),
+      receivableAccountCode: String(current.receivableAccountCode || defaultReceivableAccount || "").trim(),
       advanceAccountCode: String(current.advanceAccountCode || settings.defaultAccounts?.customerAdvances || "").trim(),
       status: String(current.status || "activo").trim().toLowerCase(),
       observation: String(current.observation || current.notes || "").trim(),
-      hasMovements: Boolean(current.hasMovements)
+      hasMovements: Boolean(current.hasMovements),
+      companyId: String(current.companyId || current.company_id || "").trim(),
+      version: Number(current.version || 0),
+      syncFlow: String(current.syncFlow || "").trim(),
+      remoteConfirmed: Boolean(current.remoteConfirmed)
     };
   }
 
   function customerCatalog() {
-    return cloneList("customers").map(normalizeCustomer);
+    resetLazyCustomers();
+    const combined = new Map();
+    [...cloneList("customers"), ...lazyCustomers.rows].forEach(item => {
+      const normalized = normalizeCustomer(item);
+      if (!normalized.id) return;
+      const current = combined.get(normalized.id);
+      if (!current || normalized.version >= current.version) combined.set(normalized.id, normalized);
+    });
+    return [...combined.values()];
   }
 
   function customers() {
@@ -127,12 +172,46 @@
     return customerCatalog().find(item => item.taxId === taxId);
   }
 
+  async function resolveCanonicalCustomer(candidate = {}) {
+    const customerId = String(candidate.customerId || candidate.id || "").trim();
+    const companyId = resetLazyCustomers();
+    if (!customerId) return { ok: false, customer: null, companyId, mode: "IDENTITY_REQUIRED", message: "Falta la identidad canónica del cliente." };
+    const existing = findCustomerById(customerId);
+    if (existing && (!existing.companyId || existing.companyId === companyId)) {
+      return { ok: true, customer: existing, companyId, mode: "MEMORY_CACHE" };
+    }
+    if (lazyCustomers.promises.has(customerId)) return lazyCustomers.promises.get(customerId);
+    const pending = (async () => {
+      const result = await BlessERP.portfolioReadV2Repository?.customerById?.(customerId);
+      if (!result?.ok || !result.customer) {
+        return { ...(result || {}), ok: false, customer: null, companyId, message: result?.message || "No se pudo consultar el cliente canónico." };
+      }
+      if (String(result.companyId || "") !== companyId || String(result.customer.companyId || "") !== companyId) {
+        return { ok: false, customer: null, companyId, mode: "COMPANY_MISMATCH", message: "El cliente pertenece a otra empresa." };
+      }
+      if (String(result.customer.id || "") !== customerId) {
+        return { ok: false, customer: null, companyId, mode: "IDENTITY_MISMATCH", message: "La identidad del cliente no coincide." };
+      }
+      mergeLazyCustomers([result.customer]);
+      return { ...result, customer: findCustomerById(customerId) };
+    })().finally(() => lazyCustomers.promises.delete(customerId));
+    lazyCustomers.promises.set(customerId, pending);
+    return pending;
+  }
+
   function validateCustomer(customer) {
     const candidate = normalizeCustomer(customer);
     const errors = [];
     if (!candidate.name) errors.push("La razon social / nombre es obligatoria.");
     if (!candidate.code) candidate.code = nextCustomerCode(customerCatalog());
-    if (!candidate.taxId) errors.push("La identificacion del cliente es obligatoria.");
+    if (!candidate.taxId) {
+      const commercialCustomers = stateApi.state.db.commercial?.customerCatalog || [];
+      candidate.taxId = BlessERP.utils.nextCustomerExternalId(
+        [...customerCatalog(), ...commercialCustomers],
+        "",
+        candidate.id
+      );
+    }
     const duplicateCode = customerCatalog().find(item => item.id !== candidate.id && item.code === candidate.code);
     if (duplicateCode) errors.push("No se permite codigo de cliente duplicado.");
     const duplicateTaxId = customerCatalog().find(item => item.id !== candidate.id && item.taxId === candidate.taxId);
@@ -202,20 +281,33 @@
       issueDate: today(),
       dueDate: today(),
       concept: "",
+      marketType: "",
+      subtotal: 0,
+      taxTotal: 0,
       total: 0,
       receivableAccountCode: settings.defaultAccounts?.accountsReceivableCustomers || "",
       counterAccountCode: "",
       counterAccountName: "",
+      taxAccountCode: "",
+      taxAccountName: "",
       observation: "",
       status: "PENDIENTE",
       source: "MANUAL",
       journalEntryId: "",
       journalEntryNumber: "",
       postingStatus: "NO_CONTABILIZADO",
+      accountingError: "",
+      sourceOrderId: "",
+      sourceDocumentId: "",
+      authorizationNumber: "",
+      accessKey: "",
+      creditNotes: [],
       retentionPlaceholder: 0,
       advancePlaceholder: 0,
       createdBy: currentUser().name,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      updatedBy: currentUser().name,
+      updatedAt: new Date().toISOString()
     };
   }
 
@@ -226,8 +318,24 @@
       ...clone(receivable || {})
     };
     const customer = current.customerId ? findCustomerById(current.customerId) : findCustomerByTaxId(current.customerTaxId);
-    const receivableAccountCode = String(current.receivableAccountCode || settings.defaultAccounts?.accountsReceivableCustomers || "").trim();
-    const counterAccount = current.counterAccountCode ? chartService.findByCode(current.counterAccountCode) : null;
+    const inferredMarket = String(current.marketType || "").trim().toUpperCase()
+      || (String(customer?.customerType || "").toLowerCase() === "local" ? "LOCAL" : "EXPORTACION");
+    const defaultReceivableAccount = inferredMarket === "LOCAL"
+      ? (settings.defaultAccounts?.accountsReceivableCustomersLocal || settings.defaultAccounts?.accountsReceivableCustomers)
+      : (settings.defaultAccounts?.accountsReceivableCustomersExport || settings.defaultAccounts?.accountsReceivableCustomers);
+    const defaultSalesAccount = inferredMarket === "LOCAL"
+      ? (settings.defaultAccounts?.localSales || settings.defaultAccounts?.exportSales)
+      : settings.defaultAccounts?.exportSales;
+    const total = round2(current.total || 0);
+    const taxTotal = round2(current.taxTotal || 0);
+    const explicitSubtotal = Object.prototype.hasOwnProperty.call(receivable || {}, "subtotal")
+      && (Number(receivable.subtotal || 0) > 0 || total === taxTotal);
+    const subtotal = explicitSubtotal ? round2(current.subtotal) : round2(Math.max(0, total - taxTotal));
+    const receivableAccountCode = String(current.receivableAccountCode || defaultReceivableAccount || "").trim();
+    const counterAccountCode = String(current.counterAccountCode || (String(current.documentType || "").toLowerCase() === "factura sri" ? defaultSalesAccount : "") || "").trim();
+    const taxAccountCode = String(current.taxAccountCode || (taxTotal > 0 ? settings.defaultAccounts?.vatSales : "") || "").trim();
+    const counterAccount = counterAccountCode ? chartService.findByCode(counterAccountCode) : null;
+    const taxAccount = taxAccountCode ? chartService.findByCode(taxAccountCode) : null;
     return {
       id: current.id || uid("CXC"),
       customerId: String(customer?.id || current.customerId || "").trim(),
@@ -240,25 +348,84 @@
       issueDate: String(current.issueDate || today()).trim(),
       dueDate: String(current.dueDate || current.issueDate || today()).trim(),
       concept: String(current.concept || "").trim(),
-      total: round2(current.total || 0),
+      marketType: inferredMarket === "LOCAL" ? "LOCAL" : "EXPORTACION",
+      subtotal,
+      taxTotal,
+      total,
       receivableAccountCode,
-      counterAccountCode: String(current.counterAccountCode || "").trim(),
+      counterAccountCode,
       counterAccountName: String(counterAccount?.name || current.counterAccountName || "").trim(),
+      taxAccountCode,
+      taxAccountName: String(taxAccount?.name || current.taxAccountName || "").trim(),
       observation: String(current.observation || "").trim(),
       status: String(current.status || "PENDIENTE").trim().toUpperCase(),
       source: String(current.source || "MANUAL").trim().toUpperCase(),
       journalEntryId: String(current.journalEntryId || "").trim(),
       journalEntryNumber: String(current.journalEntryNumber || "").trim(),
       postingStatus: String(current.postingStatus || (current.journalEntryId ? "CONTABILIZADO" : "NO_CONTABILIZADO")).trim().toUpperCase(),
+      accountingError: String(current.accountingError || "").trim(),
+      sourceOrderId: String(current.sourceOrderId || "").trim(),
+      sourceDocumentId: String(current.sourceDocumentId || "").trim(),
+      sourceType: String(current.sourceType || "").trim(),
+      sourceId: String(current.sourceId || "").trim(),
+      orderId: String(current.orderId || current.sourceOrderId || "").trim(),
+      shipmentId: String(current.shipmentId || "").trim(),
+      currencyCode: String(current.currencyCode || "USD").trim().toUpperCase(),
+      exchangeRate: Number(current.exchangeRate || 1),
+      balance: round2(current.balance ?? total),
+      creditedTotal: round2(current.creditedTotal || 0),
+      syncFlow: String(current.syncFlow || "").trim(),
+      remoteConfirmed: Boolean(current.remoteConfirmed),
+      authorizationNumber: String(current.authorizationNumber || "").trim(),
+      accessKey: String(current.accessKey || "").trim(),
+      creditNotes: Array.isArray(current.creditNotes) ? current.creditNotes.map(note => ({
+        id: String(note.id || "").trim(),
+        documentNumber: String(note.documentNumber || "").trim(),
+        authorizationNumber: String(note.authorizationNumber || "").trim(),
+        issueDate: String(note.issueDate || "").trim(),
+        reason: String(note.reason || "").trim(),
+        accessKey: String(note.accessKey || "").trim(),
+        subtotal: round2(note.subtotal ?? note.total ?? 0),
+        taxTotal: round2(note.taxTotal || 0),
+        total: round2(note.total || 0),
+        status: String(note.status || "").trim().toUpperCase(),
+        journalEntryId: String(note.journalEntryId || "").trim(),
+        journalEntryNumber: String(note.journalEntryNumber || "").trim(),
+        postingStatus: String(note.postingStatus || (note.journalEntryId ? "CONTABILIZADO" : "NO_CONTABILIZADO")).trim().toUpperCase(),
+        accountingError: String(note.accountingError || "").trim()
+      })) : [],
       retentionPlaceholder: round2(current.retentionPlaceholder || 0),
       advancePlaceholder: round2(current.advancePlaceholder || 0),
       createdBy: String(current.createdBy || currentUser().name).trim(),
-      createdAt: String(current.createdAt || new Date().toISOString()).trim()
+      createdAt: String(current.createdAt || new Date().toISOString()).trim(),
+      updatedBy: String(current.updatedBy || currentUser().name).trim(),
+      updatedAt: String(current.updatedAt || current.createdAt || new Date().toISOString()).trim()
     };
   }
 
   function receivableDocuments() {
-    return cloneList("customerReceivables").map(normalizeReceivable);
+    const legacy = cloneList("customerReceivables").map(normalizeReceivable);
+    const confirmed = BlessERP.services?.financialV2?.receivables?.() || [];
+    const byBusinessKey = new Map();
+    legacy.forEach(row => byBusinessKey.set(`${row.customerId}|${row.documentNumber}`, row));
+    confirmed.forEach(row => {
+      const key = `${row.customerId}|${row.documentNumber}`;
+      const legacyRow = byBusinessKey.get(key);
+      const confirmedNotes = BlessERP.services?.financialV2?.creditNotes?.()
+        .filter(note => String(note.receivableId || "") === String(row.id || row.receivableId || "")) || [];
+      const notes = (legacyRow?.creditNotes || row.creditNotes || []).map(note => {
+        const canonical = confirmedNotes.find(item =>
+          [item.id, item.creditNoteId, item.sourceId, item.documentNumber].map(String)
+            .includes(String(note.id || note.documentNumber || ""))
+        );
+        return canonical ? { ...note, journalEntryId: canonical.journalEntryId, postingStatus: "CONTABILIZADO", accountingError: "" } : note;
+      });
+      byBusinessKey.set(key, normalizeReceivable({
+        ...row,
+        creditNotes: notes
+      }));
+    });
+    return Array.from(byBusinessKey.values());
   }
 
   function normalizedCollectionApplications(rows = [], kind) {
@@ -281,7 +448,12 @@
   }
 
   function collections() {
-    return cloneList("collections").map(normalizeCollection);
+    const legacy = cloneList("collections").map(normalizeCollection);
+    const confirmed = BlessERP.services?.financialV2?.collections?.() || [];
+    const byBusinessKey = new Map();
+    legacy.forEach(row => byBusinessKey.set(String(row.collectionNumber || row.id), row));
+    confirmed.forEach(row => byBusinessKey.set(String(row.collectionNumber || row.id), normalizeCollection(row)));
+    return Array.from(byBusinessKey.values());
   }
 
   function collectionBatches() {
@@ -313,7 +485,7 @@
     const appliedWithholdings = confirmedWithholdingApplications();
     return receivableDocuments()
       .map(document => {
-        const collected = round2(
+        const locallyCollected = round2(
           applied
             .filter(item => item.application.receivableId === document.id)
             .reduce((sum, item) => sum + Number(item.application.amount || 0), 0)
@@ -323,7 +495,15 @@
             .filter(item => item.receivableId === document.id)
             .reduce((sum, item) => sum + Number(item.amount || 0), 0)
         );
-        const balance = round2(Math.max(0, document.total - collected - withheld));
+        const credited = round2((document.creditNotes || [])
+          .filter(note => note.status === "AUTORIZADO" && note.postingStatus === "CONTABILIZADO")
+          .reduce((sum, note) => sum + Number(note.total || 0), 0));
+        const collected = document.syncFlow === "FINANCIAL_V2"
+          ? round2(Math.max(0, document.total - Number(document.balance || 0)))
+          : locallyCollected;
+        const balance = document.syncFlow === "FINANCIAL_V2"
+          ? round2(Math.max(0, document.balance || 0))
+          : round2(Math.max(0, document.total - collected - withheld - credited));
         const overdueDays = document.dueDate && balance > 0
           ? Math.max(0, Math.floor((new Date(today()) - new Date(document.dueDate)) / (1000 * 60 * 60 * 24)))
           : 0;
@@ -331,7 +511,7 @@
           ? "ANULADO"
           : balance <= 0
             ? "COBRADO"
-            : (collected > 0 || withheld > 0)
+            : (collected > 0 || withheld > 0 || credited > 0)
               ? "PARCIAL"
               : overdueDays > 0
                 ? "VENCIDO"
@@ -340,6 +520,7 @@
           ...document,
           collected,
           withheld,
+          credited,
           balance,
           overdueDays,
           status: state
@@ -374,19 +555,24 @@
     const customer = candidate.customerId ? findCustomerById(candidate.customerId) : null;
     const receivableAccount = candidate.receivableAccountCode ? chartService.findByCode(candidate.receivableAccountCode) : null;
     const counterAccount = candidate.counterAccountCode ? chartService.findByCode(candidate.counterAccountCode) : null;
+    const taxAccount = candidate.taxAccountCode ? chartService.findByCode(candidate.taxAccountCode) : null;
 
     if (!candidate.customerId) errors.push("Debe seleccionar un cliente.");
     if (!candidate.issueDate) errors.push("La fecha de emision es obligatoria.");
     if (!candidate.documentNumber) errors.push("El numero de documento es obligatorio.");
     if (!candidate.concept) errors.push("El concepto es obligatorio.");
     if (candidate.total <= 0) errors.push("El documento debe tener valor mayor que cero.");
+    if (candidate.subtotal < 0 || candidate.taxTotal < 0) errors.push("El subtotal y los impuestos no pueden ser negativos.");
+    if (Math.abs(round2(candidate.subtotal + candidate.taxTotal) - candidate.total) > 0.01) {
+      errors.push("El total debe coincidir con subtotal mas impuestos.");
+    }
     if (!receivableDocumentTypes.includes(candidate.documentType)) errors.push("El tipo de documento no es valido.");
     if (!candidate.receivableAccountCode) errors.push("Debe seleccionar la cuenta por cobrar.");
     if (customer && customer.status !== "activo") errors.push("El cliente seleccionado esta inactivo.");
     const duplicate = receivableDocuments().find(item =>
       item.id !== candidate.id
-      && item.customerId === candidate.customerId
-      && item.documentNumber === candidate.documentNumber
+      && ((candidate.accessKey && item.accessKey === candidate.accessKey)
+        || (item.customerId === candidate.customerId && item.documentNumber === candidate.documentNumber))
     );
     if (duplicate) errors.push("Ya existe un documento de cartera con ese numero para el cliente.");
 
@@ -402,6 +588,10 @@
       if (candidate.counterAccountCode && !counterAccount) errors.push("La cuenta contrapartida no existe.");
       if (counterAccount && counterAccount.status !== "Activa") errors.push("La cuenta contrapartida esta inactiva.");
       if (counterAccount && !counterAccount.isMovement) errors.push("La cuenta contrapartida debe ser de movimiento.");
+      if (candidate.taxTotal > 0 && !candidate.taxAccountCode) errors.push("Debe configurar la cuenta de IVA ventas.");
+      if (candidate.taxTotal > 0 && candidate.taxAccountCode && !taxAccount) errors.push("La cuenta de IVA ventas no existe.");
+      if (taxAccount && taxAccount.status !== "Activa") errors.push("La cuenta de IVA ventas esta inactiva.");
+      if (taxAccount && !taxAccount.isMovement) errors.push("La cuenta de IVA ventas debe ser de movimiento.");
     }
 
     return { receivable: candidate, errors };
@@ -410,13 +600,16 @@
   function buildReceivableJournalEntry(receivable) {
     const receivableAccount = chartService.findByCode(receivable.receivableAccountCode);
     const counterAccount = chartService.findByCode(receivable.counterAccountCode);
+    const taxAccount = receivable.taxTotal > 0 ? chartService.findByCode(receivable.taxAccountCode) : null;
     const entry = journalService.emptyEntry();
     entry.accountingDate = receivable.issueDate;
-    entry.accountingPeriod = companyService.settings().activePeriod || entry.accountingPeriod;
-    entry.concept = `Documento cartera ${receivable.documentNumber} - ${receivable.customerName}`;
-    entry.originModule = "Cobros";
+    entry.accountingPeriod = journalService.accountingPeriodForDate?.(entry.accountingDate, entry.accountingPeriod)
+      || String(entry.accountingDate || "").slice(0, 7)
+      || entry.accountingPeriod;
+    entry.concept = `Venta ${receivable.documentNumber} - ${receivable.customerName}`;
+    entry.originModule = "Ventas";
     entry.sourceDocument = receivable.documentNumber;
-    entry.externalReference = receivable.documentNumber;
+    entry.externalReference = receivable.accessKey || receivable.authorizationNumber || receivable.documentNumber;
     entry.observation = receivable.observation || "";
     entry.lines = [
       {
@@ -435,12 +628,23 @@
         accountCode: counterAccount.code,
         accountName: counterAccount.name,
         debit: 0,
-        credit: round2(receivable.total),
+        credit: round2(receivable.subtotal),
         costCenter: "",
         auxiliary: "",
         lineDescription: `Contrapartida ${receivable.documentNumber}`,
         documentReference: receivable.documentNumber
-      }
+      },
+      ...(receivable.taxTotal > 0 ? [{
+        id: uid("JLN"),
+        accountCode: taxAccount.code,
+        accountName: taxAccount.name,
+        debit: 0,
+        credit: round2(receivable.taxTotal),
+        costCenter: "",
+        auxiliary: "",
+        lineDescription: `IVA venta ${receivable.documentNumber}`,
+        documentReference: receivable.documentNumber
+      }] : [])
     ];
     return entry;
   }
@@ -450,6 +654,8 @@
     if (errors.length) return { ok: false, errors };
     const rows = receivableDocuments();
     candidate.id = candidate.id || uid("CXC");
+    candidate.updatedBy = currentUser().name;
+    candidate.updatedAt = new Date().toISOString();
     const index = rows.findIndex(item => item.id === candidate.id);
     const before = index >= 0 ? clone(rows[index]) : null;
     if (index >= 0) rows[index] = candidate;
@@ -472,26 +678,355 @@
     return { ok: true, receivable: clone(candidate) };
   }
 
+  function addDays(value, days) {
+    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return value || today();
+    const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    date.setUTCDate(date.getUTCDate() + Math.max(0, Number(days || 0)));
+    return date.toISOString().slice(0, 10);
+  }
+
+  function syncAuthorizedSale(appState, order = {}) {
+    if (String(order.sriAuthorizationStatus || "").toUpperCase() !== "AUTORIZADO") {
+      return { ok: false, message: "La factura todavia no esta autorizada por el SRI." };
+    }
+    const commercialCustomer = BlessERP.comercialUtils?.findCustomer?.(order.customerId) || {};
+    const taxId = String(commercialCustomer.identification || "").trim();
+    let customer = taxId ? findCustomerByTaxId(taxId) : null;
+    if (!customer) {
+      const savedCustomer = saveCustomer({
+        taxId,
+        name: commercialCustomer.legalName || commercialCustomer.commercialName || "Cliente SRI",
+        commercialName: commercialCustomer.commercialName || commercialCustomer.legalName || "",
+        customerType: String(commercialCustomer.category || "").toUpperCase() === "LOCAL" ? "local" : "exterior",
+        country: commercialCustomer.country || "Ecuador",
+        city: commercialCustomer.city || "",
+        address: commercialCustomer.address || "",
+        phone: commercialCustomer.mobilePhone || commercialCustomer.fixedPhone || "",
+        email: commercialCustomer.billingEmail || commercialCustomer.contactEmail || "",
+        creditDays: Number(commercialCustomer.creditDays || 0),
+        creditLimit: Number(commercialCustomer.creditAmount || 0),
+        status: "activo",
+        observation: `Creado automaticamente desde factura SRI autorizada ${order.sriInvoiceNumber || order.number || ""}.`
+      });
+      if (!savedCustomer.ok) return { ok: false, message: savedCustomer.errors?.join(" ") || "No se pudo crear el cliente de cartera." };
+      customer = savedCustomer.customer;
+    }
+
+    const metrics = BlessERP.comercialUtils?.getOrderMetrics?.(order) || {};
+    const documentNumber = String(order.sriInvoiceNumber || order.number || "").trim();
+    const existing = receivableDocuments().find(item =>
+      (order.id && item.sourceOrderId === order.id)
+      || (item.customerId === customer.id && item.documentNumber === documentNumber)
+    );
+    const issueDate = String(order.sriIssueDate || order.issuedAt || today()).slice(0, 10);
+    const localSale = Boolean(BlessERP.comercialUtils?.isLocalOrder?.(order));
+    const defaultAccounts = companyService.settings().defaultAccounts || {};
+    const receivableAccountCode = localSale
+      ? (defaultAccounts.accountsReceivableCustomersLocal || defaultAccounts.accountsReceivableCustomers)
+      : (defaultAccounts.accountsReceivableCustomersExport || defaultAccounts.accountsReceivableCustomers);
+    const grandTotal = round2(Number(order.sriGrandTotal || 0) > 0 ? order.sriGrandTotal : metrics.totalUsd);
+    const taxTotal = round2(order.sriTaxTotal || 0);
+    const subtotal = round2(Number(order.sriSubtotal || 0) > 0 ? order.sriSubtotal : Math.max(0, grandTotal - taxTotal));
+    if (existing?.syncFlow === "FINANCIAL_V2") {
+      order.receivableId = existing.id;
+      order.receivableSyncStatus = "SINCRONIZADO";
+      order.saleAccountingStatus = "CONTABILIZADO";
+      order.saleJournalEntryId = existing.journalEntryId || "";
+      order.saleJournalEntryNumber = existing.journalEntryNumber || "";
+      return { ok: true, accountingOk: true, receivable: clone(existing), reused: true, errors: [] };
+    }
+    const candidate = {
+      ...(existing || emptyReceivable(customer.id)),
+      customerId: customer.id,
+      customerName: customer.name,
+      customerTaxId: customer.taxId,
+      customerCountry: customer.country,
+      documentType: "factura sri",
+      documentNumber,
+      issueDate,
+      dueDate: String(order.expireDate || "").slice(0, 10) || addDays(issueDate, customer.creditDays),
+      concept: `Factura SRI autorizada ${documentNumber}`,
+      marketType: localSale ? "LOCAL" : "EXPORTACION",
+      subtotal,
+      taxTotal,
+      total: grandTotal,
+      receivableAccountCode,
+      counterAccountCode: localSale ? defaultAccounts.localSales : defaultAccounts.exportSales,
+      taxAccountCode: taxTotal > 0 ? defaultAccounts.vatSales : "",
+      observation: `Generada automaticamente desde el pedido ${order.number || order.id}.`,
+      status: "PENDIENTE",
+      source: "SRI_AUTORIZADO",
+      sourceOrderId: String(order.id || ""),
+      sourceDocumentId: String(order.sriRemoteDocumentId || ""),
+      authorizationNumber: String(order.sriAuthorizationNumber || ""),
+      accessKey: String(order.sriAccessKey || ""),
+      creditNotes: existing?.creditNotes || []
+    };
+    const result = saveReceivable(candidate);
+    if (result.ok) {
+      order.receivableId = result.receivable.id;
+      order.receivableSyncStatus = "SINCRONIZADO";
+      order.receivableSyncedAt = new Date().toISOString();
+      // La autorización SRI únicamente prepara la factura para contabilización.
+      // El asiento y la CxC se crean después mediante el comando transaccional V2;
+      // Realtime jamás dispara contabilidad.
+      const accounting = { ok: false, pending: true, message: "Pendiente de contabilización confirmada en Supabase." };
+      order.saleAccountingStatus = "PENDIENTE";
+      order.saleAccountingError = "";
+      order.saleJournalEntryId = "";
+      order.saleJournalEntryNumber = "";
+      return {
+        ...result,
+        accountingOk: false,
+        accountingPending: true,
+        accounting,
+        errors: []
+      };
+    } else {
+      order.receivableSyncStatus = "ERROR";
+      order.receivableSyncError = result.errors?.join(" ") || "No se pudo sincronizar la cuenta por cobrar.";
+    }
+    return result;
+  }
+
+  function findPostedSalesEntry({ documentNumber = "", accessKey = "", authorizationNumber = "" } = {}) {
+    if (typeof journalService?.all !== "function") return null;
+    const references = [accessKey, authorizationNumber, documentNumber].filter(Boolean);
+    return journalService.all().find(entry =>
+      entry.originModule === "Ventas"
+      && entry.status === "CONTABILIZADO"
+      && (references.includes(entry.externalReference) || entry.sourceDocument === documentNumber)
+    ) || null;
+  }
+
+  function buildCreditNoteJournalEntry(receivable, note) {
+    const receivableAccount = chartService.findByCode(receivable.receivableAccountCode);
+    const revenueAccount = chartService.findByCode(receivable.counterAccountCode);
+    const taxAccount = note.taxTotal > 0 ? chartService.findByCode(receivable.taxAccountCode) : null;
+    const entry = journalService.emptyEntry();
+    entry.accountingDate = note.issueDate || receivable.issueDate;
+    entry.accountingPeriod = journalService.accountingPeriodForDate?.(entry.accountingDate, entry.accountingPeriod)
+      || String(entry.accountingDate || "").slice(0, 7)
+      || entry.accountingPeriod;
+    entry.concept = `Nota de credito ${note.documentNumber} - ${receivable.customerName}`;
+    entry.originModule = "Ventas";
+    entry.sourceDocument = note.documentNumber;
+    entry.externalReference = note.accessKey || note.authorizationNumber || note.documentNumber;
+    entry.observation = note.reason || "Nota de credito autorizada por el SRI.";
+    entry.lines = [
+      {
+        id: uid("JLN"),
+        accountCode: revenueAccount.code,
+        accountName: revenueAccount.name,
+        debit: round2(note.subtotal),
+        credit: 0,
+        costCenter: "",
+        auxiliary: "",
+        lineDescription: `Reverso de venta ${receivable.documentNumber}`,
+        documentReference: note.documentNumber
+      },
+      ...(note.taxTotal > 0 ? [{
+        id: uid("JLN"),
+        accountCode: taxAccount.code,
+        accountName: taxAccount.name,
+        debit: round2(note.taxTotal),
+        credit: 0,
+        costCenter: "",
+        auxiliary: "",
+        lineDescription: `Reverso IVA venta ${receivable.documentNumber}`,
+        documentReference: note.documentNumber
+      }] : []),
+      {
+        id: uid("JLN"),
+        accountCode: receivableAccount.code,
+        accountName: receivableAccount.name,
+        debit: 0,
+        credit: round2(note.total),
+        costCenter: "",
+        auxiliary: receivable.customerTaxId || receivable.customerName,
+        lineDescription: `Disminucion CxC ${receivable.documentNumber}`,
+        documentReference: note.documentNumber
+      }
+    ];
+    return entry;
+  }
+
+  function postCreditNote(receivableId, noteId) {
+    const rows = receivableDocuments();
+    const index = rows.findIndex(item => item.id === receivableId);
+    if (index < 0) return { ok: false, errors: ["No existe la cuenta por cobrar de la factura original."] };
+    const candidate = normalizeReceivable(rows[index]);
+    const noteIndex = candidate.creditNotes.findIndex(item => item.id === noteId);
+    if (noteIndex < 0) return { ok: false, errors: ["No se encontro la nota de credito autorizada."] };
+    const note = candidate.creditNotes[noteIndex];
+    if (note.journalEntryId) {
+      const linked = journalService.all?.()?.find(entry => entry.id === note.journalEntryId && entry.status === "CONTABILIZADO");
+      if (linked) return { ok: true, receivable: clone(candidate), note: clone(note), entry: clone(linked), reused: true };
+    }
+    const existing = findPostedSalesEntry(note);
+    if (existing) {
+      note.journalEntryId = existing.id;
+      note.journalEntryNumber = existing.entryNumber;
+      note.postingStatus = "CONTABILIZADO";
+      note.accountingError = "";
+      rows[index] = candidate;
+      saveList("customerReceivables", rows);
+      return { ok: true, receivable: clone(candidate), note: clone(note), entry: clone(existing), reused: true };
+    }
+    if (!candidate.journalEntryId) {
+      note.postingStatus = "ERROR";
+      note.accountingError = "La factura original debe estar contabilizada antes de la nota de credito.";
+      rows[index] = candidate;
+      saveList("customerReceivables", rows);
+      return { ok: false, errors: [note.accountingError], receivable: clone(candidate), note: clone(note) };
+    }
+    const accountErrors = validateReceivable(candidate, { forPost: true }).errors.filter(error => !/numero para el cliente/i.test(error));
+    if (accountErrors.length) return { ok: false, errors: accountErrors };
+    const entryDraft = buildCreditNoteJournalEntry(candidate, note);
+    const entryValidation = journalService.validateEntry(entryDraft);
+    if (entryValidation.errors.length) return { ok: false, errors: entryValidation.errors };
+    const savedEntry = journalService.saveDraft(entryDraft);
+    if (!savedEntry.ok) return { ok: false, errors: savedEntry.errors || ["No se pudo guardar el asiento de la nota de credito."] };
+    const postedEntry = journalService.postEntry(savedEntry.entry.id);
+    if (!postedEntry.ok) {
+      journalService.deleteDraft(savedEntry.entry.id);
+      return { ok: false, errors: postedEntry.errors || ["No se pudo contabilizar la nota de credito."] };
+    }
+    note.journalEntryId = postedEntry.entry.id;
+    note.journalEntryNumber = postedEntry.entry.entryNumber;
+    note.postingStatus = "CONTABILIZADO";
+    note.accountingError = "";
+    rows[index] = candidate;
+    saveList("customerReceivables", rows);
+    return { ok: true, receivable: clone(candidate), note: clone(note), entry: clone(postedEntry.entry) };
+  }
+
+  function applyAuthorizedCreditNote(order = {}, note = {}) {
+    if (String(note.status || "").toUpperCase() !== "AUTORIZADO") {
+      return { ok: false, message: "La nota de credito todavia no esta autorizada." };
+    }
+    const rows = receivableDocuments();
+    const index = rows.findIndex(item =>
+      (order.receivableId && item.id === order.receivableId)
+      || (order.id && item.sourceOrderId === order.id)
+      || (item.documentNumber && item.documentNumber === order.sriInvoiceNumber)
+    );
+    if (index < 0) return { ok: false, message: "No existe la cuenta por cobrar de la factura original." };
+    const noteId = String(note.remoteDocumentId || note.id || note.authorizationNumber || note.documentNumber || "").trim();
+    const currentNotes = rows[index].creditNotes || [];
+    const priorNote = currentNotes.find(item => item.id === noteId) || {};
+    const total = round2(note.total || note.modificationValue || 0);
+    const taxTotal = round2(note.taxTotal || 0);
+    const normalizedNote = {
+      ...priorNote,
+      id: noteId,
+      documentNumber: note.documentNumber || "",
+      authorizationNumber: note.authorizationNumber || "",
+      issueDate: note.issueDate || "",
+      reason: note.reason || "",
+      accessKey: note.accessKey || "",
+      subtotal: round2(Number(note.subtotal || 0) > 0 ? note.subtotal : Math.max(0, total - taxTotal)),
+      taxTotal,
+      total,
+      status: "AUTORIZADO"
+    };
+    const noteIndex = currentNotes.findIndex(item => item.id === noteId);
+    if (noteIndex >= 0) currentNotes[noteIndex] = normalizedNote;
+    else currentNotes.push(normalizedNote);
+    rows[index].creditNotes = currentNotes;
+    saveList("customerReceivables", rows);
+    adminService?.addAuditLog?.({
+      module: "COBROS",
+      action: noteIndex >= 0 ? "ACTUALIZAR_NOTA_CREDITO_CXC" : "APLICAR_NOTA_CREDITO_CXC",
+      entityType: "receivable",
+      entityId: rows[index].id,
+      entityLabel: rows[index].documentNumber,
+      documentLabel: normalizedNote.documentNumber,
+      description: `Nota de credito ${normalizedNote.documentNumber || noteId} aplicada a la cuenta por cobrar ${rows[index].documentNumber}.`,
+      after: normalizedNote,
+      result: "exitoso"
+    });
+    return {
+      ok: true,
+      accountingOk: false,
+      accountingPending: true,
+      accounting: { ok: false, pending: true, message: "Nota de crédito pendiente de contabilización confirmada en Supabase." },
+      receivable: receivables().find(item => item.id === rows[index].id),
+      note: normalizedNote
+    };
+  }
+
+  async function postCreditNoteV2(receivableId, noteId, options = {}) {
+    const receivable = findReceivableById(receivableId);
+    if (!receivable) return { ok: false, errors: ["No existe la cuenta por cobrar de la factura original."] };
+    const note = (receivable.creditNotes || []).find(item => item.id === noteId);
+    if (!note) return { ok: false, errors: ["No se encontró la nota de crédito autorizada."] };
+    const result = await BlessERP.services?.financialV2?.postCreditNote?.(receivable, note, options);
+    if (!result) return { ok: false, errors: ["Servicio financiero V2 no disponible."] };
+    return result.ok ? result : { ...result, errors: result.errors || [result.message || "Supabase no confirmó la nota de crédito."] };
+  }
+
   function postReceivable(receivableId) {
     const rows = receivableDocuments();
     const index = rows.findIndex(item => item.id === receivableId);
     if (index < 0) return { ok: false, errors: ["Documento de cartera no encontrado."] };
-    if (rows[index].journalEntryId) return { ok: false, errors: ["El documento ya esta contabilizado."] };
+    if (rows[index].journalEntryId) {
+      const linked = journalService.all?.()?.find(entry => entry.id === rows[index].journalEntryId && entry.status === "CONTABILIZADO");
+      if (linked) {
+        (rows[index].creditNotes || [])
+          .filter(note => note.status === "AUTORIZADO" && !note.journalEntryId)
+          .forEach(note => postCreditNote(rows[index].id, note.id));
+        return { ok: true, receivable: findReceivableById(rows[index].id), entry: clone(linked), reused: true };
+      }
+    }
     const { receivable: candidate, errors } = validateReceivable(rows[index], { forPost: true });
-    if (errors.length) return { ok: false, errors };
+    if (errors.length) {
+      candidate.postingStatus = "ERROR";
+      candidate.accountingError = errors.join(" ");
+      rows[index] = candidate;
+      saveList("customerReceivables", rows);
+      return { ok: false, errors };
+    }
+    const existing = findPostedSalesEntry(candidate);
+    if (existing) {
+      candidate.journalEntryId = existing.id;
+      candidate.journalEntryNumber = existing.entryNumber;
+      candidate.postingStatus = "CONTABILIZADO";
+      candidate.accountingError = "";
+      rows[index] = candidate;
+      saveList("customerReceivables", rows);
+      return { ok: true, receivable: clone(candidate), entry: clone(existing), reused: true };
+    }
     const entryDraft = buildReceivableJournalEntry(candidate);
+    const entryValidation = journalService.validateEntry(entryDraft);
+    if (entryValidation.errors.length) {
+      candidate.postingStatus = "ERROR";
+      candidate.accountingError = entryValidation.errors.join(" ");
+      rows[index] = candidate;
+      saveList("customerReceivables", rows);
+      return { ok: false, errors: entryValidation.errors };
+    }
     const savedEntry = journalService.saveDraft(entryDraft);
     if (!savedEntry.ok) return { ok: false, errors: savedEntry.errors || ["No se pudo guardar el asiento del documento."] };
     const postedEntry = journalService.postEntry(savedEntry.entry.id);
-    if (!postedEntry.ok) return { ok: false, errors: postedEntry.errors || ["No se pudo contabilizar el documento."] };
+    if (!postedEntry.ok) {
+      journalService.deleteDraft(savedEntry.entry.id);
+      candidate.postingStatus = "ERROR";
+      candidate.accountingError = (postedEntry.errors || ["No se pudo contabilizar el documento."]).join(" ");
+      rows[index] = candidate;
+      saveList("customerReceivables", rows);
+      return { ok: false, errors: postedEntry.errors || ["No se pudo contabilizar el documento."] };
+    }
     candidate.journalEntryId = postedEntry.entry.id;
     candidate.journalEntryNumber = postedEntry.entry.entryNumber;
     candidate.postingStatus = "CONTABILIZADO";
+    candidate.accountingError = "";
     rows[index] = candidate;
     saveList("customerReceivables", rows);
     adminService?.addAuditLog?.({
-      module: "COBROS",
-      action: "CONTABILIZAR_CXC",
+      module: "VENTAS",
+      action: "CONTABILIZAR_VENTA",
       entityType: "receivable",
       entityId: candidate.id,
       entityLabel: candidate.documentNumber,
@@ -502,7 +1037,25 @@
       after: candidate,
       result: "exitoso"
     });
+    candidate.creditNotes
+      .filter(note => note.status === "AUTORIZADO" && !note.journalEntryId)
+      .forEach(note => postCreditNote(candidate.id, note.id));
     return { ok: true, receivable: clone(candidate), entry: clone(postedEntry.entry) };
+  }
+
+  async function postReceivableV2(receivableId, options = {}) {
+    const candidate = findReceivableById(receivableId);
+    if (!candidate) return { ok: false, errors: ["Documento de cartera no encontrado."] };
+    const canonical = BlessERP.services?.financialV2?.financialReceivableForLegacy?.(candidate);
+    if (canonical?.journalEntryId) {
+      const entry = BlessERP.services?.financialV2?.journalEntries?.().find(item => item.id === canonical.journalEntryId);
+      return { ok: true, confirmed: true, reused: true, receivable: canonical, entry };
+    }
+    const validation = validateReceivable(candidate, { forPost: true });
+    if (validation.errors.length) return { ok: false, errors: validation.errors };
+    const result = await BlessERP.services?.financialV2?.postInvoice?.(validation.receivable, options);
+    if (!result) return { ok: false, errors: ["Servicio financiero V2 no disponible."] };
+    return result.ok ? result : { ...result, errors: result.errors || [result.message || "Supabase no confirmó la venta."] };
   }
 
   function annulReceivable(receivableId) {
@@ -583,9 +1136,10 @@
   }
 
   function emptyCollection(customerId = "") {
+    const remote = BlessERP.getEnvConfig?.()?.financialV2CaptureEnabled === true;
     return {
       id: "",
-      collectionNumber: nextCollectionNumber(),
+      collectionNumber: remote ? "Se asigna al confirmar" : nextCollectionNumber(),
       customerId,
       customerName: "",
       customerTaxId: "",
@@ -636,14 +1190,15 @@
     const selectedBank = current.bankAccountId ? bankService()?.findBankAccountById(current.bankAccountId) : null;
     const resolvedAccountCode = String(current.collectionAccountCode || selectedBank?.linkedAccountCode || "").trim();
     const resolvedAccount = resolvedAccountCode ? chartService.findByCode(resolvedAccountCode) : null;
+    const requestedMethod = String(collection.collectionMethod || collection.paymentMethod || collection.paymentForm || current.collectionMethod || "transferencia").trim().toLowerCase();
     return {
       id: current.id || uid("COL"),
-      collectionNumber: String(current.collectionNumber || nextCollectionNumber()).trim(),
+      collectionNumber: String(current.collectionNumber || (BlessERP.getEnvConfig?.()?.financialV2CaptureEnabled === true ? "Se asigna al confirmar" : nextCollectionNumber())).trim(),
       customerId: String(customer?.id || current.customerId || "").trim(),
       customerName: String(customer?.name || current.customerName || "").trim(),
       customerTaxId: String(customer?.taxId || current.customerTaxId || "").trim(),
       collectionDate: String(current.collectionDate || today()).trim(),
-      collectionMethod: collectionMethods.includes(String(current.collectionMethod || "").toLowerCase()) ? String(current.collectionMethod || "").toLowerCase() : "transferencia",
+      collectionMethod: collectionMethods.includes(requestedMethod) ? requestedMethod : "transferencia",
       collectionAccountCode: resolvedAccountCode,
       collectionAccountName: String(resolvedAccount?.name || current.collectionAccountName || "").trim(),
       bankAccountId: String(current.bankAccountId || "").trim(),
@@ -652,14 +1207,26 @@
       status: collectionStates.includes(String(current.status || "").toUpperCase()) ? String(current.status || "").toUpperCase() : "BORRADOR",
       entryId: String(current.entryId || "").trim(),
       entryNumber: String(current.entryNumber || "").trim(),
+      journalEntryId: String(current.journalEntryId || current.entryId || "").trim(),
+      syncFlow: String(current.syncFlow || "").trim(),
+      remoteConfirmed: Boolean(current.remoteConfirmed),
       applications: (current.applications || []).map(application => {
-        const receivable = application.receivableId ? findReceivableById(application.receivableId) : null;
+        const hasReadModelSnapshot = Boolean(application.documentNumber && application.originalBalance !== undefined);
+        const receivable = !hasReadModelSnapshot && application.receivableId ? findReceivableById(application.receivableId) : null;
         return {
           receivableId: String(application.receivableId || "").trim(),
+          source: String(application.source || receivable?.source || "").trim().toUpperCase(),
+          sourceId: String(application.sourceId || receivable?.sourceId || "").trim(),
+          status: String(application.status || receivable?.status || "").trim().toUpperCase(),
+          canonicalStatus: String(application.canonicalStatus || application.canonical_status || receivable?.canonicalStatus || "").trim().toUpperCase(),
+          companyId: String(application.companyId || application.company_id || receivable?.companyId || "").trim(),
           customerId: String(application.customerId || current.customerId || receivable?.customerId || "").trim(),
           customerName: String(application.customerName || current.customerName || receivable?.customerName || "").trim(),
           customerTaxId: String(application.customerTaxId || current.customerTaxId || receivable?.customerTaxId || "").trim(),
           documentNumber: String(application.documentNumber || receivable?.documentNumber || "").trim(),
+          concept: String(application.concept || receivable?.concept || "").trim(),
+          issueDate: String(application.issueDate || receivable?.issueDate || "").trim(),
+          dueDate: String(application.dueDate || receivable?.dueDate || "").trim(),
           originalBalance: round2(application.originalBalance || receivable?.balance || receivable?.total || 0),
           retentionApplied: round2(application.retentionApplied || 0),
           advanceApplied: round2(application.advanceApplied || 0),
@@ -718,23 +1285,70 @@
     };
   }
 
-  function validateCollectionApplications(applications = []) {
+  function activeCompanyIds() {
+    return new Set([
+      activeCompanyUuid(),
+      BlessERP.services?.companyContext?.activeCompanyId?.(),
+      stateApi.state.db?.activeCompanyId
+    ].map(value => String(value || "").trim()).filter(Boolean));
+  }
+
+  function canonicalCollectionReceivable(receivableId) {
+    const id = String(receivableId || "").trim();
+    if (!id) return null;
+    const portfolioRow = BlessERP.services?.portfolioReadV2?.row?.("ar", id);
+    if (portfolioRow) return clone(portfolioRow);
+    const lookup = BlessERP.services?.paymentCollectionReadV2?.snapshot?.()?.collection?.lookup;
+    const lookupRow = (lookup?.items || []).find(item => String(item.id || "") === id);
+    if (lookupRow) return clone(lookupRow);
+    const financialRow = (BlessERP.services?.financialV2?.receivables?.() || [])
+      .find(item => String(item.id || item.receivableId || "") === id);
+    if (financialRow) return clone(financialRow);
+    if (BlessERP.getEnvConfig?.()?.financialV2CaptureEnabled !== true) {
+      return receivables().find(item => String(item.id || "") === id) || null;
+    }
+    return null;
+  }
+
+  function validateCollectionApplications(applications = [], customerId = "") {
     const errors = [];
     applications.forEach((application, index) => {
-      const receivable = receivables().find(item => item.id === application.receivableId);
       const row = index + 1;
+      const receivableId = String(application.receivableId || "").trim();
+      if (!receivableId) {
+        errors.push(`El documento ${row} no tiene una CxC canónica.`);
+        return;
+      }
+      const receivable = canonicalCollectionReceivable(receivableId);
       if (!receivable) {
         errors.push(`El documento ${row} ya no existe en cartera.`);
         return;
       }
-      if (["COBRADO", "ANULADO"].includes(receivable.status)) {
-        errors.push(`El documento ${receivable.documentNumber} ya no puede cobrarse.`);
+      const documentNumber = receivable.documentNumber || application.documentNumber || row;
+      const receivableCompanyId = String(receivable.companyId || receivable.company_id || application.companyId || "");
+      const companyIds = activeCompanyIds();
+      if (receivableCompanyId && companyIds.size && !companyIds.has(receivableCompanyId)) {
+        errors.push(`El documento ${documentNumber} pertenece a otra empresa.`);
+      }
+      const receivableCustomerId = String(receivable.customerId || receivable.customer_id || application.customerId || "");
+      if (customerId && receivableCustomerId && receivableCustomerId !== String(customerId)) {
+        errors.push(`El documento ${documentNumber} pertenece a otro cliente.`);
+      }
+      const status = String(receivable.status || application.status || "").toUpperCase();
+      const canonicalStatus = String(receivable.canonicalStatus || receivable.canonical_status || application.canonicalStatus || "").toUpperCase();
+      const invalidStatus = status && !["OPEN", "PARTIALLY_PAID", "PENDIENTE", "PARCIAL", "VENCIDO"].includes(status);
+      const invalidCanonicalStatus = canonicalStatus && !["OPEN", "PARTIALLY_PAID"].includes(canonicalStatus);
+      if (invalidStatus || invalidCanonicalStatus) {
+        errors.push(`El documento ${documentNumber} ya no puede cobrarse.`);
+      }
+      if (Number(receivable.balance || 0) <= 0) {
+        errors.push(`El documento ${documentNumber} no tiene saldo pendiente.`);
       }
       if (Number(application.amount || 0) < 0) {
-        errors.push(`El valor aplicado al documento ${receivable.documentNumber} no puede ser negativo.`);
+        errors.push(`El valor aplicado al documento ${documentNumber} no puede ser negativo.`);
       }
       if (Number(application.amount || 0) > Number(receivable.balance || 0)) {
-        errors.push(`El valor aplicado al documento ${receivable.documentNumber} excede su saldo disponible.`);
+        errors.push(`El valor aplicado al documento ${documentNumber} excede su saldo disponible.`);
       }
     });
     return errors;
@@ -745,10 +1359,14 @@
     const errors = [];
     const collectionAccount = candidate.collectionAccountCode ? chartService.findByCode(candidate.collectionAccountCode) : null;
     const bankAccount = candidate.bankAccountId ? bankService()?.findBankAccountById(candidate.bankAccountId) : null;
+    const customer = candidate.customerId ? findCustomerById(candidate.customerId) : null;
     if (!candidate.customerId) errors.push("Debe seleccionar un cliente.");
+    if (candidate.customerId && !customer) errors.push("El cliente canónico no está disponible en la empresa activa.");
+    if (customer?.companyId && !activeCompanyIds().has(customer.companyId)) errors.push("El cliente pertenece a otra empresa.");
+    if (customer && String(customer.status || "activo").toLowerCase() !== "activo") errors.push("El cliente seleccionado está inactivo.");
     if (!candidate.collectionDate) errors.push("La fecha de cobro es obligatoria.");
     if (forConfirm && !candidate.collectionAccountCode) errors.push("Debe seleccionar la cuenta contable de cobro.");
-    errors.push(...validateCollectionApplications(candidate.applications));
+    errors.push(...validateCollectionApplications(candidate.applications, candidate.customerId));
     if (!candidate.applications.some(item => Number(item.amount || 0) > 0)) errors.push("Debe aplicar valor a por lo menos un documento.");
     if (forConfirm && candidate.total <= 0) errors.push("El cobro no puede ser cero.");
     if (forConfirm && candidate.collectionAccountCode && !collectionAccount) errors.push("La cuenta de cobro no existe.");
@@ -757,6 +1375,11 @@
     if (forConfirm && candidate.bankAccountId && !bankAccount) errors.push("La cuenta bancaria/caja seleccionada no existe.");
     if (forConfirm && bankAccount && bankAccount.status !== "activa") errors.push("La cuenta bancaria/caja seleccionada esta inactiva.");
     return { collection: candidate, errors };
+  }
+
+  function validateCollectionDraft(collection, options = {}) {
+    const result = validateCollection(collection, options);
+    return { ok: result.errors.length === 0, ...result };
   }
 
   function validateCollectionBatch(batch, { forConfirm = false } = {}) {
@@ -781,7 +1404,9 @@
     const debitAccount = chartService.findByCode(collection.collectionAccountCode);
     const entry = journalService.emptyEntry();
     entry.accountingDate = collection.collectionDate;
-    entry.accountingPeriod = companyService.settings().activePeriod || entry.accountingPeriod;
+    entry.accountingPeriod = journalService.accountingPeriodForDate?.(entry.accountingDate, entry.accountingPeriod)
+      || String(entry.accountingDate || "").slice(0, 7)
+      || entry.accountingPeriod;
     entry.concept = label || `Cobro a cliente ${collection.customerName || "varios clientes"}`;
     entry.originModule = "Cobros";
     entry.sourceDocument = collection.collectionNumber || collection.batchNumber || "";
@@ -874,6 +1499,38 @@
       result: "exitoso"
     });
     return { ok: true, collection: clone(candidate), entry: clone(postedEntry.entry) };
+  }
+
+  async function confirmCollectionV2(collectionOrId, options = {}) {
+    BlessERP.services?.financialV2?.recordCollectionTrace?.("CONFIRM_COLLECTION_V2_STARTED");
+    const candidate = typeof collectionOrId === "string"
+      ? collections().find(item => item.id === collectionOrId)
+      : normalizeCollection(collectionOrId || {});
+    if (!candidate) {
+      BlessERP.getFinancialV2Repository?.()?.failCollectionTrace?.("COLLECTION_LOOKUP", { code: "COLLECTION_NOT_FOUND", message: "Cobro no encontrado." });
+      return { ok: false, errors: ["Cobro no encontrado."] };
+    }
+    if (candidate.syncFlow === "FINANCIAL_V2" && candidate.status === "CONFIRMADO") {
+      return { ok: true, confirmed: true, reused: true, collection: candidate };
+    }
+    const validation = validateCollection(candidate, { forConfirm: true });
+    if (validation.errors.length) {
+      BlessERP.getFinancialV2Repository?.()?.failCollectionTrace?.("COLLECTION_VALIDATION", { code: "VALIDATION_ERROR", message: validation.errors.join(" | ") });
+      return { ok: false, errors: validation.errors };
+    }
+    const result = await BlessERP.services?.financialV2?.registerCollection?.(validation.collection, options);
+    if (!result) return { ok: false, errors: ["Servicio financiero V2 no disponible."] };
+    return result.ok ? result : { ...result, errors: result.errors || [result.message || "Supabase no confirmó el cobro."] };
+  }
+
+  async function annulCollectionV2(collectionId, reason, options = {}) {
+    const candidate = collections().find(item => item.id === collectionId);
+    if (!candidate) return { ok: false, message: "Cobro no encontrado." };
+    if (candidate.syncFlow !== "FINANCIAL_V2") {
+      return { ok: false, message: "El cobro histórico conserva el flujo anterior y no se reversó automáticamente." };
+    }
+    const result = await BlessERP.services?.financialV2?.reverseCollection?.(collectionId, reason, options);
+    return result || { ok: false, message: "Servicio financiero V2 no disponible." };
   }
 
   function annulCollection(collectionId) {
@@ -1020,6 +1677,7 @@
     customers,
     findCustomerById,
     findCustomerByTaxId,
+    resolveCanonicalCustomer,
     saveCustomer,
     toggleCustomerStatus,
     receivables,
@@ -1028,8 +1686,15 @@
     customerPortfolioSummary,
     pendingReceivablesByCustomer,
     emptyReceivable,
+    normalizeReceivable,
+    validateReceivable,
     saveReceivable,
+    syncAuthorizedSale,
+    applyAuthorizedCreditNote,
+    postCreditNote,
+    postCreditNoteV2,
     postReceivable,
+    postReceivableV2,
     annulReceivable,
     collections,
     collectionBatches,
@@ -1038,12 +1703,15 @@
     emptyCollectionBatch,
     saveCollection,
     confirmCollection,
+    confirmCollectionV2,
     annulCollection,
+    annulCollectionV2,
     saveCollectionBatch,
     confirmCollectionBatch,
     annulCollectionBatch,
     collectionHistoryForReceivable,
     normalizeCollection,
-    normalizeCollectionBatch
+    normalizeCollectionBatch,
+    validateCollectionDraft
   };
 })();

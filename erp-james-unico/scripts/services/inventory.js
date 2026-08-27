@@ -890,7 +890,9 @@
     const errors = [];
     const entry = journalService.emptyEntry();
     entry.accountingDate = movement.movementDate;
-    entry.accountingPeriod = companyService.settings().activePeriod || entry.accountingPeriod;
+    entry.accountingPeriod = journalService.accountingPeriodForDate?.(entry.accountingDate, entry.accountingPeriod)
+      || String(entry.accountingDate || "").slice(0, 7)
+      || entry.accountingPeriod;
     entry.originModule = "Inventario";
     entry.sourceDocument = movement.movementNumber;
     entry.externalReference = movement.documentOrigin || movement.movementNumber;

@@ -50,6 +50,7 @@
 
   function renderBuyerSections(documentData) {
     const { customer, brand, order, options } = documentData;
+    const localSale = utils.isLocalOrder?.(order) || false;
     const sections = [];
 
     if (options.showCustomer) {
@@ -69,16 +70,17 @@
     }
 
     if (options.showBrand) {
+      const destinationParty = localSale ? customer : brand;
       sections.push(`
         <section class="doc-box">
           <h4>DESTINATION / MARK</h4>
           ${printUtils.renderInfoRows([
-            ["Marca / cliente final", brand?.name || "-"],
-            ["Cliente final", brand?.finalClientName || "-"],
-            ["Contacto", brand?.contact || "-"],
-            ["Direccion", brand?.address || "-"],
-            ["Ciudad / Pais", brand ? `${brand.city || "-"} / ${brand.country || "-"}` : `${order.destination || "-"} / ${order.destinationCountry || "-"}`],
-            ["Correo", brand?.email || "-"]
+            [localSale ? "Cliente local" : "Marca / cliente final", destinationParty?.name || destinationParty?.commercialName || destinationParty?.legalName || "-"],
+            ["Cliente final", localSale ? "NO APLICA" : brand?.finalClientName || "-"],
+            ["Contacto", destinationParty?.contact || "-"],
+            ["Direccion", destinationParty?.address || "-"],
+            ["Ciudad / Pais", destinationParty ? `${destinationParty.city || "-"} / ${destinationParty.country || "-"}` : `${order.destination || "-"} / ${order.destinationCountry || "-"}`],
+            ["Correo", destinationParty?.email || destinationParty?.billingEmail || "-"]
           ])}
         </section>
       `);
@@ -96,145 +98,109 @@
     return sections.join("");
   }
 
+  function addDays(dateValue, dayCount) {
+    const parts = String(dateValue || "").slice(0, 10).split("-").map(Number);
+    if (parts.length !== 3 || parts.some(value => !Number.isFinite(value))) return "";
+    const date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+    date.setUTCDate(date.getUTCDate() + Number(dayCount || 0));
+    return date.toISOString().slice(0, 10);
+  }
+
+  function compactDecimal(value, decimals = 4) {
+    return Number(value || 0)
+      .toFixed(decimals)
+      .replace(/0+$/g, "")
+      .replace(/\.$/g, "");
+  }
+
   function renderDocument(context, options = {}) {
-    const documentData = invoiceUtils.buildDocumentData(context.order, context.appState, options);
-    const { order, customer, brand, agency, airline, metrics, rows, validation, invoiceNumber } = documentData;
-    const stamp = options.mode === "REAL_DEMO" ? "REAL DEMO / VALIDADO INTERNAMENTE" : "REFERENCIAL";
-    const stampClass = options.mode === "REAL_DEMO" ? "real-demo" : "referential";
+    const documentData = context.preparedClientInvoiceData
+      || invoiceUtils.buildDocumentData(context.order, context.appState, options);
+    const { order, customer, brand, agency, airline, metrics, invoiceNumber } = documentData;
+    const localSale = utils.isLocalOrder?.(order) || false;
+    const consignee = localSale ? customer : brand;
+    const logoUrl = printUtils.companyLogoUrl(context.company);
+    const byLength = printUtils.summarizeMap(metrics.byLength, value => utils.number(value), "numeric");
+    const boxGroups = printUtils.groupLinesByBox(metrics.lines);
+    const customerCountry = consignee?.country || order.destinationCountry || order.destination || (localSale ? "ECUADOR" : "-");
+    const paymentValue = String(order.paymentTerms || customer?.creditDays || 0);
+    const expiryDate = order.expireDate || addDays(order.issuedAt, customer?.creditDays || 0);
+    const detailRows = boxGroups.flatMap(group => group.lines.map((line, lineIndex) => {
+      const lineTotal = Number(line.totalLine || (
+        Number(line.bunches || 0)
+        * Number(line.stemsPerBunch || 0)
+        * Number(line.unitPrice || 0)
+      ));
+      return `
+        <tr class="${lineIndex === 0 ? "is-box-start" : ""}">
+          ${lineIndex === 0 ? `
+            <td class="center client-detail-box-cell" rowspan="${group.lines.length}">${utils.esc(group.boxNumber)}</td>
+            <td class="center client-detail-box-cell" rowspan="${group.lines.length}">${utils.esc(group.boxType || "-")}</td>
+          ` : ""}
+          <td>${utils.esc(line.variety || "-")}</td>
+          <td class="center">${utils.esc(line.length || "-")}</td>
+          <td class="center">${utils.esc(utils.number(line.bunches))}</td>
+          <td class="center">${utils.esc(utils.number(line.stemsPerBunch))}</td>
+          <td class="center">${utils.esc(utils.number(line.totalStems))}</td>
+          <td class="numeric">${utils.esc(compactDecimal(line.unitPrice))}</td>
+          <td class="numeric">${utils.esc(compactDecimal(lineTotal, 2))}</td>
+        </tr>
+      `;
+    })).join("");
 
     return `
-      <article class="doc-page">
-        <div class="doc-stamp ${utils.esc(stampClass)}">${utils.esc(stamp)}</div>
-        <div class="doc-header">
-          <div class="doc-company">
-            <span class="doc-kicker">Documento comercial cliente</span>
-            <strong class="doc-company-logo">BLESS FLOWER</strong>
-            <h2 class="doc-title">COMMERCIAL INVOICE / FACTURA COMERCIAL CLIENTE</h2>
-            <p class="doc-subtitle">Documento comercial preliminar. No corresponde a factura electronica autorizada por el SRI.</p>
-            ${printUtils.renderInfoRows([
-              ["Exportador", context.company.legalName],
-              ["RUC", context.company.ruc],
-              ["Direccion", context.company.address],
-              ["Referencia", context.company.address2],
-              ["Ciudad / Pais", context.company.city],
-              ["Telefono", context.company.phone],
-              ["Correo", context.company.email]
-            ])}
+      <article class="doc-page invoice-a4-page client-invoice-a4">
+        <header class="invoice-a4-header client-invoice-header">
+          <div class="invoice-a4-brand">
+            <img src="${utils.esc(logoUrl)}" alt="${utils.esc(context.company.commercialName || context.company.legalName || "Empresa")}">
+            <div>
+              <strong>${utils.esc(context.company.legalName)}</strong>
+              <span>${utils.esc(context.company.address)}</span>
+              <span>${utils.esc(context.company.city)} | RUC ${utils.esc(context.company.ruc)}</span>
+              <span>${utils.esc(context.company.phone)} | ${utils.esc(context.company.email)}</span>
+            </div>
           </div>
-          <div class="doc-box">
-            <h4>Datos del documento</h4>
-            ${printUtils.renderInfoRows([
-              ["Numero invoice", invoiceNumber],
-              ["Pedido", order.number],
-              ["Estado documento", validation.state],
-              ["Fecha emision", utils.dateLabel(order.issuedAt)],
-              ["Moneda", order.currency || "USD"],
-              ["Payment", order.paymentTerms || `${customer?.creditDays || 0} dias`],
-              ["Expire", utils.dateLabel(order.expireDate)]
-            ])}
+          <div class="client-invoice-parties">
+            <section><h2>SOLD TO</h2><strong>${utils.esc(customer?.legalName || customer?.commercialName || "-")}</strong><span>${utils.esc(customer?.address || "-")}</span><span>${utils.esc([customer?.city, customer?.country].filter(Boolean).join(", ") || "-")}</span></section>
+            <section><h2>CONSIGNEE TO</h2><strong>${utils.esc(consignee?.finalClientName || consignee?.name || consignee?.legalName || consignee?.commercialName || "-")}</strong><span>${utils.esc(consignee?.address || "-")}</span><span>${utils.esc([consignee?.city, consignee?.country].filter(Boolean).join(", ") || "-")}</span></section>
           </div>
-        </div>
+        </header>
 
-        <div class="doc-grid">
-          ${renderBuyerSections(documentData)}
-          <section class="doc-box">
-            <h4>LOGISTICA / REFERENCIA</h4>
-            ${printUtils.renderInfoRows([
-              ["Destino", order.destination || "-"],
-              ["Fecha vuelo", utils.dateLabel(order.flightDate)],
-              ["DAE", order.daeNumber || "-"],
-              ["AWB / HAWB", [order.awb || "-", order.hawb || "-"].join(" / ")],
-              ["Agencia", agency?.name || "-"],
-              ["Carrier & Flight", [airline?.name || "-", order.flightNumber || "-"].join(" / ")]
-            ])}
-          </section>
-        </div>
+        <div class="client-invoice-country"><span>Country:</span><strong>${utils.esc(customerCountry)}</strong></div>
+        <section class="client-invoice-summary-grid">
+          <div class="client-invoice-summary-number"><span>INVOICE / PACKING</span><strong>${utils.esc(invoiceNumber)}</strong></div>
+          <div><span>TOTAL PIEZAS</span><strong>${utils.esc(metrics.totalBoxes)}</strong></div>
+          <div><span>TOTAL FULLS</span><strong>${utils.esc(metrics.totalFulls.toFixed(2))}</strong></div>
+          <div><span>CUSTOMER CODE</span><strong>${utils.esc(customer?.code || brand?.code || "-")}</strong></div>
+          <div><span>DATE / FECHA</span><strong>${utils.esc(utils.dateLabel(order.issuedAt))}</strong></div>
+          <div><span>PAYMENT / PAGO</span><strong>${utils.esc(paymentValue)}</strong></div>
+          <div><span>EXPIRE / VENCIMIENTO</span><strong>${utils.esc(utils.dateLabel(expiryDate))}</strong></div>
+          <div><span>FORWARDER / AGENCIA</span><strong>${utils.esc(localSale ? "NO APLICA" : agency?.name || "-")}</strong></div>
+          <div><span>AWB / HAWB</span><strong>${utils.esc([order.awb, order.hawb].filter(Boolean).join(" / ") || "-")}</strong></div>
+          <div><span>DAE</span><strong>${utils.esc(localSale ? "NO APLICA" : order.transportType === "aereo" ? order.daeNumber || "-" : "-")}</strong></div>
+          <div><span>CARRIER & FLIGHT / LINEA</span><strong>${utils.esc([airline?.name, order.flightNumber].filter(Boolean).join(" / ") || "-")}</strong></div>
+        </section>
 
-        ${printUtils.renderMetricPills([
-          { label: "Total cajas", value: String(metrics.totalBoxes) },
-          { label: "Total fulls", value: metrics.totalFulls.toFixed(2) },
-          { label: "Total ramos", value: utils.number(metrics.totalBunches) },
-          { label: "Total tallos", value: utils.number(metrics.totalStems) },
-          { label: "Total USD", value: utils.money(metrics.totalUsd) },
-          { label: "Precio promedio", value: Number(metrics.averagePricePerStem || 0).toFixed(3) },
-          { label: "Vista", value: documentData.options.viewMode === "grouped" ? "Agrupada" : "Detallada por caja" },
-          { label: "Moneda", value: order.currency || "USD" }
-        ])}
+        <table class="invoice-a4-table client-detail-table">
+          <thead><tr><th>BOXES<br>CAJAS</th><th>TYPE<br>TIPO</th><th>DESCRIPTION<br>DESCRIPCION</th><th>LENGTH<br>LONGITUD</th><th>BUNCH<br>RAMO</th><th>STEM<br>TALLO</th><th>T. STEMS<br>T. TALLOS</th><th>PRICE<br>PRECIO</th><th>TOTAL</th></tr></thead>
+          <tbody>
+            ${detailRows || `<tr><td colspan="9">Sin detalle comercial disponible.</td></tr>`}
+          </tbody>
+          <tfoot><tr><td colspan="4"><strong>TOTAL</strong></td><td class="center"><strong>${utils.esc(utils.number(metrics.totalBunches))}</strong></td><td></td><td class="center"><strong>${utils.esc(utils.number(metrics.totalStems))}</strong></td><td></td><td class="numeric"><strong>${utils.esc(compactDecimal(metrics.totalUsd, 2))}</strong></td></tr></tfoot>
+        </table>
 
-        <div class="doc-table-wrap">
-          <table class="doc-table">
-            <thead>
-              <tr>
-                <th>ITEM</th>
-                <th>DESCRIPTION</th>
-                <th>LENGTH</th>
-                <th>BUNCHES</th>
-                <th>STEMS/BUNCH</th>
-                <th>TOTAL STEMS</th>
-                <th>UNIT PRICE</th>
-                <th>TOTAL USD</th>
-                <th>PO</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows.length ? rows.map(row => `
-                <tr>
-                  <td class="center">${utils.esc(row.item)}</td>
-                  <td>${utils.esc(row.description)}</td>
-                  <td class="center">${utils.esc(`${row.length} cm`)}</td>
-                  <td class="center">${utils.esc(utils.number(row.bunches))}</td>
-                  <td class="center">${utils.esc(utils.number(row.stemsPerBunch))}</td>
-                  <td class="center">${utils.esc(utils.number(row.totalStems))}</td>
-                  <td class="numeric">${utils.esc(Number(row.unitPrice || 0).toFixed(3))}</td>
-                  <td class="numeric">${utils.esc(Number(row.totalUsd || 0).toFixed(2))}</td>
-                  <td>${utils.esc(row.po || "")}</td>
-                </tr>
-              `).join("") : `<tr><td colspan="9">Sin detalle comercial disponible.</td></tr>`}
-              <tr>
-                <td colspan="3"><strong>TOTAL</strong></td>
-                <td class="center"><strong>${utils.esc(utils.number(metrics.totalBunches))}</strong></td>
-                <td></td>
-                <td class="center"><strong>${utils.esc(utils.number(metrics.totalStems))}</strong></td>
-                <td class="numeric"><strong>${utils.esc(Number(metrics.averagePricePerStem || 0).toFixed(3))}</strong></td>
-                <td class="numeric"><strong>${utils.esc(Number(metrics.totalUsd || 0).toFixed(2))}</strong></td>
-                <td></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="doc-footer-grid">
-          <section class="doc-box">
-            <h4>Resumen comercial</h4>
-            ${printUtils.renderSimpleSummaryTable(
-              ["Resumen", "Valor"],
-              [
-                ["Variedades", String(Object.keys(metrics.byVariety).length)],
-                ["Longitudes", String(Object.keys(metrics.byLength).length)],
-                ["Total cajas", String(metrics.totalBoxes)],
-                ["Total fulls", metrics.totalFulls.toFixed(2)],
-                ["Total USD", utils.money(metrics.totalUsd)]
-              ],
-              []
-            )}
-          </section>
-          <section class="doc-box">
-            <h4>Relacion documental</h4>
-            <ul class="doc-list">
-              <li>Invoice / Packing carguera sigue separado de esta factura comercial cliente.</li>
-              <li>Packing List, HR, MP, Etiquetas y Resumen pedido siguen accesibles desde el Centro de impresion.</li>
-              <li>Factura SRI exportacion, XML y contabilidad de ventas quedan para fase futura.</li>
-            </ul>
-          </section>
-        </div>
-
-        <p class="doc-legal-note">Documento comercial preliminar. No corresponde a factura electronica autorizada por el SRI.</p>
+        <footer class="client-invoice-footer">
+          <table class="invoice-a4-table compact"><thead><tr><th>LENGTH / LONGITUD</th><th>STEMS / TALLOS</th></tr></thead><tbody>${byLength.map(item => `<tr><td class="center">${utils.esc(item.label)} cm</td><td class="center">${utils.esc(item.value)}</td></tr>`).join("") || `<tr><td colspan="2">Sin resumen.</td></tr>`}</tbody></table>
+          <div class="client-invoice-order-number"><span>NUMERO DE PEDIDO</span><strong>${utils.esc(order.number || "-")}</strong></div>
+        </footer>
       </article>
     `;
   }
 
   function validateDocument(context, options = {}) {
-    const validation = invoiceUtils.validateDocument(context.order, context.appState, options);
+    const documentData = invoiceUtils.buildDocumentData(context.order, context.appState, options);
+    context.preparedClientInvoiceData = documentData;
+    const validation = documentData.validation;
     return {
       errors: [...validation.errors],
       warnings: [...validation.warnings]
@@ -255,10 +221,10 @@
         actionsMarkup: `
           <div class="table-actions-inline">
             <button class="secondary-button" data-commercial-preview-doc="COMMERCIAL_INVOICE_CLIENT" data-commercial-doc-options-source="client-invoice-referential">Vista previa</button>
-            <button class="secondary-button" data-commercial-print-doc="COMMERCIAL_INVOICE_CLIENT" data-commercial-doc-options-source="client-invoice-referential">Imprimir referencial</button>
+            <button class="primary-button" data-commercial-print-doc="COMMERCIAL_INVOICE_CLIENT" data-commercial-doc-options-source="client-invoice-referential">Imprimir referencial</button>
             <button class="secondary-button" data-commercial-preview-doc="COMMERCIAL_INVOICE_CLIENT" data-commercial-doc-options-source="client-invoice-real-demo">Vista previa real demo</button>
             <button class="secondary-button" data-commercial-print-doc="COMMERCIAL_INVOICE_CLIENT" data-commercial-doc-options-source="client-invoice-real-demo">Imprimir real demo</button>
-            <button class="secondary-button" data-commercial-doc-placeholder="pdf|COMMERCIAL_INVOICE_CLIENT">Descargar PDF</button>
+            <button class="secondary-button" data-commercial-download-doc="COMMERCIAL_INVOICE_CLIENT" data-commercial-doc-options-source="client-invoice-referential">Guardar PDF</button>
             <button class="secondary-button" data-commercial-doc-placeholder="email|COMMERCIAL_INVOICE_CLIENT">Enviar por correo</button>
           </div>
         `,
@@ -285,7 +251,7 @@
           </div>
           <span class="status-badge ${report.status.tone}">${utils.esc(statusText)}</span>
         </div>
-        <p class="panel-note">No es factura SRI. Documento comercial preliminar para cliente usando los mismos datos del Pedido Maestro.</p>
+        <p class="panel-note">No es factura SRI. Documento comercial preliminar para cliente usando los mismos datos de Crear pedido.</p>
         <div class="info-stack commercial-print-card-meta">
           <div class="info-row"><strong>Pedido activo</strong><span>${utils.esc(order?.number || "-")}</span></div>
           <div class="info-row"><strong>Numero invoice</strong><span>${utils.esc(documentData.invoiceNumber)}</span></div>
@@ -296,10 +262,10 @@
         ${BlessERP.comercialPrint.renderDocumentIssues(report)}
         <div class="table-actions-inline">
           <button class="secondary-button" data-commercial-preview-doc="COMMERCIAL_INVOICE_CLIENT" data-commercial-doc-options-source="client-invoice-referential">Vista previa</button>
-          <button class="secondary-button" data-commercial-print-doc="COMMERCIAL_INVOICE_CLIENT" data-commercial-doc-options-source="client-invoice-referential">Imprimir referencial</button>
+          <button class="primary-button" data-commercial-print-doc="COMMERCIAL_INVOICE_CLIENT" data-commercial-doc-options-source="client-invoice-referential">Imprimir referencial</button>
           <button class="secondary-button" data-commercial-preview-doc="COMMERCIAL_INVOICE_CLIENT" data-commercial-doc-options-source="client-invoice-real-demo">Vista previa real demo</button>
           <button class="secondary-button" data-commercial-print-doc="COMMERCIAL_INVOICE_CLIENT" data-commercial-doc-options-source="client-invoice-real-demo">Imprimir real demo</button>
-          <button class="secondary-button" data-commercial-doc-placeholder="pdf|COMMERCIAL_INVOICE_CLIENT">Descargar PDF</button>
+          <button class="secondary-button" data-commercial-download-doc="COMMERCIAL_INVOICE_CLIENT" data-commercial-doc-options-source="client-invoice-referential">Guardar PDF</button>
           <button class="secondary-button" data-commercial-doc-placeholder="email|COMMERCIAL_INVOICE_CLIENT">Enviar por correo</button>
         </div>
         <p class="panel-note commercial-legal-note">No es factura SRI.</p>

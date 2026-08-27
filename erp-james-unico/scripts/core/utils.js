@@ -38,5 +38,19 @@
     return JSON.parse(JSON.stringify(value));
   }
 
-  BlessERP.utils = { uid, today, money, number, esc, clone };
+  function nextCustomerExternalId(rows = [], companyId = "", excludedId = "") {
+    const targetCompany = String(companyId || "").trim();
+    const ignoredId = String(excludedId || "").trim();
+    const highest = (rows || []).reduce((max, item) => {
+      if (!item || String(item.id || "").trim() === ignoredId) return max;
+      const rowCompany = String(item.companyId || item.company_id || "").trim();
+      if (targetCompany && rowCompany && rowCompany !== targetCompany) return max;
+      const value = String(item.identification || item.taxId || "").trim().toUpperCase();
+      const match = value.match(/^CE(\d+)$/);
+      return match ? Math.max(max, Number(match[1]) || 0) : max;
+    }, 0);
+    return `CE${String(highest + 1).padStart(4, "0")}`;
+  }
+
+  BlessERP.utils = { uid, today, money, number, esc, clone, nextCustomerExternalId };
 })();

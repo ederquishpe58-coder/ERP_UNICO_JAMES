@@ -8,10 +8,13 @@
     return [...new Set((items || []).filter(Boolean))];
   }
 
-  function getBoxGroups(order) {
-    const normalizedOrder = utils.normalizeOrder(order);
-    const metrics = utils.getOrderMetrics(normalizedOrder);
+  function getBoxGroups(order, preparedOrder = null) {
+    const normalizedOrder = preparedOrder || utils.normalizeOrder(order);
     const printUtils = BlessERP.comercialPrintUtils;
+    const baseMetrics = utils.getOrderMetrics(normalizedOrder);
+    const metrics = printUtils?.buildPrintableMetrics
+      ? printUtils.buildPrintableMetrics(baseMetrics)
+      : baseMetrics;
     if (printUtils?.groupLinesByBox) return printUtils.groupLinesByBox(metrics.lines || []);
 
     const groups = new Map();
@@ -29,8 +32,8 @@
     return (groups || []).reduce((highest, group) => Math.max(highest, Number(group.boxNumber || 0)), 0);
   }
 
-  function normalizeSelection(order, rawSelection = {}, appState = null) {
-    const groups = getBoxGroups(order);
+  function normalizeSelection(order, rawSelection = {}, appState = null, preparedGroups = null) {
+    const groups = preparedGroups || getBoxGroups(order);
     const totalBoxes = groups.length;
     const maxBoxNumber = getMaxBoxNumber(groups);
     const ui = rawSelection || {};
@@ -107,29 +110,35 @@
     const errors = [];
     const warnings = [];
     const poValues = [...(group?.poValues || [])].filter(Boolean);
-    const aerial = String(order.transportType || "aereo").trim().toUpperCase() === "AEREO";
     const boxComplete = !boxProgress || boxProgress.automaticComplete || boxProgress.status === "CERRADA_BODEGA";
+    const localSale = utils.isLocalOrder?.(order) || false;
+    const invoiceNumber = BlessERP.comercialInvoiceSequence?.visibleInvoiceNumber?.(order) || "";
 
     if (!Number(group?.boxNumber || 0)) errors.push("Caja sin numero.");
     if (!contentLines.length) errors.push("Caja sin contenido.");
-    if (!brand) errors.push("Falta marca / cliente final.");
-    if (!order.destination) errors.push("Falta destino.");
-    if (aerial && !order.daeNumber) errors.push("Falta DAE para transporte aereo.");
-    const awbDigits = utils.getAwbDigits ? utils.getAwbDigits(order.awb) : String(order.awb || "").replace(/\D/g, "");
-    if (!order.awb) errors.push("Falta AWB para la etiqueta final.");
-    else if (awbDigits.length !== 11) errors.push("AWB invalida: debe contener 3 digitos de aerolinea y 8 complementarios.");
-    else if (!utils.findAirlineByAwb?.(order.awb)) errors.push(`Prefijo AWB ${awbDigits.slice(0, 3)} no parametrizado.`);
-    if (!order.hawb) errors.push("Falta HAWB para la etiqueta final.");
-    if (!boxComplete) errors.push("Caja incompleta en Bodega; la etiqueta final aun no puede imprimirse.");
+    if (!order.number) errors.push("Falta secuencial unico del pedido.");
+    if (!invoiceNumber) errors.push("Falta numero de factura. Guarde el pedido para reservar su secuencial antes de imprimir la etiqueta.");
+    if (!localSale && !brand) errors.push("Falta marca / cliente final.");
+    if (!localSale && !order.destination) errors.push("Falta destino.");
+    if (!localSale && String(order.transportType || "").toLowerCase() === "aereo") {
+      if (!order.daeNumber) errors.push("Falta DAE para generar el codigo de barras.");
+      else if (!BlessERP.code128?.numericPayload(order.daeNumber)) errors.push("DAE invalida para generar el codigo de barras.");
+      const awbDigits = utils.getAwbDigits ? utils.getAwbDigits(order.awb) : String(order.awb || "").replace(/\D/g, "");
+      if (!order.awb) errors.push("Falta AWB para la etiqueta final.");
+      else if (awbDigits.length !== 11) errors.push("AWB invalida: debe contener 3 digitos de aerolinea y 8 complementarios.");
+      else if (!utils.findAirlineByAwb?.(order.awb)) errors.push(`Prefijo AWB ${awbDigits.slice(0, 3)} no parametrizado.`);
+      if (!order.hawb) errors.push("Falta HAWB para la etiqueta final.");
+    }
+    if (!boxComplete) warnings.push("Caja aun no completada en Bodega; se permite imprimir la etiqueta anticipadamente para preparar el empaque.");
 
     if (brand?.requiresPo && !poValues.length) warnings.push("Falta PO cuando la marca lo requiere.");
     if (!order.flightDate) warnings.push("Falta fecha de vuelo.");
     if (order.labelReprintRequired) warnings.push(`Reimpresion requerida para revision R${Number(order.labelRevision || 1)}.`);
-    warnings.push("Codigo aduana demo no validado oficialmente.");
-    warnings.push("Barcode / QR real pendiente.");
 
     let state = "LISTA";
-    if (errors.some(item => item.includes("numero"))) {
+    if (errors.some(item => item.includes("numero de factura"))) {
+      state = "FALTA_FACTURA";
+    } else if (errors.some(item => item.includes("numero"))) {
       state = "FALTA_NUMERO_CAJA";
     } else if (errors.some(item => item.includes("contenido"))) {
       state = "SIN_CONTENIDO";
@@ -138,15 +147,15 @@
     } else if (errors.some(item => item.includes("destino"))) {
       state = "FALTA_DESTINO";
     } else if (errors.some(item => item.includes("DAE"))) {
-      state = "FALTA_DAE";
+      state = errors.some(item => item.includes("invalida")) ? "DAE_INVALIDA" : "FALTA_DAE";
     } else if (errors.some(item => item.includes("AWB") || item.includes("HAWB"))) {
       state = "FALTA_GUIAS";
-    } else if (errors.some(item => item.includes("incompleta"))) {
-      state = "CAJA_INCOMPLETA";
     } else if (order.labelReprintRequired) {
       state = "REIMPRESION_REQUERIDA";
     } else if (warnings.some(item => item.includes("PO"))) {
       state = "ADVERTENCIA_PO";
+    } else if (warnings.some(item => item.includes("no completada en Bodega"))) {
+      state = "CAJA_INCOMPLETA";
     }
 
     return {
@@ -156,12 +165,14 @@
     };
   }
 
-  function buildLabelRows(order, appState) {
-    const normalizedOrder = utils.normalizeOrder(order);
+  function buildLabelRows(order, appState, prepared = null) {
+    const normalizedOrder = prepared?.normalizedOrder || utils.normalizeOrder(order);
     const brand = utils.findBrand(normalizedOrder.brandId);
+    const customer = utils.findCustomer(normalizedOrder.customerId);
+    const localSale = utils.isLocalOrder?.(normalizedOrder) || false;
     const agency = utils.findAgency(normalizedOrder.agencyId);
     const airline = utils.findAirline(normalizedOrder.airlineId);
-    const groups = getBoxGroups(normalizedOrder);
+    const groups = prepared?.groups || getBoxGroups(normalizedOrder, normalizedOrder);
     const totalBoxes = groups.length;
     const fulfillment = BlessERP.comercialOrderFulfillment?.getOrderFulfillment?.(appState, normalizedOrder.id);
     const fulfillmentByBox = new Map((fulfillment?.boxes || []).map(box => [Number(box.boxNumber), box]));
@@ -177,22 +188,31 @@
 
       return {
         pedido_id: normalizedOrder.id,
+        pedido_numero: normalizedOrder.number,
         box_id: `${normalizedOrder.id}-${customsCode.padBoxNumber(boxNumber)}`,
         numero_caja: boxNumber,
         total_cajas: totalBoxes,
         tipo_caja: group.boxType || "-",
-        marca: brand?.name || "",
+        marca: localSale
+          ? (customer?.legalName || customer?.commercialName || "CLIENTE LOCAL")
+          : (brand?.name || ""),
         po,
         destino: normalizedOrder.destination || "",
-        pais: normalizedOrder.destinationCountry || brand?.country || "",
+        pais: normalizedOrder.destinationCountry || (localSale ? customer?.country || "ECUADOR" : brand?.country) || "",
+        transport_type: String(normalizedOrder.transportType || "").toLowerCase(),
         dae: normalizedOrder.daeNumber || "",
+        dae_barcode: BlessERP.code128?.numericPayload(normalizedOrder.daeNumber) || "",
         awb: normalizedOrder.awb || "",
         hawb: normalizedOrder.hawb || "",
         fecha_vuelo: normalizedOrder.flightDate || "",
-        agencia_carga: agency?.name || "",
+        agencia_carga: localSale ? "NO APLICA" : agency?.name || "",
+        cuarto_frio: normalizedOrder.coldRoom || agency?.coldRoom || "",
         carrier: airline?.name || "",
         vuelo: normalizedOrder.flightNumber || "",
-        invoice_packing_no: normalizedOrder.invoicePackingNumber || "",
+        invoice_packing_no: BlessERP.comercialInvoiceSequence?.visibleInvoiceNumber?.(normalizedOrder) || "",
+        invoice_no: BlessERP.comercialInvoiceSequence?.visibleInvoiceNumber?.(normalizedOrder) || "",
+        packing_list_no: normalizedOrder.packingListNumber || "",
+        sri_invoice_no: normalizedOrder.sriInvoiceNumber || "",
         contenido_resumido: contentSummary,
         contenido_lineas: contentLines,
         codigo_aduana: customs.value,
@@ -200,14 +220,13 @@
         codigo_scanner_demo: buildScannerDemoCode(normalizedOrder, boxNumber),
         revision_etiqueta: Number(normalizedOrder.labelRevision || 1),
         reimpresion_requerida: Boolean(normalizedOrder.labelReprintRequired),
-        barcode_value_futuro: customsCode.buildBarcodeValue(normalizedOrder, group, totalBoxes),
-        qr_value_futuro: customsCode.buildQrValue(normalizedOrder, group, totalBoxes),
+        barcode_value: BlessERP.code128?.numericPayload(normalizedOrder.daeNumber) || "",
         estado: status.state,
         badgeTone: stateDefinition.tone,
         estado_label: stateDefinition.label,
         errors: status.errors,
         warnings: dedupe([...status.warnings, ...customs.issues.map(item => `Codigo aduana: ${item}`)]),
-        observacion: normalizedOrder.notes || "Etiqueta demo preparada desde Pedido Maestro.",
+      observacion: normalizedOrder.notes || "Etiqueta demo preparada desde Crear pedido.",
         total_ramos: Number(group.totalBunches || 0),
         total_tallos: Number(group.totalStems || 0)
       };
@@ -220,7 +239,7 @@
       generatedCount: rows.length,
       withDaeCount: rows.filter(row => row.dae).length,
       withoutPoCount: rows.filter(row => !row.po).length,
-      readyCount: rows.filter(row => row.estado === "LISTA").length,
+      readyCount: rows.filter(row => !row.errors.length).length,
       warningCount: rows.filter(row => row.warnings.length).length,
       blockedCount: rows.filter(row => row.errors.length).length,
       selectedCount: selection?.printCount || 0
@@ -228,8 +247,10 @@
   }
 
   function buildDocumentData(order, appState, rawOptions = {}) {
-    const rows = buildLabelRows(order, appState);
-    const selection = normalizeSelection(order, rawOptions, appState);
+    const normalizedOrder = utils.normalizeOrder(order);
+    const groups = getBoxGroups(normalizedOrder, normalizedOrder);
+    const rows = buildLabelRows(normalizedOrder, appState, { normalizedOrder, groups });
+    const selection = normalizeSelection(normalizedOrder, rawOptions, appState, groups);
     const rowMap = new Map(rows.map(row => [Number(row.numero_caja), row]));
     const selectedRows = selection.selectedGroups
       .map(group => rowMap.get(Number(group.boxNumber)))

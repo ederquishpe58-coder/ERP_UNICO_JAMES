@@ -13,7 +13,7 @@
   }
 
   function renderSummary(context) {
-    const { order, customer, brand, agency, metrics, materials, validation } = context;
+    const { company, order, customer, brand, agency, metrics, materials, validation } = context;
     const materialRows = materials.map(item => [
       item.name,
       utils.number(item.required),
@@ -27,7 +27,7 @@
         <div class="doc-header">
           <div class="doc-company">
             <span class="doc-kicker">Resumen interno</span>
-            <strong class="doc-company-logo">BLESS FLOWER</strong>
+            ${printUtils.renderCompanyBrand(company)}
             <h2 class="doc-title">RESUMEN DEL PEDIDO</h2>
             <p class="doc-subtitle">Resumen comercial interno con validaciones y materiales demo.</p>
           </div>

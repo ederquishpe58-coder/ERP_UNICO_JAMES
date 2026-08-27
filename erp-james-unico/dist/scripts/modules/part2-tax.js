@@ -5,6 +5,9 @@
   const chartService = BlessERP.services.chartOfAccounts;
   const withholdingXmlService = BlessERP.services.taxWithholdings;
   const receivablesService = BlessERP.services.receivables;
+  const receivedReadService = () => BlessERP.services.receivedWithholdingRead;
+  const currentDate = BlessERP.utils.today();
+  const currentMonthStart = `${String(currentDate).slice(0, 7)}-01`;
 
   const uiState = {
     taxes: {
@@ -31,12 +34,12 @@
       warnings: []
     },
     received: {
-      search: "",
-      status: "",
+      draftFilters: { dateFrom: currentMonthStart, dateTo: currentDate, customerId: "", status: "", number: "", document: "", search: "" },
       batch: [],
       loading: false,
       message: "",
-      errors: []
+      errors: [],
+      selectedReceivables: {}
     }
   };
 
@@ -511,20 +514,6 @@
     bindRetentions();
   }
 
-  function receivableOptions(selectedId = "") {
-    return receivablesService.receivables({})
-      .filter(item => !["COBRADO", "ANULADO"].includes(item.status))
-      .map(item => `<option value="${esc(item.id)}" ${selectedId === item.id ? "selected" : ""}>${esc(item.documentNumber)} - ${esc(item.customerName)} (${money(item.balance)})</option>`)
-      .join("");
-  }
-
-  function filteredReceivedRows() {
-    return withholdingXmlService.receivedWithholdings({
-      search: uiState.received.search,
-      status: uiState.received.status
-    });
-  }
-
   function renderReceivedCards(summary) {
     return `
       <section class="summary-grid">
@@ -537,9 +526,80 @@
     `;
   }
 
+  function receivedCustomerOptions(selectedId = "") {
+    return receivablesService.customerCatalog()
+      .filter(item => item.status === "activo")
+      .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es"))
+      .map(item => `<option value="${esc(item.id)}" ${selectedId === item.id ? "selected" : ""}>${esc(item.name)} · ${esc(item.taxId || "-")}</option>`)
+      .join("");
+  }
+
+  function renderReceivedLookup(readState) {
+    const lookup = readState.lookup || {};
+    if (!lookup.receivedId) return "";
+    const target = (readState.list?.items || []).find(item => item.id === lookup.receivedId);
+    return `
+      <article class="panel-card">
+        <div class="panel-card-head">
+          <div><p class="section-kicker">VINCULO CXC</p><h3>${esc(target?.documentNumber || lookup.receivedId)}</h3></div>
+          <button class="row-action-button" type="button" data-received-lookup-close>Cerrar</button>
+        </div>
+        <div class="compact-toolbar">
+          <label class="compact-inline-field"><span>Cliente</span><input value="${esc(target?.issuerName || "")}" disabled></label>
+          <label class="compact-inline-field"><span>Factura / documento</span><input id="received-lookup-search" value="${esc(lookup.search || "")}" placeholder="Número o referencia"></label>
+          <div class="compact-toolbar-actions"><button class="secondary-button" type="button" data-received-lookup-query ${lookup.loading ? "disabled" : ""}>Buscar</button></div>
+        </div>
+        <div class="compact-table-wrap">
+          <table class="compact-table">
+            <thead><tr><th>Documento</th><th>Fecha</th><th>Cliente</th><th>Saldo</th><th>Fuente</th><th>Acción</th></tr></thead>
+            <tbody>
+              ${(lookup.items || []).map(item => `<tr>
+                <td>${esc(item.documentNumber)}</td><td>${esc(item.issueDate || "-")}</td><td>${esc(item.customerName)}</td>
+                <td>${money(item.balance)}</td><td>${esc(item.source)}</td>
+                <td><button class="row-action-button" type="button" data-received-select-receivable="${esc(item.id)}">Seleccionar</button></td>
+              </tr>`).join("") || `<tr><td colspan="6"><div class="empty-inline">${lookup.loading ? "Buscando documentos..." : "Pulsa Buscar para consultar documentos compatibles de este cliente."}</div></td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    `;
+  }
+
+  function renderReceivedDetail(readState) {
+    const detail = readState.detail || {};
+    if (!detail.receivedId) return "";
+    const item = detail.item || {};
+    const lines = item.lines || [];
+    const journal = detail.journal?.header || null;
+    return `
+      <article class="panel-card">
+        <div class="panel-card-head">
+          <div><p class="section-kicker">DETALLE LAZY</p><h3>${esc(item.documentNumber || detail.receivedId)}</h3></div>
+          <button class="row-action-button" type="button" data-received-detail-close>Cerrar</button>
+        </div>
+        ${detail.loading ? `<div class="empty-inline">Cargando detalle...</div>` : `
+          <div class="summary-grid">
+            <article class="summary-card"><span>Cliente</span><strong>${esc(item.issuerName || "-")}</strong><small>${esc(item.issuerTaxId || "-")}</small></article>
+            <article class="summary-card"><span>Documento sustento</span><strong>${esc(item.supportDocumentNumber || "-")}</strong><small>${esc(item.supportDocumentDate || "-")}</small></article>
+            <article class="summary-card"><span>Total retenido</span><strong>${money(item.totalRetained)}</strong><small>${esc(item.status || "-")}</small></article>
+            <article class="summary-card"><span>Asiento</span><strong>${esc(item.journalEntryNumber || "-")}</strong><small>${journal ? "Detalle cargado" : "Sin asiento vinculado"}</small></article>
+          </div>
+          <div class="compact-table-wrap"><table class="compact-table">
+            <thead><tr><th>Tipo</th><th>Código</th><th>Base</th><th>%</th><th>Retenido</th></tr></thead>
+            <tbody>${lines.map(line => `<tr><td>${esc(line.taxType)}</td><td>${esc(line.code || line.sriCode || "-")}</td><td>${money(line.baseAmount)}</td><td>${esc(String(line.percentage || 0))}%</td><td>${money(line.retainedAmount)}</td></tr>`).join("") || `<tr><td colspan="5"><div class="empty-inline">Sin líneas tributarias.</div></td></tr>`}</tbody>
+          </table></div>
+        `}
+      </article>
+    `;
+  }
+
   function renderReceivedXml(container, route) {
-    const summary = withholdingXmlService.receivedSummary();
-    const rows = filteredReceivedRows();
+    const readState = receivedReadService()?.snapshot?.() || { list: {}, detail: {}, lookup: {}, error: "Backend search-first no cargado." };
+    const list = readState.list || {};
+    const rows = list.items || [];
+    const summary = list.summary || {};
+    const draft = uiState.received.draftFilters;
+    const totalPages = Math.max(1, Math.ceil(Number(list.total || 0) / Number(list.pageSize || 25)));
     container.innerHTML = `
       <section class="page-header">
         <div>
@@ -554,7 +614,8 @@
       ${routeTabs(route)}
       ${uiState.received.message ? `<section class="inline-feedback success">${esc(uiState.received.message)}</section>` : ""}
       ${uiState.received.errors.length ? `<section class="inline-feedback danger">${uiState.received.errors.map(item => `<div>${esc(item)}</div>`).join("")}</section>` : ""}
-      ${renderReceivedCards(summary)}
+      ${readState.error ? `<section class="inline-feedback danger">${esc(readState.error)}</section>` : ""}
+      ${list.loaded ? renderReceivedCards(summary) : ""}
       <section class="panel-card compact-toolbar-card">
         <div class="compact-toolbar">
           <label class="compact-inline-field">
@@ -609,20 +670,27 @@
       </article>
       <section class="panel-card compact-toolbar-card">
         <div class="compact-toolbar">
-          <label class="compact-inline-field"><span>Buscar</span><input id="received-search" placeholder="Cliente, RUC, retencion o sustento" value="${esc(uiState.received.search)}"></label>
+          <label class="compact-inline-field"><span>Desde</span><input id="received-date-from" type="date" value="${esc(draft.dateFrom)}"></label>
+          <label class="compact-inline-field"><span>Hasta</span><input id="received-date-to" type="date" value="${esc(draft.dateTo)}"></label>
+          <label class="compact-inline-field"><span>Cliente</span><select id="received-customer-filter"><option value="">Todos</option>${receivedCustomerOptions(draft.customerId)}</select></label>
           <label class="compact-inline-field">
             <span>Estado</span>
             <select id="received-status-filter">
               <option value="">Todos</option>
-              ${withholdingXmlService.receivedStatuses.map(item => `<option value="${esc(item)}" ${uiState.received.status === item ? "selected" : ""}>${esc(item)}</option>`).join("")}
+              ${withholdingXmlService.receivedStatuses.map(item => `<option value="${esc(item)}" ${draft.status === item ? "selected" : ""}>${esc(item)}</option>`).join("")}
             </select>
           </label>
+          <label class="compact-inline-field"><span>Número retención</span><input id="received-number-filter" value="${esc(draft.number)}"></label>
+          <label class="compact-inline-field"><span>Factura / documento</span><input id="received-document-filter" value="${esc(draft.document)}"></label>
+          <label class="compact-inline-field"><span>Buscar</span><input id="received-search" placeholder="Cliente, RUC, autorización" value="${esc(draft.search)}"></label>
+          <label class="compact-inline-field"><span>Filas</span><select id="received-page-size"><option value="25" ${Number(list.pageSize || 25) === 25 ? "selected" : ""}>25</option><option value="50" ${Number(list.pageSize || 25) === 50 ? "selected" : ""}>50</option></select></label>
+          <div class="compact-toolbar-actions"><button class="primary-button" type="button" data-received-query ${list.loading ? "disabled" : ""}>Consultar</button></div>
         </div>
       </section>
       <article class="panel-card">
         <div class="panel-card-head">
-          <div><p class="section-kicker">BANDEJA</p><h3>Retenciones recibidas importadas</h3></div>
-          <span class="status-badge partial">${esc(String(rows.length))} visibles</span>
+          <div><p class="section-kicker">HISTORIAL</p><h3>Retenciones recibidas</h3></div>
+          <span class="status-badge partial">${list.loaded ? `${esc(String(list.total || 0))} resultados` : "Sin consultar"}</span>
         </div>
         <div class="compact-table-wrap">
           <table class="compact-table">
@@ -651,25 +719,27 @@
                   <td>${money(item.totalRetained)}</td>
                   <td>${statusBadge(item.status)}</td>
                   <td>
-                    <select data-received-link="${esc(item.id)}" ${item.status === "APLICADO" || item.status === "ANULADO" ? "disabled" : ""}>
-                      <option value="">Seleccionar documento</option>
-                      ${receivableOptions(item.relatedReceivableId || item.suggestedReceivableId)}
-                    </select>
-                    <small class="line-hint">${esc(item.relatedReceivableNumber || item.suggestedReceivableNumber || "Sin relacion sugerida")}</small>
+                    <strong>${esc(item.relatedReceivableNumber || item.suggestedReceivableNumber || "Sin relación")}</strong>
+                    <small class="line-hint">${item.relatedReceivableId ? "Vínculo aplicado" : item.suggestedReceivableId ? "Sugerencia XML" : "Busca una CxC compatible"}</small>
                   </td>
                   <td>${esc(item.journalEntryNumber || "-")}</td>
                   <td>
                     <div class="row-actions">
+                      <button class="row-action-button" type="button" data-received-detail="${esc(item.id)}">Ver detalle</button>
+                      ${item.status !== "APLICADO" && item.status !== "ANULADO" ? `<button class="row-action-button" type="button" data-received-lookup="${esc(item.id)}">Buscar CxC</button>` : ""}
                       ${item.status !== "APLICADO" && item.status !== "ANULADO" ? `<button class="row-action-button" type="button" data-received-apply="${esc(item.id)}">Aplicar</button>` : ""}
                       ${item.status !== "ANULADO" ? `<button class="row-action-button" type="button" data-received-annul="${esc(item.id)}">Anular</button>` : ""}
                     </div>
                   </td>
                 </tr>
-              `).join("") || `<tr><td colspan="10"><div class="empty-inline">No hay retenciones recibidas para estos filtros.</div></td></tr>`}
+              `).join("") || `<tr><td colspan="10"><div class="empty-inline">${list.loading ? "Consultando..." : list.loaded ? "No hay retenciones recibidas para estos filtros." : "Selecciona filtros y pulsa Consultar."}</div></td></tr>`}
             </tbody>
           </table>
         </div>
+        ${list.loaded ? `<div class="pager"><button type="button" class="secondary-button" data-received-page="${Math.max(1, Number(list.page || 1) - 1)}" ${Number(list.page || 1) <= 1 ? "disabled" : ""}>Anterior</button><span>Mostrando ${list.total ? (Number(list.page || 1) - 1) * Number(list.pageSize || 25) + 1 : 0}–${Math.min(Number(list.total || 0), Number(list.page || 1) * Number(list.pageSize || 25))} · Página ${esc(String(list.page || 1))} de ${esc(String(totalPages))}</span><button type="button" class="secondary-button" data-received-page="${Math.min(totalPages, Number(list.page || 1) + 1)}" ${Number(list.page || 1) >= totalPages ? "disabled" : ""}>Siguiente</button></div>` : ""}
       </article>
+      ${renderReceivedLookup(readState)}
+      ${renderReceivedDetail(readState)}
     `;
     bindReceivedXml();
   }
@@ -834,14 +904,39 @@
   }
 
   function bindReceivedXml() {
-    document.querySelector("#received-search")?.addEventListener("input", event => {
-      uiState.received.search = event.target.value;
+    const bindDraft = (selector, key) => document.querySelector(selector)?.addEventListener("change", event => {
+      uiState.received.draftFilters[key] = event.target.value;
+    });
+    bindDraft("#received-date-from", "dateFrom");
+    bindDraft("#received-date-to", "dateTo");
+    bindDraft("#received-customer-filter", "customerId");
+    bindDraft("#received-status-filter", "status");
+    bindDraft("#received-number-filter", "number");
+    bindDraft("#received-document-filter", "document");
+    bindDraft("#received-search", "search");
+    document.querySelector("[data-received-query]")?.addEventListener("click", async () => {
+      const draft = uiState.received.draftFilters;
+      const pageSize = Number(document.querySelector("#received-page-size")?.value || 25);
+      uiState.received.errors = [];
+      if (!draft.dateFrom || !draft.dateTo) uiState.received.errors.push("Desde y Hasta son obligatorios.");
+      if (draft.dateFrom && draft.dateTo && draft.dateFrom > draft.dateTo) uiState.received.errors.push("Desde no puede ser posterior a Hasta.");
+      if (uiState.received.errors.length) return BlessERP.layout.renderPage();
+      try {
+        await receivedReadService()?.query?.(draft, { page: 1, pageSize });
+      } catch (error) {
+        uiState.received.errors = [error?.message || "No se pudo consultar el historial."];
+      }
       BlessERP.layout.renderPage();
     });
-    document.querySelector("#received-status-filter")?.addEventListener("change", event => {
-      uiState.received.status = event.target.value;
+    document.querySelectorAll("[data-received-page]").forEach(button => button.addEventListener("click", async () => {
+      const state = receivedReadService()?.snapshot?.();
+      try {
+        await receivedReadService()?.query?.(state.list.appliedFilters, { page: Number(button.dataset.receivedPage || 1), pageSize: state.list.pageSize });
+      } catch (error) {
+        uiState.received.errors = [error?.message || "No se pudo cambiar de página."];
+      }
       BlessERP.layout.renderPage();
-    });
+    }));
     document.querySelector("#received-xml-input")?.addEventListener("change", async event => {
       const files = Array.from(event.target.files || []);
       if (!files.length) return;
@@ -850,7 +945,7 @@
       uiState.received.errors = [];
       BlessERP.layout.renderPage();
       try {
-        uiState.received.batch = await Promise.all(files.map(file => withholdingXmlService.parseRetentionXmlFile(file)));
+        uiState.received.batch = await Promise.all(files.map(file => withholdingXmlService.parseRetentionXmlFile(file, { suggestReceivable: false })));
         uiState.received.message = `Se revisaron ${uiState.received.batch.length} XML de retenciones.`;
       } catch (error) {
         uiState.received.errors = [error?.message || "No se pudieron leer los XML de retenciones."];
@@ -859,13 +954,51 @@
         BlessERP.layout.renderPage();
       }
     });
-    document.querySelector("[data-received-import]")?.addEventListener("click", () => {
+    document.querySelector("[data-received-import]")?.addEventListener("click", async () => {
       const result = withholdingXmlService.importReceivedXmlBatch(uiState.received.batch);
       uiState.received.message = `Se importaron ${result.imported} retenciones recibidas.`;
       BlessERP.layout.renderPage();
     });
-    document.querySelectorAll("[data-received-apply]").forEach(button => button.addEventListener("click", () => {
-      const related = document.querySelector(`[data-received-link="${button.dataset.receivedApply}"]`)?.value || "";
+    document.querySelectorAll("[data-received-detail]").forEach(button => button.addEventListener("click", async () => {
+      try { await receivedReadService()?.loadDetail?.(button.dataset.receivedDetail); }
+      catch (error) { uiState.received.errors = [error?.message || "No se pudo cargar el detalle."]; }
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelector("[data-received-detail-close]")?.addEventListener("click", () => {
+      receivedReadService()?.closeDetail?.();
+      BlessERP.layout.renderPage();
+    });
+    document.querySelectorAll("[data-received-lookup]").forEach(button => button.addEventListener("click", () => {
+      const row = receivedReadService()?.snapshot?.().list?.items?.find(item => item.id === button.dataset.receivedLookup);
+      if (!row?.customerId) {
+        uiState.received.errors = ["No existe un cliente canónico relacionado con la identificación del emisor."];
+        return BlessERP.layout.renderPage();
+      }
+      receivedReadService()?.openLookup?.(row.id, row.customerId);
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelector("[data-received-lookup-close]")?.addEventListener("click", () => {
+      receivedReadService()?.closeLookup?.();
+      BlessERP.layout.renderPage();
+    });
+    document.querySelector("[data-received-lookup-query]")?.addEventListener("click", async () => {
+      const lookup = receivedReadService()?.snapshot?.().lookup;
+      const search = document.querySelector("#received-lookup-search")?.value || "";
+      try { await receivedReadService()?.lookupReceivables?.(lookup.receivedId, lookup.customerId, search); }
+      catch (error) { uiState.received.errors = [error?.message || "No se pudieron buscar documentos CxC."]; }
+      BlessERP.layout.renderPage();
+    });
+    document.querySelectorAll("[data-received-select-receivable]").forEach(button => button.addEventListener("click", () => {
+      const receivedId = receivedReadService()?.snapshot?.().lookup?.receivedId;
+      if (receivedId) uiState.received.selectedReceivables[receivedId] = button.dataset.receivedSelectReceivable;
+      receivedReadService()?.closeLookup?.();
+      uiState.received.message = "Documento CxC seleccionado. Pulsa Aplicar para confirmar la mutación existente.";
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelectorAll("[data-received-apply]").forEach(button => button.addEventListener("click", async () => {
+      const row = receivedReadService()?.snapshot?.().list?.items?.find(item => item.id === button.dataset.receivedApply);
+      const related = uiState.received.selectedReceivables[button.dataset.receivedApply]
+        || row?.relatedReceivableId || row?.suggestedReceivableId || "";
       const result = withholdingXmlService.applyReceivedWithholding(button.dataset.receivedApply, related);
       if (!result.ok) {
         uiState.received.errors = result.errors || ["No se pudo aplicar la retencion."];
@@ -874,9 +1007,11 @@
       }
       uiState.received.errors = [];
       uiState.received.message = `Retencion ${result.received.documentNumber} aplicada con asiento ${result.entry.entryNumber}.`;
+      delete uiState.received.selectedReceivables[button.dataset.receivedApply];
+      receivedReadService()?.patchVisible?.(result.received);
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-received-annul]").forEach(button => button.addEventListener("click", () => {
+    document.querySelectorAll("[data-received-annul]").forEach(button => button.addEventListener("click", async () => {
       const result = withholdingXmlService.annulReceivedWithholding(button.dataset.receivedAnnul);
       if (!result.ok) {
         uiState.received.errors = [result.message || "No se pudo anular la retencion."];
@@ -885,6 +1020,7 @@
       }
       uiState.received.errors = [];
       uiState.received.message = `Retencion ${result.received.documentNumber} anulada.`;
+      receivedReadService()?.patchVisible?.(result.received);
       BlessERP.layout.renderPage();
     }));
   }
@@ -895,9 +1031,14 @@
       return;
     }
     if (route.id === "tax-withholdings-received") {
+      receivedReadService()?.setActiveRoute?.(route.id);
+      void receivedReadService()?.start?.(() => {
+        if (BlessERP.state?.currentRoute?.()?.id === route.id) BlessERP.layout.renderPage();
+      });
       renderReceivedXml(container, route);
       return;
     }
+    receivedReadService()?.setActiveRoute?.("");
     renderTaxes(container, route);
   }
 

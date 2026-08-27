@@ -5,8 +5,11 @@
     const utils = BlessERP.operacionesUtils;
     const stateApi = BlessERP.operacionesState;
     const store = stateApi.getStore(appState);
-    const draft = stateApi.getUi(appState).yieldMeshDraft;
+    const ui = stateApi.getUi(appState);
+    const draft = ui.yieldMeshDraft;
     const rows = store.meshProcessingRecords || [];
+    const page = BlessERP.performance?.paginate?.(rows, "operations-processed-meshes", { pageSize: 40 })
+      || { items: rows.slice(0, 40), total: rows.length, pageSize: 40 };
     const totalMeshes = rows.reduce((sum, item) => sum + utils.parseNumber(item.meshCount), 0);
     const totalStems = rows.reduce((sum, item) => sum + utils.parseNumber(item.totalStems), 0);
 
@@ -16,6 +19,7 @@
           <strong>Ingreso de mallas procesadas</strong>
           <span>Panel separado para proveedor, bloque, variedad, clasificador y tallos extras, como base del flujo operativo de Parte 1.</span>
         </div>
+        <button class="secondary-button" type="button" data-ops-action="mesh-history-toggle">${ui.meshHistoryOpen ? "Cerrar historial" : "HISTORIAL DE MALLAS PROCESADAS"}</button>
       </section>
       ${utils.renderSummaryCards([
         { label: "Mallas registradas", value: utils.number(totalMeshes), help: "Total demo entregado a clasificacion" },
@@ -112,7 +116,7 @@
               </tr>
             </thead>
             <tbody>
-              ${rows.map(item => `
+              ${page.items.map(item => `
                 <tr>
                   <td>${utils.esc(utils.dateLabel(item.date))}</td>
                   <td>${utils.esc(item.supplier)}</td>
@@ -128,7 +132,9 @@
             </tbody>
           </table>
         </div>
+        ${BlessERP.performance?.renderPager?.(page) || ""}
       </section>
+      ${ui.meshHistoryOpen ? BlessERP.operacionesHistorialMallas.render(appState) : ""}
     `;
   }
 

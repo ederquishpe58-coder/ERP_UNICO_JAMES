@@ -4,6 +4,19 @@
   const receivableService = BlessERP.services.receivables;
   const chartService = BlessERP.services.chartOfAccounts;
   const bankService = BlessERP.services.banks;
+  const collectionRead = () => BlessERP.services?.paymentCollectionReadV2;
+  let collectionReadBooting = false;
+  const collectionSubmitLifecycle = {
+    attached: false,
+    attachCount: 0,
+    handlerEntries: 0,
+    duplicateExecutions: 0,
+    buttonGeneration: 0,
+    lastButton: null,
+    inFlight: false
+  };
+  const readToday = () => new Date().toISOString().slice(0, 10);
+  const readMonthStart = () => `${readToday().slice(0, 7)}-01`;
 
   const uiState = {
     customers: {
@@ -26,6 +39,10 @@
     },
     collections: {
       draft: null,
+      view: "FORM",
+      documentSearch: "",
+      historyDraft: { dateFrom: readMonthStart(), dateTo: readToday(), customerId: "", bankAccountId: "", state: "", document: "", search: "" },
+      detail: null,
       message: "",
       errors: []
     },
@@ -128,15 +145,23 @@
     return receivableService.receivableDocuments().find(item => item.id === receivableId) || receivableService.emptyReceivable();
   }
 
-  function collectionDraftFromReceivable(receivableId = "") {
+  function collectionDraftFromReceivable(receivableInput = "") {
     const draft = receivableService.emptyCollection();
-    const receivable = receivableService.receivables().find(item => item.id === receivableId);
+    const receivable = typeof receivableInput === "object"
+      ? clone(receivableInput)
+      : (BlessERP.services?.portfolioReadV2?.row?.("ar", receivableInput)
+        || null);
     if (!receivable) return draft;
     draft.customerId = receivable.customerId;
     draft.customerName = receivable.customerName;
     draft.customerTaxId = receivable.customerTaxId;
     draft.applications = [{
       receivableId: receivable.id,
+      source: receivable.source,
+      sourceId: receivable.sourceId,
+      status: receivable.status,
+      canonicalStatus: receivable.canonicalStatus,
+      companyId: receivable.companyId || receivable.company_id || "",
       customerId: receivable.customerId,
       customerName: receivable.customerName,
       customerTaxId: receivable.customerTaxId,
@@ -154,6 +179,7 @@
 
   function ensureCollectionDraft(collection = null) {
     uiState.collections.draft = collection ? clone(collection) : receivableService.emptyCollection();
+    uiState.collections.documentSearch = "";
     uiState.collections.errors = [];
     uiState.collections.message = "";
   }
@@ -173,7 +199,7 @@
         <div>
           <p class="section-kicker">${esc(route.groupLabel.toUpperCase())}</p>
           <h1>Clientes</h1>
-          <p>Catalogo base de clientes del ERP, preparado para cartera local y exterior sin tocar aun ventas reales.</p>
+          <p>Catalogo base de clientes de JAEDER SYSTEMS, preparado para cartera local y exterior sin tocar aun ventas reales.</p>
         </div>
         <div class="page-header-side">
           <span class="status-badge authorized">Catalogo local activo</span>
@@ -225,7 +251,7 @@
           </div>
           <form id="customer-form" class="compact-form-grid">
             <label class="compact-field"><span>Codigo cliente</span><input name="code" value="${esc(draft.code || "")}"></label>
-            <label class="compact-field"><span>Identificacion</span><input name="taxId" value="${esc(draft.taxId || "")}"></label>
+              <label class="compact-field"><span>Identificacion</span><input name="taxId" value="${esc(draft.taxId || "")}" placeholder="Automatico: CE0001"><small>Si queda vacio se asigna un ID exterior CE consecutivo.</small></label>
             <label class="compact-field"><span>Razon social / nombre</span><input name="name" value="${esc(draft.name || "")}"></label>
             <label class="compact-field"><span>Nombre comercial</span><input name="commercialName" value="${esc(draft.commercialName || "")}"></label>
             <label class="compact-field">
@@ -338,6 +364,8 @@
 
   function renderReceivables(container, route) {
     const rows = receivableRows();
+    const page = BlessERP.performance?.paginate?.(rows, "accounting-receivables", { pageSize: 50 })
+      || { items: rows.slice(0, 50), total: rows.length, pageSize: 50 };
     const summary = {
       totalPending: rows.filter(item => ["PENDIENTE", "PARCIAL", "VENCIDO"].includes(item.status)).reduce((sum, item) => sum + item.balance, 0),
       totalOverdue: rows.filter(item => item.status === "VENCIDO").reduce((sum, item) => sum + item.balance, 0),
@@ -395,6 +423,10 @@
             </select>
           </label>
           <div class="compact-toolbar-actions">
+            <button class="secondary-button" type="button" data-receivable-export-xlsx>Descargar estado XLSX</button>
+            <button class="secondary-button" type="button" data-opening-balances-template>Plantilla saldos</button>
+            <button class="secondary-button" type="button" data-opening-balances-import="CXC">Importar saldos</button>
+            <input type="file" accept=".xlsx" hidden data-opening-balances-file="CXC">
             <button class="secondary-button" type="button" data-receivable-new>Nuevo documento</button>
             <button class="secondary-button" type="button" data-route-link="portfolios-collections-single">Nuevo cobro</button>
           </div>
@@ -485,40 +517,30 @@
           <table class="compact-table compact-table-payables">
             <thead>
               <tr>
-                <th>Cliente</th>
-                <th>Identificacion</th>
+                <th>ID cliente / RUC</th>
+                <th>Nombre cliente</th>
                 <th>Documento</th>
                 <th>Tipo</th>
-                <th>Fecha emision</th>
+                <th>Fecha de emision</th>
                 <th>Vencimiento</th>
-                <th>Total</th>
-                <th>Ret. recibidas</th>
-                <th>Anticipos</th>
-                <th>Cobrado</th>
-                <th>Saldo</th>
-                <th>Estado</th>
-                <th>Asiento</th>
-                <th>Dias venc.</th>
+                <th>Subtotal</th>
+                <th>Retencion recibida</th>
+                <th>Total cobrar / saldo</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              ${rows.map(item => `
+              ${page.items.map(item => `
                 <tr>
-                  <td><strong>${esc(item.customerName)}</strong><small>${esc(item.customerCode || "")}</small></td>
-                  <td>${esc(item.customerTaxId || "-")}</td>
+                  <td><strong>${esc(item.customerTaxId || item.customerCode || item.customerId || "-")}</strong>${item.customerTaxId && item.customerCode ? `<small>${esc(item.customerCode)}</small>` : ""}</td>
+                  <td><strong>${esc(item.customerName || "-")}</strong></td>
                   <td>${esc(item.documentNumber)}</td>
                   <td>${esc(item.documentType)}</td>
                   <td>${esc(item.issueDate)}</td>
                   <td>${esc(item.dueDate || "-")}</td>
                   <td>${money(item.total)}</td>
-                  <td><span class="muted-text">Pendiente modulo tributario</span></td>
-                  <td><span class="muted-text">Fase posterior</span></td>
-                  <td>${money(item.collected)}</td>
+                  <td>${money(item.withheld || 0)}</td>
                   <td><strong>${money(item.balance)}</strong></td>
-                  <td>${statusBadge(item.status)}</td>
-                  <td>${esc(item.journalEntryNumber || "-")}</td>
-                  <td>${esc(String(item.overdueDays || 0))}</td>
                   <td>
                     <div class="row-actions">
                       ${!item.journalEntryId && item.status !== "ANULADO" ? `<button class="row-action-button" type="button" data-receivable-edit="${esc(item.id)}">Editar</button>` : ""}
@@ -529,34 +551,116 @@
                     </div>
                   </td>
                 </tr>
-              `).join("") || `<tr><td colspan="15"><div class="empty-inline">No hay cuentas por cobrar para estos filtros.</div></td></tr>`}
+              `).join("") || `<tr><td colspan="10"><div class="empty-inline">No hay cuentas por cobrar para estos filtros.</div></td></tr>`}
             </tbody>
           </table>
         </div>
+        ${BlessERP.performance?.renderPager?.(page) || ""}
       </article>
     `;
     bindReceivables();
   }
 
-  function collectionApplicationsFromVisible(existing = [], customerId = uiState.collections.draft?.customerId || "") {
-    const documents = customerId ? receivableService.pendingReceivablesByCustomer(customerId) : [];
-    return documents.map(document => {
-      const current = existing.find(item => item.receivableId === document.id) || {};
-      const amount = Number(current.amount || 0);
-      return {
-        receivableId: document.id,
-        customerId: document.customerId,
-        customerName: document.customerName,
-        customerTaxId: document.customerTaxId,
-        documentNumber: document.documentNumber,
-        originalBalance: document.balance,
-        retentionApplied: 0,
-        advanceApplied: 0,
-        amount,
-        resultingBalance: Number((document.balance - amount).toFixed(2)),
-        receivableAccountCode: document.receivableAccountCode
-      };
-    });
+  function collectionApplicationFromDocument(document, current = {}) {
+    const amount = Number(current.amount || 0);
+    return {
+      receivableId: document.id,
+      source: document.source,
+      sourceId: document.sourceId,
+      status: document.status,
+      canonicalStatus: document.canonicalStatus,
+      companyId: document.companyId || document.company_id || "",
+      customerId: document.customerId,
+      customerName: document.customerName,
+      customerTaxId: document.customerTaxId,
+      documentNumber: document.documentNumber,
+      concept: document.concept || "",
+      issueDate: document.issueDate || "",
+      dueDate: document.dueDate || "",
+      originalBalance: document.balance,
+      retentionApplied: Number(current.retentionApplied || 0),
+      advanceApplied: Number(current.advanceApplied || 0),
+      amount,
+      resultingBalance: Number((document.balance - amount).toFixed(2)),
+      receivableAccountCode: document.receivableAccountCode
+    };
+  }
+
+  function collectionSearchResults() {
+    const customerId = uiState.collections.draft?.customerId || "";
+    if (!customerId) return [];
+    const selectedIds = new Set((uiState.collections.draft?.applications || []).map(item => item.receivableId));
+    const state = collectionRead()?.snapshot?.()?.collection?.lookup || {};
+    if (!state.loaded || state.appliedFilters?.customerId !== customerId) return [];
+    return (state.items || []).filter(document => !selectedIds.has(document.id));
+  }
+
+  function collectionSearchResultsHtml() {
+    const customerId = uiState.collections.draft?.customerId || "";
+    if (!customerId) return `<div class="empty-inline">Seleccione primero un cliente.</div>`;
+    const state = collectionRead()?.snapshot?.()?.collection?.lookup || {};
+    if (!state.loaded || state.appliedFilters?.customerId !== customerId) return `<div class="empty-inline">Escriba un documento opcional y pulse Buscar.</div>`;
+    const rows = collectionSearchResults();
+    return rows.map(document => `
+      <div class="info-row">
+        <span><strong>${esc(document.documentNumber)}</strong><small>${esc(document.issueDate || "-")} · vence ${esc(document.dueDate || "-")}</small></span>
+        <span>${money(document.balance)} <button class="row-action-button" type="button" data-collection-add-document="${esc(document.id)}">Agregar</button></span>
+      </div>
+    `).join("") || `<div class="empty-inline">No hay documentos pendientes que coincidan.</div>`;
+  }
+
+  function renderCollectionSearchResults() {
+    const container = document.querySelector("#collection-document-results");
+    if (container) container.innerHTML = collectionSearchResultsHtml();
+    bindCollectionSearchResultActions();
+  }
+
+  function bindCollectionSearchResultActions() {
+    document.querySelectorAll("[data-collection-add-document]").forEach(button => button.addEventListener("click", () => {
+      uiState.collections.draft = collectCollectionDraft();
+      const document = collectionSearchResults().find(item => item.id === button.dataset.collectionAddDocument);
+      if (!document) return;
+      uiState.collections.draft.applications = [
+        ...(uiState.collections.draft.applications || []),
+        collectionApplicationFromDocument(document)
+      ];
+      BlessERP.layout.renderPage();
+    }));
+  }
+
+  function ensureCollectionRead() {
+    const service = collectionRead();
+    service?.setActiveRoute?.("portfolios-collections-single");
+    if (!service || collectionReadBooting || service.snapshot?.().started) return;
+    collectionReadBooting = true;
+    service.start(() => BlessERP.layout?.renderPage?.()).catch(error => { uiState.collections.errors = [error.message]; })
+      .finally(() => { collectionReadBooting = false; BlessERP.layout?.renderPage?.(); });
+  }
+
+  function collectionHistoryView(route) {
+    const state = collectionRead()?.snapshot?.() || {};
+    const data = state.collection?.history || {};
+    const filters = uiState.collections.historyDraft;
+    const pages = Math.max(1, Math.ceil(Number(data.total || 0) / Number(data.pageSize || 25)));
+    return `<section class="page-header"><div><p class="section-kicker">${esc(route.groupLabel.toUpperCase())}</p><h1>Cobros individuales</h1><p>Formulario operativo separado del historial.</p></div></section>
+      ${routeTabs(route)}<div class="subnav-tabs"><button class="subnav-tab" data-collection-view="FORM">Registrar cobro</button><button class="subnav-tab active" data-collection-view="HISTORY">Historial</button></div>
+      ${state.error ? `<section class="inline-feedback danger">${esc(state.error)}</section>` : ""}
+      <article class="panel-card"><div class="panel-card-head"><div><p class="section-kicker">HISTORIAL</p><h3>Consultar cobros</h3></div></div>
+        <form id="collection-history-filters" class="compact-form-grid">
+          <label class="compact-field"><span>Desde</span><input name="dateFrom" type="date" value="${esc(filters.dateFrom)}"></label>
+          <label class="compact-field"><span>Hasta</span><input name="dateTo" type="date" value="${esc(filters.dateTo)}"></label>
+          <label class="compact-field"><span>Cliente</span><select name="customerId"><option value="">Todos</option>${receivableService.customers().map(x => `<option value="${esc(x.id)}" ${filters.customerId===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select></label>
+          <label class="compact-field"><span>Cuenta bancaria</span><select name="bankAccountId"><option value="">Todas</option>${activeBanks().map(x => `<option value="${esc(x.id)}" ${filters.bankAccountId===x.id?"selected":""}>${esc(x.code || x.bankName || x.id)}</option>`).join("")}</select></label>
+          <label class="compact-field"><span>Estado</span><select name="state"><option value="">Todos</option>${["BORRADOR","CONFIRMADO","ANULADO"].map(x => `<option value="${x}" ${filters.state===x?"selected":""}>${x}</option>`).join("")}</select></label>
+          <label class="compact-field"><span>Documento</span><input name="document" value="${esc(filters.document)}"></label>
+          <label class="compact-field"><span>Buscar</span><input name="search" value="${esc(filters.search)}"></label>
+          <label class="compact-field"><span>Filas</span><select name="pageSize"><option value="25" ${data.pageSize===25?"selected":""}>25</option><option value="50" ${data.pageSize===50?"selected":""}>50</option></select></label>
+        </form><div class="editor-actions"><button class="primary-button" type="button" data-collection-history-query>Consultar</button></div>
+        <div class="compact-table-wrap"><table class="compact-table"><thead><tr><th>Fecha</th><th>Número</th><th>Cliente</th><th>Medio</th><th>Cuenta</th><th>Total</th><th>Estado</th><th>Acción</th></tr></thead><tbody>
+          ${data.loaded ? (data.items || []).map(x => `<tr><td>${esc(x.date)}</td><td>${esc(x.number)}</td><td>${esc(x.partyName || "-")}</td><td>${esc(x.method || "-")}</td><td>${esc(x.accountCode || "-")}</td><td>${money(x.total)}</td><td>${statusBadge(x.status)}</td><td><div class="row-actions"><button class="row-action-button" data-collection-history-detail="${esc(x.id)}" data-source="${esc(x.source)}">Ver detalle</button>${x.source==="LEGACY"&&x.status==="BORRADOR"?`<button class="row-action-button" data-collection-history-edit="${esc(x.id)}">Editar</button>`:""}${x.status==="CONFIRMADO"?`<button class="row-action-button" data-collection-history-annul="${esc(x.id)}">Anular</button>`:""}</div></td></tr>`).join("") || `<tr><td colspan="8"><div class="empty-inline">No hay resultados.</div></td></tr>` : `<tr><td colspan="8"><div class="empty-inline">Selecciona filtros y pulsa Consultar.</div></td></tr>`}
+        </tbody></table></div>${data.loaded && data.total>data.pageSize ? `<div class="table-pager"><button class="secondary-button" data-collection-history-page="${Math.max(1,data.page-1)}" ${data.page<=1?"disabled":""}>Anterior</button><span>Página ${data.page} de ${pages} · ${data.total} cobros</span><button class="secondary-button" data-collection-history-page="${Math.min(pages,data.page+1)}" ${data.page>=pages?"disabled":""}>Siguiente</button></div>` : ""}
+      </article>
+      ${uiState.collections.detail ? `<article class="panel-card"><div class="panel-card-head"><div><p class="section-kicker">DETALLE LAZY</p><h3>${esc(uiState.collections.detail.item?.collection_number || uiState.collections.detail.item?.collectionNumber || "Cobro")}</h3></div><button class="secondary-button" data-collection-detail-close>Cerrar</button></div><div class="info-stack"><div class="info-row"><strong>Aplicaciones</strong><span>${esc(String((uiState.collections.detail.applications || []).length))}</span></div><div class="info-row"><strong>Asiento</strong><span>${esc(uiState.collections.detail.journal?.header?.entry_number || "-")}</span></div><div class="info-row"><strong>Tesorería</strong><span>${esc(uiState.collections.detail.item?.bankTransaction?.transaction_code || "Sin vínculo canónico")}</span></div></div></article>` : ""}`;
   }
 
   function collectCollectionDraft() {
@@ -574,9 +678,8 @@
     base.reference = form.elements.reference?.value || "";
     base.observation = form.elements.observation?.value || "";
     base.applications = Array.from(document.querySelectorAll(".compact-table-payments-detail tbody tr[data-collection-application-id]")).map(row => {
-      const current = collectionApplicationsFromVisible(uiState.collections.draft?.applications || [], customerId).find(item => item.receivableId === row.dataset.collectionApplicationId) || {};
-      const selected = row.querySelector('[name="selected"]')?.checked;
-      const amount = selected ? Number(row.querySelector('[name="amount"]')?.value || 0) : 0;
+      const current = (uiState.collections.draft?.applications || []).find(item => item.receivableId === row.dataset.collectionApplicationId) || {};
+      const amount = Number(row.querySelector('[name="amount"]')?.value || 0);
       return {
         ...current,
         amount,
@@ -587,11 +690,16 @@
   }
 
   function renderCollectionsSingle(container, route) {
+    ensureCollectionRead();
+    if (uiState.collections.view === "HISTORY") {
+      container.innerHTML = collectionHistoryView(route);
+      bindCollectionsSingle();
+      return;
+    }
     if (!uiState.collections.draft) ensureCollectionDraft();
     const draft = receivableService.normalizeCollection(uiState.collections.draft);
     uiState.collections.draft = draft;
-    const applications = collectionApplicationsFromVisible(draft.applications || []);
-    const history = receivableService.collections();
+    const applications = draft.applications || [];
     const accounts = collectionAccounts();
     const banks = activeBanks();
     container.innerHTML = `
@@ -606,6 +714,7 @@
         </div>
       </section>
       ${routeTabs(route)}
+      <div class="subnav-tabs"><button class="subnav-tab active" data-collection-view="FORM">Registrar cobro</button><button class="subnav-tab" data-collection-view="HISTORY">Historial</button></div>
       ${uiState.collections.message ? `<section class="inline-feedback success">${esc(uiState.collections.message)}</section>` : ""}
       ${uiState.collections.errors.length ? `<section class="inline-feedback danger">${uiState.collections.errors.map(item => `<div>${esc(item)}</div>`).join("")}</section>` : ""}
       <section class="placeholder-grid purchase-editor-layout">
@@ -619,7 +728,7 @@
               <button class="secondary-button" type="button" data-collection-reset>Nuevo</button>
               <button class="secondary-button" type="button" data-collection-select-full>Seleccionar saldos completos</button>
               <button class="secondary-button" type="button" data-collection-save>Guardar borrador</button>
-              <button class="secondary-button" type="button" data-collection-confirm>Confirmar cobro</button>
+              <button class="secondary-button" type="submit" form="collection-form" data-collection-confirm>Confirmar cobro</button>
             </div>
           </div>
           <form id="collection-form" class="compact-form-grid">
@@ -656,35 +765,43 @@
             <label class="compact-field"><span>Asiento relacionado</span><input value="${esc(draft.entryNumber || "Aun no generado")}" readonly></label>
             <label class="compact-field full"><span>Observacion</span><textarea name="observation" rows="2">${esc(draft.observation || "")}</textarea></label>
           </form>
+          <div class="journal-lines-head">
+            <div>
+              <p class="section-kicker">DOCUMENTOS</p>
+              <h3>Buscar y agregar pendientes</h3>
+            </div>
+          </div>
+          <label class="compact-field full">
+            <span>Buscar por número, concepto o fecha</span>
+            <input id="collection-document-search" autocomplete="off" placeholder="Número, concepto o fecha (opcional)" value="${esc(uiState.collections.documentSearch)}" ${draft.customerId ? "" : "disabled"}>
+          </label>
+          <div class="editor-actions"><button class="secondary-button" type="button" data-collection-document-query ${draft.customerId ? "" : "disabled"}>Buscar documentos</button></div>
+          <div id="collection-document-results" class="info-stack">${collectionSearchResultsHtml()}</div>
           <div class="compact-table-wrap">
             <table class="compact-table compact-table-payments-detail">
               <thead>
                 <tr>
-                  <th>Sel.</th>
                   <th>Documento</th>
                   <th>Emision</th>
                   <th>Vencimiento</th>
                   <th>Saldo</th>
                   <th>Aplicar</th>
                   <th>Saldo posterior</th>
+                  <th>Acción</th>
                 </tr>
               </thead>
               <tbody>
-                ${applications.map(item => {
-                  const checked = Number(item.amount || 0) > 0;
-                  const receivable = receivableService.receivables().find(row => row.id === item.receivableId);
-                  return `
+                ${applications.map(item => `
                     <tr data-collection-application-id="${esc(item.receivableId)}">
-                      <td><input name="selected" type="checkbox" ${checked ? "checked" : ""}></td>
-                      <td><strong>${esc(item.documentNumber)}</strong><small>${esc(receivable?.concept || "")}</small></td>
-                      <td>${esc(receivable?.issueDate || "-")}</td>
-                      <td>${esc(receivable?.dueDate || "-")}</td>
+                      <td><strong>${esc(item.documentNumber)}</strong><small>${esc(item.concept || "")}</small></td>
+                      <td>${esc(item.issueDate || "-")}</td>
+                      <td>${esc(item.dueDate || "-")}</td>
                       <td>${money(item.originalBalance)}</td>
                       <td><input name="amount" type="number" step="0.01" min="0" max="${esc(String(item.originalBalance || 0))}" value="${esc(String(item.amount || 0))}"></td>
                       <td><strong>${money(item.resultingBalance)}</strong></td>
+                      <td><button class="row-action-button" type="button" data-collection-remove-document="${esc(item.receivableId)}">Quitar</button></td>
                     </tr>
-                  `;
-                }).join("") || `<tr><td colspan="7"><div class="empty-inline">Seleccione un cliente con documentos pendientes.</div></td></tr>`}
+                  `).join("") || `<tr><td colspan="7"><div class="empty-inline">Busque y agregue uno o varios documentos pendientes.</div></td></tr>`}
               </tbody>
             </table>
           </div>
@@ -706,39 +823,6 @@
           </div>
         </article>
       </section>
-      <article class="panel-card">
-        <div class="panel-card-head">
-          <div>
-            <p class="section-kicker">HISTORIAL</p>
-            <h3>Cobros individuales registrados</h3>
-          </div>
-          <span class="status-badge partial">${esc(String(history.length))} cobros</span>
-        </div>
-        <div class="compact-table-wrap">
-          <table class="compact-table">
-            <thead><tr><th>Fecha</th><th>Cobro</th><th>Cliente</th><th>Cuenta</th><th>Total</th><th>Estado</th><th>Asiento</th><th>Acciones</th></tr></thead>
-            <tbody>
-              ${history.map(item => `
-                <tr>
-                  <td>${esc(item.collectionDate)}</td>
-                  <td>${esc(item.collectionNumber)}</td>
-                  <td>${esc(item.customerName || "-")}</td>
-                  <td>${esc(item.collectionAccountCode || "-")}</td>
-                  <td>${money(item.total || 0)}</td>
-                  <td>${statusBadge(item.status)}</td>
-                  <td>${esc(item.entryNumber || "-")}</td>
-                  <td>
-                    <div class="row-actions">
-                      ${item.status === "BORRADOR" ? `<button class="row-action-button" type="button" data-collection-edit="${esc(item.id)}">Editar</button><button class="row-action-button" type="button" data-collection-post-row="${esc(item.id)}">Confirmar</button>` : ""}
-                      ${item.status === "CONFIRMADO" ? `<button class="row-action-button" type="button" data-collection-annul="${esc(item.id)}">Anular</button>` : ""}
-                    </div>
-                  </td>
-                </tr>
-              `).join("") || `<tr><td colspan="8"><div class="empty-inline">No hay cobros registrados.</div></td></tr>`}
-            </tbody>
-          </table>
-        </div>
-      </article>
     `;
     bindCollectionsSingle();
   }
@@ -1055,6 +1139,53 @@
   }
 
   function bindReceivables() {
+    document.querySelector("[data-opening-balances-template]")?.addEventListener("click", async event => {
+      const button = event.currentTarget;
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = "Generando...";
+      try {
+        const result = await BlessERP.services.openingBalancesXlsx?.generateTemplate?.();
+        if (!result?.ok) {
+          uiState.receivables.errors = result?.errors || ["No se pudo generar la plantilla."];
+          BlessERP.layout.renderPage();
+        }
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    });
+    document.querySelector('[data-opening-balances-import="CXC"]')?.addEventListener("click", () => {
+      document.querySelector('[data-opening-balances-file="CXC"]')?.click();
+    });
+    document.querySelector('[data-opening-balances-file="CXC"]')?.addEventListener("change", async event => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      uiState.receivables.message = "";
+      uiState.receivables.errors = [];
+      const result = await BlessERP.services.openingBalancesXlsx?.importFile?.(file, { kind: "CXC" });
+      if (result?.ok) uiState.receivables.message = `${result.count} saldo(s) inicial(es) CXC importado(s) y contabilizado(s).`;
+      else uiState.receivables.errors = result?.errors || ["No se pudo importar la plantilla."];
+      BlessERP.layout.renderPage();
+    });
+    document.querySelector("[data-receivable-export-xlsx]")?.addEventListener("click", async event => {
+      const button = event.currentTarget;
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = "Generando...";
+      try {
+        const result = await BlessERP.reportFinancialXlsx?.exportReport?.("receivables-report", {
+          customerId: uiState.receivables.customerId,
+          status: uiState.receivables.status,
+          documentType: uiState.receivables.documentType
+        });
+        if (!result?.ok) BlessERP.layout.toast(result?.message || "No se pudo descargar el estado de cuenta.");
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    });
     document.querySelector("#receivable-search")?.addEventListener("input", event => {
       uiState.receivables.search = event.target.value;
       BlessERP.layout.renderPage();
@@ -1092,7 +1223,8 @@
       uiState.receivables.message = `Documento ${result.receivable.documentNumber} guardado en cartera.`;
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-receivable-post]")?.addEventListener("click", () => {
+    document.querySelector("[data-receivable-post]")?.addEventListener("click", async event => {
+      event.currentTarget.disabled = true;
       let current = collectReceivableDraft();
       if (!current.id) {
         const saved = receivableService.saveReceivable(current);
@@ -1103,7 +1235,7 @@
         }
         current = saved.receivable;
       }
-      const result = receivableService.postReceivable(current.id);
+      const result = await receivableService.postReceivableV2(current.id);
       uiState.receivables.errors = result.errors || [];
       uiState.receivables.message = "";
       if (!result.ok) {
@@ -1118,8 +1250,9 @@
       ensureReceivableDraft(receivableDraftFromDocument(button.dataset.receivableEdit));
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-receivable-post-row]").forEach(button => button.addEventListener("click", () => {
-      const result = receivableService.postReceivable(button.dataset.receivablePostRow);
+    document.querySelectorAll("[data-receivable-post-row]").forEach(button => button.addEventListener("click", async () => {
+      button.disabled = true;
+      const result = await receivableService.postReceivableV2(button.dataset.receivablePostRow);
       uiState.receivables.message = result.ok ? `Documento contabilizado con asiento ${result.entry.entryNumber}.` : "";
       uiState.receivables.errors = result.errors || [];
       BlessERP.layout.renderPage();
@@ -1141,27 +1274,166 @@
     }));
   }
 
+  async function handleCollectionConfirmSubmit(event) {
+    if (!event.target?.matches?.("#collection-form")) return;
+    const button = event.submitter?.closest?.("[data-collection-confirm]");
+    if (!button) return;
+    event.preventDefault();
+    if (collectionSubmitLifecycle.inFlight) {
+      collectionSubmitLifecycle.duplicateExecutions += 1;
+      return;
+    }
+    collectionSubmitLifecycle.inFlight = true;
+    collectionSubmitLifecycle.handlerEntries += 1;
+    const trace = BlessERP.services?.financialV2?.startCollectionTrace?.({ origin: "COLLECTION_FORM" });
+    button.disabled = true;
+    try {
+      let current = collectCollectionDraft();
+      if (!current.id) {
+        const saved = receivableService.saveCollection(current);
+        if (!saved.ok) {
+          BlessERP.getFinancialV2Repository?.()?.failCollectionTrace?.("COLLECTION_DRAFT", {
+            code: "DRAFT_VALIDATION_ERROR", message: (saved.errors || []).join(" | ")
+          });
+          uiState.collections.errors = saved.errors || [];
+          BlessERP.layout.renderPage();
+          return;
+        }
+        current = saved.collection;
+      }
+      const result = await receivableService.confirmCollectionV2(current, { collectionTraceId: trace?.traceId });
+      uiState.collections.errors = result.errors || [];
+      uiState.collections.message = "";
+      if (!result.ok) {
+        BlessERP.layout.renderPage();
+        return;
+      }
+      ensureCollectionDraft(result.collection);
+      uiState.collections.message = `Cobro confirmado con asiento ${result.entry.entryNumber}.`;
+      BlessERP.layout.renderPage();
+    } catch (error) {
+      BlessERP.getFinancialV2Repository?.()?.failCollectionTrace?.("COLLECTION_SUBMIT", error);
+      uiState.collections.errors = [error.message || "El Cobro no completó su solicitud."];
+      uiState.collections.message = "";
+      BlessERP.layout.renderPage();
+    } finally {
+      collectionSubmitLifecycle.inFlight = false;
+      if (button.isConnected) button.disabled = false;
+    }
+  }
+
+  function bindCollectionConfirmLifecycle() {
+    const button = document.querySelector("[data-collection-confirm]");
+    if (button && button !== collectionSubmitLifecycle.lastButton) {
+      collectionSubmitLifecycle.buttonGeneration += 1;
+      collectionSubmitLifecycle.lastButton = button;
+      button.dataset.collectionHandlerGeneration = String(collectionSubmitLifecycle.buttonGeneration);
+    }
+    if (collectionSubmitLifecycle.attached) return;
+    document.addEventListener("submit", handleCollectionConfirmSubmit);
+    collectionSubmitLifecycle.attached = true;
+    collectionSubmitLifecycle.attachCount += 1;
+  }
+
+  function collectionSubmitDiagnostics() {
+    return {
+      activeHandlers: collectionSubmitLifecycle.attached ? 1 : 0,
+      attachCount: collectionSubmitLifecycle.attachCount,
+      handlerEntries: collectionSubmitLifecycle.handlerEntries,
+      duplicateExecutions: collectionSubmitLifecycle.duplicateExecutions,
+      buttonGeneration: collectionSubmitLifecycle.buttonGeneration,
+      inFlight: collectionSubmitLifecycle.inFlight,
+      currentButtonGeneration: document.querySelector("[data-collection-confirm]")?.dataset?.collectionHandlerGeneration || ""
+    };
+  }
+
   function bindCollectionsSingle() {
+    bindCollectionConfirmLifecycle();
+    document.querySelectorAll("[data-collection-view]").forEach(button => button.addEventListener("click", () => {
+      uiState.collections.view = button.dataset.collectionView === "HISTORY" ? "HISTORY" : "FORM";
+      uiState.collections.detail = null;
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelector("#collection-history-filters")?.addEventListener("change", event => {
+      if (event.target.name === "pageSize") return;
+      uiState.collections.historyDraft = { ...uiState.collections.historyDraft, [event.target.name]: event.target.value };
+    });
+    document.querySelector("[data-collection-history-query]")?.addEventListener("click", async () => {
+      const form = document.querySelector("#collection-history-filters");
+      if (!form) return;
+      uiState.collections.historyDraft = Object.fromEntries(["dateFrom","dateTo","customerId","bankAccountId","state","document","search"].map(name => [name, form.elements[name]?.value || ""]));
+      try { await collectionRead()?.queryHistory?.("collection", uiState.collections.historyDraft, { page: 1, pageSize: Number(form.elements.pageSize?.value || 25) }); }
+      catch (error) { uiState.collections.errors = [error.message]; }
+      BlessERP.layout.renderPage();
+    });
+    document.querySelectorAll("[data-collection-history-page]").forEach(button => button.addEventListener("click", async () => {
+      const data = collectionRead()?.snapshot?.()?.collection?.history || {};
+      await collectionRead()?.queryHistory?.("collection", data.appliedFilters, { page: Number(button.dataset.collectionHistoryPage), pageSize: data.pageSize }).catch(error => { uiState.collections.errors = [error.message]; });
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelectorAll("[data-collection-history-detail]").forEach(button => button.addEventListener("click", async () => {
+      try { uiState.collections.detail = await collectionRead()?.detail?.("collection", button.dataset.collectionHistoryDetail, button.dataset.source); }
+      catch (error) { uiState.collections.errors = [error.message]; }
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelectorAll("[data-collection-history-edit]").forEach(button => button.addEventListener("click", async () => {
+      try {
+        const detail = await collectionRead()?.detail?.("collection", button.dataset.collectionHistoryEdit, "LEGACY");
+        ensureCollectionDraft(detail.item);
+        uiState.collections.view = "FORM";
+      } catch (error) { uiState.collections.errors = [error.message]; }
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelectorAll("[data-collection-history-annul]").forEach(button => button.addEventListener("click", async () => {
+      const reason = window.prompt("Motivo obligatorio de la reversión del cobro:", "Corrección de cobro") || "";
+      if (!reason.trim()) return;
+      const result = await receivableService.annulCollectionV2(button.dataset.collectionHistoryAnnul, reason.trim());
+      uiState.collections.errors = result.errors || [];
+      uiState.collections.message = result.ok ? "Cobro anulado y reversado cuando correspondía." : (result.message || "");
+      if (result.ok) await collectionRead()?.refresh?.("collection", "history").catch(() => {});
+      BlessERP.layout.renderPage();
+    }));
+    document.querySelector("[data-collection-detail-close]")?.addEventListener("click", () => { uiState.collections.detail = null; BlessERP.layout.renderPage(); });
     document.querySelector("[data-collection-reset]")?.addEventListener("click", () => {
       ensureCollectionDraft();
       BlessERP.layout.renderPage();
     });
     document.querySelector("[data-collection-select-full]")?.addEventListener("click", () => {
       uiState.collections.draft = collectCollectionDraft();
-      uiState.collections.draft.applications = collectionApplicationsFromVisible(uiState.collections.draft.applications).map(item => ({
+      uiState.collections.draft.applications = (uiState.collections.draft.applications || []).map(item => ({
         ...item,
         amount: item.originalBalance,
         resultingBalance: 0
       }));
       BlessERP.layout.renderPage();
     });
-    document.querySelector("#collection-form")?.addEventListener("change", () => {
+    document.querySelector("#collection-form")?.addEventListener("change", event => {
+      const previousCustomerId = uiState.collections.draft?.customerId || "";
       uiState.collections.draft = collectCollectionDraft();
+      if (event.target.name === "customerId" && previousCustomerId !== uiState.collections.draft.customerId) {
+        uiState.collections.draft.applications = [];
+        uiState.collections.documentSearch = "";
+      }
       BlessERP.layout.renderPage();
     });
+    document.querySelector("#collection-document-search")?.addEventListener("input", event => {
+      uiState.collections.documentSearch = event.target.value;
+    });
+    document.querySelector("[data-collection-document-query]")?.addEventListener("click", async () => {
+      uiState.collections.draft = collectCollectionDraft();
+      try { await collectionRead()?.queryLookup?.("collection", { customerId: uiState.collections.draft.customerId, search: uiState.collections.documentSearch }, { page: 1, pageSize: 25 }); }
+      catch (error) { uiState.collections.errors = [error.message]; }
+      BlessERP.layout.renderPage();
+    });
+    bindCollectionSearchResultActions();
+    document.querySelectorAll("[data-collection-remove-document]").forEach(button => button.addEventListener("click", () => {
+      uiState.collections.draft = collectCollectionDraft();
+      uiState.collections.draft.applications = (uiState.collections.draft.applications || [])
+        .filter(item => item.receivableId !== button.dataset.collectionRemoveDocument);
+      BlessERP.layout.renderPage();
+    }));
     document.querySelector(".compact-table-payments-detail tbody")?.addEventListener("input", () => {
       uiState.collections.draft = collectCollectionDraft();
-      BlessERP.layout.renderPage();
     });
     document.querySelector(".compact-table-payments-detail tbody")?.addEventListener("change", () => {
       uiState.collections.draft = collectCollectionDraft();
@@ -1179,42 +1451,24 @@
       uiState.collections.message = `Cobro ${result.collection.collectionNumber} guardado en borrador.`;
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-collection-confirm]")?.addEventListener("click", () => {
-      let current = collectCollectionDraft();
-      if (!current.id) {
-        const saved = receivableService.saveCollection(current);
-        if (!saved.ok) {
-          uiState.collections.errors = saved.errors || [];
-          BlessERP.layout.renderPage();
-          return;
-        }
-        current = saved.collection;
-      }
-      const result = receivableService.confirmCollection(current.id);
-      uiState.collections.errors = result.errors || [];
-      uiState.collections.message = "";
-      if (!result.ok) {
-        BlessERP.layout.renderPage();
-        return;
-      }
-      ensureCollectionDraft(result.collection);
-      uiState.collections.message = `Cobro confirmado con asiento ${result.entry.entryNumber}.`;
-      BlessERP.layout.renderPage();
-    });
     document.querySelectorAll("[data-collection-edit]").forEach(button => button.addEventListener("click", () => {
       const collection = receivableService.collections().find(item => item.id === button.dataset.collectionEdit);
       if (!collection) return;
       ensureCollectionDraft(collection);
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-collection-post-row]").forEach(button => button.addEventListener("click", () => {
-      const result = receivableService.confirmCollection(button.dataset.collectionPostRow);
+    document.querySelectorAll("[data-collection-post-row]").forEach(button => button.addEventListener("click", async () => {
+      button.disabled = true;
+      const result = await receivableService.confirmCollectionV2(button.dataset.collectionPostRow);
       uiState.collections.message = result.ok ? `Cobro confirmado con asiento ${result.entry.entryNumber}.` : "";
       uiState.collections.errors = result.errors || [];
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-collection-annul]").forEach(button => button.addEventListener("click", () => {
-      const result = receivableService.annulCollection(button.dataset.collectionAnnul);
+    document.querySelectorAll("[data-collection-annul]").forEach(button => button.addEventListener("click", async () => {
+      const reason = window.prompt("Motivo obligatorio de la reversión del cobro:", "Corrección de cobro");
+      if (!reason) return;
+      button.disabled = true;
+      const result = await receivableService.annulCollectionV2(button.dataset.collectionAnnul, reason);
       uiState.collections.message = result.ok ? "Cobro anulado y reversado cuando correspondia." : (result.message || "");
       uiState.collections.errors = [];
       BlessERP.layout.renderPage();
@@ -1268,7 +1522,6 @@
     });
     document.querySelector(".compact-table-payments-detail tbody")?.addEventListener("input", () => {
       uiState.bulk.draft = collectBatchDraft();
-      BlessERP.layout.renderPage();
     });
     document.querySelector(".compact-table-payments-detail tbody")?.addEventListener("change", () => {
       uiState.bulk.draft = collectBatchDraft();
@@ -1353,6 +1606,7 @@
   BlessERP.modules.part2Receivables = {
     render,
     ensureCollectionDraft,
-    collectionDraftFromReceivable
+    collectionDraftFromReceivable,
+    collectionSubmitDiagnostics
   };
 })();

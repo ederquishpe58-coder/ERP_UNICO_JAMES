@@ -1,5 +1,8 @@
 (function(){
   const BlessERP = window.BlessERP = window.BlessERP || {};
+  const invoiceSequence = BlessERP.comercialInvoiceSequence;
+  const BLESS_COMPANY_ID = BlessERP.companyCapabilities?.COMPANY_IDS?.BLESS || "COMP-BLESS-FLOWER";
+  const IMPERIO_COMPANY_ID = BlessERP.companyCapabilities?.COMPANY_IDS?.IMPERIO || "COMP-IMPERIO-FLOWERS";
 
   function normalizeColdRooms(seed = {}) {
     const source = Array.isArray(seed.coldRooms)
@@ -12,25 +15,65 @@
   }
   const { clone } = BlessERP.utils;
 
+  const operationalDeployment = isOperationalDeployment();
+  const sriSalePaymentMethods = Object.freeze([
+    {
+      code: "20",
+      label: "Codigo 20 - Otros con utilizacion del sistema financiero",
+      description: "Transferencias bancarias, cheques o debitos."
+    },
+    {
+      code: "01",
+      label: "Codigo 01 - Sin utilizacion del sistema financiero",
+      description: "Pagos sin intervencion del sistema financiero."
+    }
+  ]);
+
+  function normalizeSriPaymentMethod(value, fallback = "20") {
+    const normalized = String(value ?? "").trim().toUpperCase();
+    if (normalized === "01" || normalized === "20") return normalized;
+    if (normalized.includes("SIN UTILIZACION") || normalized.includes("SIN UTILIZACIÓN")) return "01";
+    if (
+      normalized.includes("TRANSFER")
+      || normalized.includes("CHEQUE")
+      || normalized.includes("DEBITO")
+      || normalized.includes("DÉBITO")
+      || normalized.includes("CON UTILIZACION")
+      || normalized.includes("CON UTILIZACIÓN")
+    ) return "20";
+    if (fallback === "") return "";
+    return sriSalePaymentMethods.some(item => item.code === fallback) ? fallback : "20";
+  }
+
+  function sriPaymentMethodLabel(value) {
+    const code = normalizeSriPaymentMethod(value);
+    return sriSalePaymentMethods.find(item => item.code === code)?.label || code;
+  }
+
   const company = {
-    commercialName: "Bless Flower Export Demo",
-    legalName: "Bless Flower Export Demo",
+    commercialName: operationalDeployment ? "Bless Flower" : "Bless Flower Export Demo",
+    legalName: operationalDeployment ? "Lanchimba Tutillo Manuel Clemente" : "Bless Flower Export Demo",
     ruc: "1717637084001",
-    address: "Comunidad Carrera Calle Central SN y Santa Rosa",
-    address2: "Tres cuadras del parque central. Via a Oyacachi",
+    habitualExporterLegend: operationalDeployment ? "EXPORTADOR HABITUAL DE BIENES" : "",
+    sriDeliveryGuidesEnabled: false,
+    address: "Pichincha / Cayambe / Cangahua / Central S/N y Santa Rosa",
+    address2: operationalDeployment ? "" : "Tres cuadras del parque central. Via a Oyacachi",
     city: "Cayambe - Ecuador",
-    phone: "032262041",
-    email: "comercial@blessflower.demo",
-    soldToLabel: "Bless Flower Export",
+    phone: operationalDeployment ? "0984970998" : "032262041",
+    email: operationalDeployment ? "" : "comercial@blessflower.demo",
+    soldToLabel: operationalDeployment ? "Bless Flower" : "Bless Flower Export",
     paymentTermsDefault: "0 dias",
-    preparedBy: "Equipo comercial demo",
+    preparedBy: operationalDeployment ? "Equipo comercial" : "Equipo comercial demo",
     incoterm: "FCA UIO",
     coldRoomDefault: "QCELL"
   };
 
   function createCustomer(seed = {}) {
+    const companyId = seed.companyId || seed.company_id || BLESS_COMPANY_ID;
     return {
       id: seed.id || BlessERP.utils.uid("COM-CLI"),
+      company_id: companyId,
+      companyId,
       code: seed.code || "",
       category: seed.category || "EXPORTACION",
       related: Boolean(seed.related),
@@ -51,6 +94,10 @@
       creditAmount: Number(seed.creditAmount || 0),
       billingEmail: seed.billingEmail || "",
       statementEmail: seed.statementEmail || "",
+      sriPaymentMethod: normalizeSriPaymentMethod(
+        seed.sriPaymentMethod ?? seed.sri_payment_method ?? seed.paymentMethod ?? seed.formaPago,
+        "20"
+      ),
       observation: seed.observation || ""
     };
   }
@@ -119,18 +166,22 @@
   ].map(createCustomer);
 
   function createBrand(seed = {}) {
+    const finalClientName = seed.finalClientName || seed.name || seed.shortReference || "";
+    const companyId = seed.companyId || seed.company_id || BLESS_COMPANY_ID;
     return {
       id: seed.id || BlessERP.utils.uid("COM-MAR"),
+      company_id: companyId,
+      companyId,
       code: seed.code || "",
       customerId: seed.customerId || "",
       commercializer: Boolean(seed.commercializer),
-      name: seed.name || "",
-      shortReference: seed.shortReference || seed.name || "",
-      finalClientName: seed.finalClientName || "",
+      name: finalClientName,
+      shortReference: finalClientName,
+      finalClientName,
       address: seed.address || "",
       city: seed.city || "",
-      country: seed.country || "ECUADOR",
-      destination: seed.destination || seed.country || "ECUADOR",
+      country: seed.country || "",
+      destination: seed.destination || "",
       contact: seed.contact || "",
       fixedPhone: seed.fixedPhone || "",
       phone: seed.phone || "",
@@ -238,8 +289,11 @@
   ].map(createBrand);
 
   function createDae(seed = {}) {
+    const companyId = seed.companyId || seed.company_id || BLESS_COMPANY_ID;
     return {
       id: seed.id || BlessERP.utils.uid("COM-DAE"),
+      company_id: companyId,
+      companyId,
       number: seed.number || "",
       destination: seed.destination || "",
       country: seed.country || seed.destination || "",
@@ -247,6 +301,7 @@
       expirationDate: seed.expirationDate || "",
       airlineId: seed.airlineId || "",
       customerIds: Array.isArray(seed.customerIds) ? [...new Set(seed.customerIds.filter(Boolean))] : [],
+      isDefault: Boolean(seed.isDefault || seed.default),
       observation: seed.observation || ""
     };
   }
@@ -434,12 +489,31 @@
   }
 
   const airlines = [
+    { id: "air-lancargo", code: "AIR-LAN", name: "LANCARGO", awbPrefix: "014", status: "ACTIVA" },
     { id: "air-atlas", code: "AIR-ATL", name: "ATLAS", awbPrefix: "369", status: "ACTIVA" },
     { id: "air-latam", code: "AIR-LAT", name: "LATAM CARGO", awbPrefix: "045", status: "ACTIVA" },
     { id: "air-klm", code: "AIR-KLM", name: "KLM CARGO", awbPrefix: "074", status: "ACTIVA" },
     { id: "air-avianca", code: "AIR-AVI", name: "AVIANCA", awbPrefix: "134", status: "ACTIVA" },
     { id: "air-american", code: "AIR-AAL", name: "AMERICAN AIRLINES", awbPrefix: "001", status: "ACTIVA" }
   ].map(createAirline);
+
+  function createCountry(seed = {}) {
+    return {
+      id: seed.id || BlessERP.utils.uid("COM-PAIS"),
+      code: String(seed.code || "").trim().toUpperCase(),
+      name: String(seed.name || "").trim().toUpperCase(),
+      status: seed.status || "ACTIVO"
+    };
+  }
+
+  const countries = [
+    { id: "country-ec", code: "PAIS-EC", name: "ECUADOR" },
+    { id: "country-us", code: "PAIS-US", name: "USA" },
+    { id: "country-kz", code: "PAIS-KZ", name: "KAZAJSTAN" },
+    { id: "country-do", code: "PAIS-DO", name: "REPUBLICA DOMINICANA" },
+    { id: "country-nl", code: "PAIS-NL", name: "NETHERLANDS" },
+    { id: "country-ru", code: "PAIS-RU", name: "RUSIA" }
+  ].map(createCountry);
 
   function createDestination(seed = {}) {
     return {
@@ -598,10 +672,12 @@
     { code: "ETIQUETAS", name: "Etiquetas de caja", mode: "REFERENCIAL" },
     { code: "PACKAGING_REQUIREMENTS", name: "Requerimiento de materiales / Bodega", mode: "REFERENCIAL" },
     { code: "RESUMEN", name: "Resumen pedido", mode: "REFERENCIAL" },
-    { code: "CONTROL_DAE", name: "Control DAE", mode: "REFERENCIAL" }
+    { code: "CONTROL_DAE", name: "Control DAE", mode: "REFERENCIAL" },
+    { code: "SRI_RIDE", name: "RIDE Factura SRI", mode: "AUTORIZADO" }
   ];
 
   function createLine(seed = {}) {
+    seed = seed && typeof seed === "object" ? seed : {};
     const openMixed = seed.boxBuildMode === "MIXTO_ABIERTO";
     const anyLength = seed.anyLength !== undefined
       ? Boolean(seed.anyLength)
@@ -616,6 +692,12 @@
       bunches: Number(seed.bunches || 1),
       stemsPerBunch: Number(seed.stemsPerBunch || 25),
       unitPrice: Number(seed.unitPrice || 0),
+      transferUnitPrice: Number(seed.transferUnitPrice ?? seed.intercompanyUnitPrice ?? seed.unitPrice ?? 0),
+      transferPriceSource: seed.transferPriceSource || (
+        seed.transferUnitPrice !== undefined || seed.intercompanyUnitPrice !== undefined
+          ? "PRECIO_TRANSFERENCIA"
+          : "PRECIO_VENTA_REFERENCIAL"
+      ),
       reservationId: seed.reservationId || seed.reservation_id || "",
       reservationSourceId: seed.reservationSourceId || seed.availability_id || "",
       reservationBunchesUsed: Number(seed.reservationBunchesUsed || seed.ramos_reserva_usados || 0),
@@ -638,12 +720,90 @@
   }
 
   function createOrder(seed = {}) {
+    seed = seed && typeof seed === "object" ? seed : {};
+    const pendingInternalNumber = Boolean(seed.unsavedDraft || seed.numberPending);
+    const orderNumber = pendingInternalNumber ? String(seed.number || "") : (seed.number || "PED-COM-2026-0001");
+    const sellerId = seed.seller_id || seed.sellerId || seed.vendedor_id || seed.vendedorId || "";
+    const sellerName = seed.seller_name || seed.sellerName || seed.vendedor_nombre || seed.vendedorNombre || "";
+    const sellerEmployeeId = seed.seller_employee_id || seed.sellerEmployeeId || "";
+    const sellingCompanyId = seed.sellingCompanyId || seed.selling_company_id || seed.companyId || seed.company_id || BLESS_COMPANY_ID;
+    const sellingCompanyName = sellingCompanyId === IMPERIO_COMPANY_ID ? "Imperio Flowers" : "Bless Flower";
+    const inventorySupplyMode = String(
+      seed.inventorySupplyMode
+      || seed.inventory_supply_mode
+      || (sellingCompanyId === IMPERIO_COMPANY_ID ? "BLESS_SHARED" : "BLESS_INVENTORY")
+    ).trim().toUpperCase();
+    const existingSeries = invoiceSequence.fullNumberParts?.(seed.sriInvoiceNumber) || null;
+    const series = invoiceSequence.saleSeries?.(sellingCompanyId, seed.saleType || seed.sale_type, seed.transportType || seed.transport_type) || {};
+    const sriAuthorized = String(seed.sriAuthorizationStatus || "").toUpperCase() === "AUTORIZADO" || Boolean(seed.sriAuthorizedAt);
+    const configuredSequence = BlessERP.services?.adminConfig?.findSequenceByCode?.(series.code) || {};
+    const companySettings = BlessERP.services?.companySettings?.settings?.() || {};
+    const explicitSequence = invoiceSequence.sequenceText?.(seed.sriInvoiceNumber)
+      || invoiceSequence.sequenceText?.(seed.sriSequential)
+      || invoiceSequence.sequenceText?.(seed.packingListNumber)
+      || invoiceSequence.sequenceText?.(seed.invoicePackingNumber)
+      || invoiceSequence.sequenceText?.(seed.clientInvoiceNumber)
+      || invoiceSequence.sequenceText?.(seed.invoiceSequence)
+      || "";
+    const synchronizedInvoices = explicitSequence
+      ? invoiceSequence.synchronize({ ...seed, number: orderNumber }, {
+          sequence: explicitSequence,
+          establishment: existingSeries?.establishment
+            || seed.establishmentCode
+            || configuredSequence.establishmentCode
+            || companySettings.mainEstablishment
+            || series.establishment
+            || "001",
+          emissionPoint: existingSeries?.emissionPoint
+            || seed.emissionPointCode
+            || configuredSequence.emissionPointCode
+            || companySettings.mainEmissionPoint
+            || series.emissionPoint
+            || "001",
+          allowOrderNumberFallback: false
+        })
+      : { ...seed };
+    const synchronizedSeries = invoiceSequence.fullNumberParts?.(synchronizedInvoices.sriInvoiceNumber) || {};
+    const seriesWasCorrected = false;
     return {
       id: seed.id || BlessERP.utils.uid("COM-ORD"),
-      number: seed.number || "PED-COM-2026-0001",
+      number: orderNumber,
+      numberPending: pendingInternalNumber,
+      unsavedDraft: Boolean(seed.unsavedDraft),
       issuedAt: seed.issuedAt || "",
       flightDate: seed.flightDate || "",
       status: seed.status || "BORRADOR",
+      company_id: sellingCompanyId,
+      companyId: sellingCompanyId,
+      selling_company_id: sellingCompanyId,
+      sellingCompanyId,
+      selling_company_name: seed.sellingCompanyName || seed.selling_company_name || sellingCompanyName,
+      sellingCompanyName: seed.sellingCompanyName || seed.selling_company_name || sellingCompanyName,
+      sriSeriesCode: seed.sriSeriesCode || (explicitSequence ? (series.code || "FAC_EXPORT") : ""),
+      sriMarket: seed.sriMarket || (explicitSequence ? (series.market || "EXPORTACION") : ""),
+      establishmentCode: synchronizedSeries.establishment || seed.establishmentCode || "",
+      emissionPointCode: synchronizedSeries.emissionPoint || seed.emissionPointCode || "",
+      fulfilling_company_id: BLESS_COMPANY_ID,
+      fulfillingCompanyId: BLESS_COMPANY_ID,
+      fulfilling_company_name: "Bless Flower",
+      fulfillingCompanyName: "Bless Flower",
+      inventory_owner_company_id: BLESS_COMPANY_ID,
+      inventoryOwnerCompanyId: BLESS_COMPANY_ID,
+      ownsInventory: sellingCompanyId === BLESS_COMPANY_ID,
+      inventory_supply_mode: inventorySupplyMode,
+      inventorySupplyMode,
+      availabilityCommitmentStatus: seed.availabilityCommitmentStatus || "BORRADOR",
+      availabilityReservationMode: seed.availabilityReservationMode || seed.availability_reservation_mode || "",
+      availabilityCommittedAt: seed.availabilityCommittedAt || "",
+      availabilityReservedAt: seed.availabilityReservedAt || seed.availability_reserved_at || "",
+      availabilityReservedBy: seed.availabilityReservedBy || seed.availability_reserved_by || "",
+      availabilityReleasedAt: seed.availabilityReleasedAt || "",
+      availabilityConsumedAt: seed.availabilityConsumedAt || "",
+      inventoryConsumptionMode: seed.inventoryConsumptionMode || "",
+      inventoryConsumptionApplied: Boolean(seed.inventoryConsumptionApplied),
+      intercompanySettlementId: seed.intercompanySettlementId || "",
+      intercompanyInvoiceId: seed.intercompanyInvoiceId || "",
+      intercompanyLiquidatedAt: seed.intercompanyLiquidatedAt || "",
       statusUpdatedAt: seed.statusUpdatedAt || "",
       statusUpdatedBy: seed.statusUpdatedBy || "",
       lastTransitionReason: seed.lastTransitionReason || "",
@@ -652,26 +812,77 @@
       closedAt: seed.closedAt || "",
       customerId: seed.customerId || "",
       brandId: seed.brandId || "",
+      seller_id: sellerId,
+      sellerId,
+      vendedorId: sellerId,
+      seller_name: sellerName,
+      sellerName,
+      vendedorNombre: sellerName,
+      seller_employee_id: sellerEmployeeId,
+      sellerEmployeeId,
       destination: seed.destination || "",
       destinationCountry: seed.destinationCountry || "",
+      destinationModifiedManual: Boolean(seed.destinationModifiedManual),
+      destinationCountryModifiedManual: Boolean(seed.destinationCountryModifiedManual),
       agencyId: seed.agencyId || "",
       daeNumber: seed.daeNumber || "",
+      sriDaeNumber: seed.sriDaeNumber || "",
       daeDestination: seed.daeDestination || "",
       daeExpirationDate: seed.daeExpirationDate || "",
       daeAssignedAutomatically: Boolean(seed.daeAssignedAutomatically),
       daeModifiedManual: Boolean(seed.daeModifiedManual),
       awb: seed.awb || "",
       hawb: seed.hawb || "",
+      sriGuides: seed.sriGuides || "",
       airlineId: seed.airlineId || "",
       flightNumber: seed.flightNumber || "",
+      saleType: seed.saleType || seed.salesType || seed.tipoVenta || "",
       transportType: seed.transportType || "aereo",
       coldRoom: seed.coldRoom || "",
       currency: seed.currency || "USD",
       paymentTerms: seed.paymentTerms || company.paymentTermsDefault,
+      sriPaymentMethod: normalizeSriPaymentMethod(
+        seed.sriPaymentMethod ?? seed.sri_payment_method ?? seed.paymentMethod ?? seed.formaPago,
+        ""
+      ),
       expireDate: seed.expireDate || "",
       generalPo: seed.generalPo || "",
-      invoicePackingNumber: seed.invoicePackingNumber || "",
-      clientInvoiceNumber: seed.clientInvoiceNumber || "",
+      sourcePoId: seed.sourcePoId || "",
+      sourcePoNumber: seed.sourcePoNumber || "",
+      generatedFromPoAt: seed.generatedFromPoAt || "",
+      packingListNumber: synchronizedInvoices.packingListNumber || "",
+      sriInvoiceNumber: synchronizedInvoices.sriInvoiceNumber || "",
+      sriAuthorizationStatus: seed.sriAuthorizationStatus || "PENDIENTE",
+      sriAuthorizationNumber: seriesWasCorrected ? "" : (seed.sriAuthorizationNumber || ""),
+      sriAccessKey: seriesWasCorrected ? "" : (seed.sriAccessKey || ""),
+      sriIssueDate: seed.sriIssueDate || "",
+      sriOriginalIssueDate: seed.sriOriginalIssueDate || "",
+      localSriIssueDateAdjustedAt: seed.localSriIssueDateAdjustedAt || "",
+      localSriIssueDateAdjustedBy: seed.localSriIssueDateAdjustedBy || "",
+      sriAuthorizedAt: seed.sriAuthorizedAt || "",
+      sriAuthorizedXml: seriesWasCorrected ? "" : (seed.sriAuthorizedXml || ""),
+      sriSequential: synchronizedInvoices.sriSequential || "",
+      sriSequenceSource: explicitSequence
+        ? (seriesWasCorrected ? "LOCAL_RESERVADO" : (seed.sriSequenceSource || synchronizedInvoices.sriSequenceSource || "LOCAL_RESERVADO"))
+        : "PENDIENTE_GUARDADO",
+      sriSequenceStatus: explicitSequence
+        ? (seed.sriSequenceStatus || (String(seed.status || "").toUpperCase() === "ANULADO" ? "RESERVADO_ANULADO" : "RESERVADO"))
+        : "SIN_ASIGNAR",
+      sriSequenceAnnulledAt: seed.sriSequenceAnnulledAt || "",
+      sriSequenceAnnulReason: seed.sriSequenceAnnulReason || "",
+      historyArchivedAt: seed.historyArchivedAt || "",
+      historyArchivedBy: seed.historyArchivedBy || "",
+      historyArchiveReason: seed.historyArchiveReason || "",
+      sriQueueStatus: explicitSequence ? (seriesWasCorrected ? "PENDIENTE" : (seed.sriQueueStatus || "PENDIENTE")) : "NO_GENERADO",
+      sriQueuedAt: explicitSequence ? (seed.sriQueuedAt || seed.createdAt || seed.issuedAt || "") : "",
+      sriRemoteDocumentId: seriesWasCorrected ? "" : (seed.sriRemoteDocumentId || ""),
+      sriCreditNotes: Array.isArray(seed.sriCreditNotes) ? BlessERP.utils.clone(seed.sriCreditNotes) : [],
+      receivableId: seed.receivableId || "",
+      receivableSyncStatus: seed.receivableSyncStatus || "",
+      receivableSyncedAt: seed.receivableSyncedAt || "",
+      receivableSyncError: seed.receivableSyncError || "",
+      invoicePackingNumber: synchronizedInvoices.invoicePackingNumber || "",
+      clientInvoiceNumber: synchronizedInvoices.clientInvoiceNumber || "",
       notes: seed.notes || "",
       packagingDemoStatus: seed.packagingDemoStatus || "",
       packagingPreparedAt: seed.packagingPreparedAt || "",
@@ -723,11 +934,14 @@
       labelRevision: Number(seed.labelRevision || 1),
       labelReprintRequired: Boolean(seed.labelReprintRequired),
       invalidatedLabels: Array.isArray(seed.invalidatedLabels) ? seed.invalidatedLabels.map(item => ({ ...item })) : [],
+      cancelledBoxes: Array.isArray(seed.cancelledBoxes) ? seed.cancelledBoxes.map(item => BlessERP.utils.clone(item)) : [],
       changeNotifications: Array.isArray(seed.changeNotifications) ? seed.changeNotifications.map(item => ({ ...item })) : [],
       demoValidationSeed: Boolean(seed.demoValidationSeed),
       fulfillmentHistory: Array.isArray(seed.fulfillmentHistory) ? seed.fulfillmentHistory.map(item => ({ ...item })) : [],
       history: Array.isArray(seed.history) ? seed.history : [],
-      lines: Array.isArray(seed.lines) ? seed.lines.map(createLine) : []
+      lines: Array.isArray(seed.lines)
+        ? seed.lines.filter(line => line && typeof line === "object").map(createLine)
+        : []
     };
   }
 
@@ -735,6 +949,8 @@
     return [
       createOrder({
         id: "order-demo-0004",
+        seller_id: "SELL-BLF-002",
+        seller_name: "Vendedor Exportaciones",
         number: "PED-COM-2026-0004",
         issuedAt: "2026-07-08",
         flightDate: "2026-07-09",
@@ -745,6 +961,8 @@
       }),
       createOrder({
         id: "order-demo-0001",
+        seller_id: "SELL-BLF-001",
+        seller_name: "James Lanchimba",
         number: "PED-COM-2026-0001",
         issuedAt: "2026-07-07",
         flightDate: "2026-07-09",
@@ -787,6 +1005,8 @@
       }),
       createOrder({
         id: "order-demo-0002",
+        seller_id: "SELL-BLF-002",
+        seller_name: "Vendedor Exportaciones",
         number: "PED-COM-2026-0002",
         issuedAt: "2026-07-07",
         flightDate: "2026-07-11",
@@ -811,6 +1031,8 @@
       }),
       createOrder({
         id: "order-demo-0003",
+        seller_id: "SELL-BLF-001",
+        seller_name: "James Lanchimba",
         number: "PED-COM-2026-0003",
         issuedAt: "2026-07-06",
         flightDate: "2026-07-08",
@@ -829,6 +1051,8 @@
       }),
       createOrder({
         id: "order-demo-0005",
+        seller_id: "SELL-BLF-001",
+        seller_name: "James Lanchimba",
         number: "PED-COM-2026-0005",
         issuedAt: "2026-07-10",
         flightDate: "2026-07-12",
@@ -858,6 +1082,8 @@
       }),
       createOrder({
         id: "order-demo-0006",
+        seller_id: "SELL-BLF-002",
+        seller_name: "Vendedor Exportaciones",
         number: "PED-COM-2026-0006",
         issuedAt: "2026-07-10",
         flightDate: "2026-07-10",
@@ -890,18 +1116,72 @@
     ];
   }
 
+  function isOperationalDeployment() {
+    const configured = typeof BlessERP.getAppMode === "function"
+      ? BlessERP.getAppMode()
+      : window.__ERP_ENV__?.VITE_APP_ENV;
+    return String(configured || "").trim().toLowerCase() !== "demo";
+  }
+
+  function withoutCommercialDemoData(store) {
+    store.orders = [];
+    store.preorders = [];
+    store.reservations = [];
+    store.intercompanySettlements = [];
+    store.intercompanyInvoices = [];
+    store.intercompanyAudit = [];
+    store.intercompanyInvoiceCounter = 0;
+    store.customerCatalog = [];
+    store.brandCatalog = [];
+    store.agencyCatalog = [];
+    store.airlineCatalog = [];
+    store.daeCatalog = [];
+    store.destinationCatalog = [];
+    store.ui = {
+      ...store.ui,
+      currentOrderId: "",
+      currentPreorderId: "",
+      selectedCustomerId: "",
+      customerDraft: createCustomer({}),
+      selectedBrandId: "",
+      brandDraft: createBrand({}),
+      selectedAgencyId: "",
+      agencyDraft: createAgency({}),
+      selectedAirlineId: "",
+      airlineDraft: createAirline({}),
+      selectedDaeId: "",
+      daeDraft: createDae({}),
+      selectedDestinationId: "",
+      destinationDraft: createDestination({}),
+      orderScanCode: "",
+      selectedOrderIds: [],
+      labelSelectedOrderIds: [],
+      notice: "",
+      noticeTone: "info"
+    };
+    return store;
+  }
+
   function createCommercialStore() {
-    return {
+    const store = {
       orders: createSeedOrders(),
+      preorders: [],
       reservations: [],
+      intercompanySettlements: [],
+      intercompanyInvoices: [],
+      intercompanyAudit: [],
+      intercompanyInvoiceCounter: 0,
       customerCatalog: clone(customers),
       brandCatalog: clone(brands),
       agencyCatalog: clone(agencies),
       airlineCatalog: clone(airlines),
+      countryCatalog: clone(countries),
       daeCatalog: clone(daes),
       destinationCatalog: clone(destinations),
       ui: {
         currentOrderId: "order-demo-0004",
+        currentPreorderId: "",
+        preorderStatusFilter: "TODOS",
         orderTab: "summary",
         packagingViewMode: "material",
         availabilityFilterVariety: "",
@@ -916,6 +1196,10 @@
         labelFromBox: 1,
         labelToBox: 1,
         labelSingleBox: 1,
+        labelSelectedOrderIds: [],
+        printCenterDocument: "LABELS",
+        printCenterInvoiceFilter: "",
+        printCenterCustomerId: "",
         clientInvoiceViewMode: "grouped",
         clientInvoiceShowCustomer: true,
         clientInvoiceShowBrand: true,
@@ -931,6 +1215,8 @@
         agencyDraft: createAgency(agencies.find(item => item.id === "agency-pacific") || agencies[0]),
         selectedAirlineId: "air-atlas",
         airlineDraft: createAirline(airlines.find(item => item.id === "air-atlas") || airlines[0]),
+        selectedCountryId: "country-ec",
+        countryDraft: createCountry(countries.find(item => item.id === "country-ec") || countries[0]),
         selectedDaeId: "dae-kazajstan-demo",
         daeDraft: createDae(daes.find(item => item.id === "dae-kazajstan-demo") || daes[0]),
         selectedDestinationId: "destination-kz",
@@ -949,6 +1235,9 @@
         noticeTone: "info"
       }
     };
+    return isOperationalDeployment()
+      ? withoutCommercialDemoData(store)
+      : store;
   }
 
   BlessERP.comercialData = {
@@ -956,10 +1245,12 @@
     createAgency,
     createAirline,
     createBrand,
+    createCountry,
     createDae,
     createDestination,
     customers,
     brands,
+    countries,
     daes,
     destinations,
     agencies,
@@ -971,6 +1262,9 @@
     materialRules,
     availability,
     printDocs,
+    sriSalePaymentMethods,
+    normalizeSriPaymentMethod,
+    sriPaymentMethodLabel,
     createCustomer,
     createLine,
     createOrder,
@@ -981,6 +1275,7 @@
         company: clone(company),
         customers: clone(customers),
         brands: clone(brands),
+        countries: clone(countries),
         daes: clone(daes),
         agencies: clone(agencies),
         airlines: clone(airlines),

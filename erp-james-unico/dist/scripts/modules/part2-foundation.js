@@ -32,12 +32,10 @@
     { name: "periodStart", label: "Fecha inicio periodo", type: "date" },
     { name: "periodEnd", label: "Fecha fin periodo", type: "date" },
     { name: "periodStatus", label: "Estado del periodo", type: "select", options: ["Abierto", "Cerrado"] },
-    { name: "sriEnvironment", label: "Ambiente SRI", type: "select", options: ["Pruebas", "Produccion"] },
-    { name: "mainEstablishment", label: "Establecimiento principal" },
-    { name: "mainEmissionPoint", label: "Punto de emision principal" }
+    { name: "sriEnvironment", label: "Ambiente SRI", type: "select", options: ["Pruebas"] }
   ];
 
-  const accountTypes = ["Activo", "Pasivo", "Patrimonio", "Ingreso", "Costo", "Gasto", "Orden"];
+  const accountTypes = [...chartService.accountTypes];
   const accountNatures = ["Deudora", "Acreedora"];
 
   function statusClass(status) {
@@ -166,7 +164,12 @@
   function renderAccountEditor() {
     const account = uiState.accountDraft;
     if (!account) return "";
-    const options = chartService.sortAccounts(chartService.all()).filter(item => item.id !== account.id);
+    const group = BlessERP.accountingRules.accountGroup(account.code);
+    const options = chartService.sortAccounts(chartService.all()).filter(item =>
+      item.id !== account.id
+      && !item.isMovement
+      && (!group || BlessERP.accountingRules.accountGroup(item.code)?.code === group.code)
+    );
     const liveLevel = chartService.levelFromCode(account.code || "");
     return `
       <article class="panel-card editor-card">
@@ -205,7 +208,7 @@
               ${options.map(option => `<option value="${esc(option.code)}" ${account.parentCode === option.code ? "selected" : ""}>${esc(option.code)} - ${esc(option.name)}</option>`).join("")}
             </select>
           </label>
-          <label class="compact-field"><span>Nivel</span><input value="${esc(String(liveLevel || 1))}" readonly></label>
+          <label class="compact-field"><span>Nivel</span><input name="level" value="${esc(String(liveLevel || 1))}" readonly></label>
           <label class="compact-field">
             <span>Estado</span>
             <select name="status">
@@ -227,7 +230,8 @@
 
   function renderChart(route) {
     const accounts = filteredAccounts();
-    const summaryWarning = companyService.missingDefaultAccounts().length;
+    const catalogAudit = chartService.auditCatalog();
+    const summaryWarning = companyService.missingDefaultAccounts().length + catalogAudit.invalidAccounts.length + catalogAudit.missingGroups.length;
     return `
       <section class="page-header">
         <div>
@@ -244,6 +248,9 @@
           <button class="subnav-tab ${item.id === route.id ? "active" : ""}" data-route-link="${esc(item.id)}">${esc(item.label)}</button>
         `).join("")}
       </div>
+      <section class="accounting-code-order" aria-label="Orden obligatorio del catalogo contable">
+        ${Object.values(chartService.accountGroups).map(group => `<span><strong>${esc(group.code)}.</strong> ${esc(group.label)}</span>`).join("")}
+      </section>
       ${uiState.accountMessage ? `<section class="inline-feedback success">${esc(uiState.accountMessage)}</section>` : ""}
       <section class="panel-card compact-toolbar-card">
         <div class="compact-toolbar">
@@ -268,7 +275,6 @@
           </label>
           <div class="compact-toolbar-actions">
             <button class="secondary-button" type="button" data-account-new>Nueva cuenta</button>
-            <button class="secondary-button" type="button" data-account-export>Exportar</button>
           </div>
         </div>
       </section>
@@ -278,8 +284,9 @@
           <div>
             <p class="section-kicker">CUENTAS</p>
             <h3>Plan de cuentas</h3>
+            <p class="panel-note">Estructura jerárquica habilitada hasta nivel 5. Cada subcuenta debe depender de su cuenta padre inmediata.</p>
           </div>
-          <span class="status-badge partial">${esc(String(accounts.length))} cuentas visibles</span>
+          <span class="status-badge ${catalogAudit.isValid ? "authorized" : "pending"}">${catalogAudit.isValid ? "Catalogo validado" : `${esc(String(catalogAudit.invalidAccounts.length + catalogAudit.missingGroups.length))} observaciones`}</span>
         </div>
         <div class="compact-table-wrap">
           <table class="compact-table">
@@ -408,10 +415,6 @@
       startEditAccount();
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-account-export]")?.addEventListener("click", () => {
-      uiState.accountMessage = "La exportacion quedara habilitada en una siguiente fase.";
-      BlessERP.layout.renderPage();
-    });
     document.querySelector("[data-account-cancel]")?.addEventListener("click", () => {
       uiState.accountDraft = null;
       uiState.accountErrors = [];
@@ -445,7 +448,19 @@
     document.querySelector("#chart-account-form")?.addEventListener("input", event => {
       if (!uiState.accountDraft) return;
       uiState.accountDraft = readAccountDraftFromForm();
-      if (["code", "parentCode"].includes(event.target.name)) BlessERP.layout.renderPage();
+      if (event.target.name === "code") {
+        const group = BlessERP.accountingRules.accountGroup(uiState.accountDraft.code);
+        if (group) {
+          if (!group.types.includes(uiState.accountDraft.type)) uiState.accountDraft.type = group.types[0];
+          uiState.accountDraft.nature = group.nature;
+          uiState.accountDraft.parentCode = BlessERP.accountingRules.expectedParentCode(uiState.accountDraft.code);
+          const form = event.currentTarget;
+          form.elements.type.value = uiState.accountDraft.type;
+          form.elements.nature.value = uiState.accountDraft.nature;
+          form.elements.parentCode.value = uiState.accountDraft.parentCode;
+        }
+        event.currentTarget.elements.level.value = String(uiState.accountDraft.level || 1);
+      }
     });
   }
 

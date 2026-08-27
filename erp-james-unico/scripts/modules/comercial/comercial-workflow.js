@@ -14,6 +14,12 @@
   ];
 
   const statusDefinitions = {
+    BORRADOR_LOCAL: {
+      label: "BORRADOR_LOCAL",
+      shortLabel: "Borrador local",
+      description: "Formulario V2 todavía no confirmado por Supabase.",
+      tone: "pending"
+    },
     BORRADOR: {
       label: "BORRADOR",
       shortLabel: "Borrador",
@@ -73,6 +79,42 @@
       shortLabel: "SRI futuro",
       description: "Placeholder reservado. No implementar SRI en esta fase.",
       tone: "cancelled"
+    },
+    GUARDADO: {
+      label: "GUARDADO",
+      shortLabel: "Guardado",
+      description: "Pedido V2 confirmado por Supabase.",
+      tone: "authorized"
+    },
+    EN_CUARTO_FRIO: {
+      label: "EN_CUARTO_FRIO",
+      shortLabel: "En Cuarto Frío",
+      description: "Pedido V2 enviado a preparación en Cuarto Frío.",
+      tone: "authorized"
+    },
+    COMPLETADO: {
+      label: "COMPLETADO",
+      shortLabel: "Completado",
+      description: "Pedido V2 completado en Cuarto Frío.",
+      tone: "authorized"
+    },
+    PACKED: {
+      label: "PACKED",
+      shortLabel: "Empacado",
+      description: "Pedido o contenido V2 empacado.",
+      tone: "authorized"
+    },
+    READY_FOR_DISPATCH: {
+      label: "READY_FOR_DISPATCH",
+      shortLabel: "Listo para despacho",
+      description: "Pedido V2 validado y listo para despacho.",
+      tone: "authorized"
+    },
+    DISPATCHED: {
+      label: "DISPATCHED",
+      shortLabel: "Despachado",
+      description: "Pedido V2 despachado físicamente.",
+      tone: "authorized"
     }
   };
 
@@ -86,7 +128,14 @@
     CERRADO_DEMO: ["REABIERTO_DEMO"],
     REABIERTO_DEMO: ["BORRADOR", "REFERENCIAL"],
     ANULADO: [],
-    AUTORIZADO_SRI_FUTURO: []
+    AUTORIZADO_SRI_FUTURO: [],
+    BORRADOR_LOCAL: ["GUARDADO"],
+    GUARDADO: ["EN_CUARTO_FRIO", "ANULADO"],
+    EN_CUARTO_FRIO: ["COMPLETADO", "ANULADO"],
+    COMPLETADO: ["READY_FOR_DISPATCH", "ANULADO"],
+    PACKED: ["READY_FOR_DISPATCH", "ANULADO"],
+    READY_FOR_DISPATCH: ["DISPATCHED", "ANULADO"],
+    DISPATCHED: []
   };
 
   const criticalFields = [
@@ -100,20 +149,45 @@
     "agencyId",
     "daeNumber",
     "airlineId",
-    "flightNumber",
     "generalPo",
-    "currency"
+    "currency",
+    "sriPaymentMethod"
   ];
 
-  const finalDispatchDocuments = ["PACKING_LIST", "HR", "MP", "ETIQUETAS", "CONTROL_DAE"];
+  const sriDocumentFields = [
+    "packingListNumber",
+    "invoicePackingNumber",
+    "clientInvoiceNumber",
+    "sriSequential",
+    "sriInvoiceNumber",
+    "sriAuthorizationStatus",
+    "sriAuthorizationNumber",
+    "sriAccessKey",
+    "sriIssueDate",
+    "sriAuthorizedAt"
+  ];
+
+  const finalDispatchDocuments = ["HR", "MP", "ETIQUETAS", "CONTROL_DAE"];
 
   function unique(items) {
     return [...new Set((items || []).filter(Boolean))];
   }
 
   function normalizeStatus(value) {
-    const key = String(value || "BORRADOR").trim().toUpperCase();
-    return statusDefinitions[key] ? key : "BORRADOR";
+    const raw = String(value ?? "").trim();
+    if (!raw) return "BORRADOR";
+    const key = raw.toUpperCase();
+    // Los estados conocidos conservan la forma canónica. Un estado existente
+    // que pertenezca a un flujo más nuevo nunca se degrada silenciosamente.
+    return statusDefinitions[key] ? key : raw;
+  }
+
+  function isV2Order(order) {
+    const persistenceMode = String(order?.persistenceMode || "").trim().toUpperCase();
+    return Number(order?.flowVersion || 0) >= 2
+      || Number(order?.warehouseFlowVersion || 0) >= 2
+      || Number(order?.dispatchFlowVersion || 0) >= 2
+      || ["FORM_MEMORY_ONLY", "CONFIRMED_ORDER", "SUPABASE_TRANSACTION_CONFIRMED"].includes(persistenceMode);
   }
 
   function nowIso() {
@@ -189,7 +263,12 @@
   function ensureOrderWorkflow(order, appState) {
     if (!order || typeof order !== "object") return order;
 
-    order.status = normalizeStatus(order.status);
+    const existingStatus = String(order.status ?? "").trim();
+    const normalizedStatus = normalizeStatus(existingStatus);
+    // Los getters legacy pueden completar metadatos compatibles, pero no son
+    // dueños del estado canónico de un pedido V2.
+    if (!existingStatus) order.status = normalizedStatus;
+    else if (!isV2Order(order) && normalizedStatus !== existingStatus) order.status = normalizedStatus;
     order.history = Array.isArray(order.history) ? order.history : [];
     order.documentActivity = order.documentActivity && typeof order.documentActivity === "object"
       ? order.documentActivity
@@ -220,7 +299,7 @@
         actionLabel: "Crear pedido demo",
         previousStatus: order.status,
         nextStatus: order.status,
-        description: `Pedido ${order.number || "demo"} disponible dentro del ERP unico.`,
+        description: `Pedido ${order.number || "demo"} disponible dentro de JAEDER SYSTEMS.`,
         reason: "",
         result: "exitoso"
       }, appState));
@@ -322,45 +401,24 @@
 
   function getEditPolicy(order) {
     const status = normalizeStatus(order?.status);
-    if (status === "BORRADOR") {
-      return {
-        status,
-        editBlocked: false,
-        criticalLocked: false,
-        linesLocked: false,
-        message: ""
-      };
-    }
-
-    if (status === "REFERENCIAL" || status === "REABIERTO_DEMO") {
-      return {
-        status,
-        editBlocked: false,
-        criticalLocked: false,
-        linesLocked: false,
-        message: "Editar este pedido puede afectar documentos ya emitidos en modo referencial."
-      };
-    }
-
-    if (status === "VALIDADO_COMERCIAL" || status === "LISTO_BODEGA") {
-      return {
-        status,
-        editBlocked: false,
-        criticalLocked: true,
-        linesLocked: true,
-        message: "Los datos criticos y las cajas estan bloqueados. Reabra el pedido para modificarlos."
-      };
-    }
-
-    if (status === "LISTO_DESPACHO" || status === "DESPACHADO_DEMO" || status === "CERRADO_DEMO" || status === "ANULADO" || status === "AUTORIZADO_SRI_FUTURO") {
+    const sriAuthorized = isSriAuthorized(order);
+    if (sriAuthorized) {
       return {
         status,
         editBlocked: true,
         criticalLocked: true,
         linesLocked: true,
-        message: status === "ANULADO"
-          ? "Pedido anulado. Solo se permite consulta o reimpresion anulada."
-          : "El pedido esta bloqueado para edicion directa. Debe reabrirse para cambios."
+        message: "La factura ya fue AUTORIZADA por el SRI. Para corregir el pedido debe anular el comprobante conforme al proceso tributario y generar uno nuevo."
+      };
+    }
+
+    if (status === "ANULADO") {
+      return {
+        status,
+        editBlocked: true,
+        criticalLocked: true,
+        linesLocked: true,
+        message: "Pedido anulado. Solo se permite consulta o reimpresion anulada."
       };
     }
 
@@ -369,12 +427,22 @@
       editBlocked: false,
       criticalLocked: false,
       linesLocked: false,
-      message: ""
+      message: ["BORRADOR", "REFERENCIAL", "REABIERTO_DEMO"].includes(status)
+        ? ""
+        : "El pedido puede actualizarse mientras la factura no este autorizada por el SRI. Si ya fue enviado a Bodega, use Editar pedido y confirme con Actualizar pedido."
     };
+  }
+
+  function isSriAuthorized(order) {
+    const sriStatus = String(order?.sriAuthorizationStatus || "").trim().toUpperCase();
+    return sriStatus === "AUTORIZADO" || normalizeStatus(order?.status) === "AUTORIZADO_SRI_FUTURO";
   }
 
   function canEditOrderField(order, field) {
     const policy = getEditPolicy(order);
+    if (sriDocumentFields.includes(field)) {
+      return { ok: false, message: "Los numeros y estados SRI se actualizan desde Documentos electronicos SRI." };
+    }
     if (policy.editBlocked) {
       return { ok: false, message: policy.message };
     }
@@ -445,7 +513,6 @@
     const dispatchState = getDispatchState(order, appState);
     const requiredDispatchDocs = [
       ["INVOICE_PACKING_REAL", "Invoice carguera real demo"],
-      ["PACKING_LIST", "Packing List"],
       ["HR", "HR / Hoja de Ruta"],
       ["MP", "MP / Master Packing"],
       ["ETIQUETAS", "Etiquetas de caja"],
@@ -454,7 +521,7 @@
 
     if (normalizedTarget === "REFERENCIAL") {
       if (!order.customerId) errors.push("Falta cliente principal.");
-      if (!order.brandId) errors.push("Falta marca / cliente final.");
+      if (!BlessERP.comercialUtils?.isLocalOrder?.(order) && !order.brandId) errors.push("Falta marca / cliente final.");
       if (!validation.metrics?.lines?.length) errors.push("Debe existir al menos una linea comercial.");
     }
 
@@ -468,8 +535,8 @@
       }
       errors.push(...validation.errors);
       if (!packaging?.requirements?.length) warnings.push("Materiales de empaque aun no calculados; no bloquea el armado de rosas.");
-      if (!labelsData?.rows?.length || labelsData.errors.length) warnings.push("Las etiquetas de caja se prepararan cuando Bodega cierre cada caja.");
-      if (!String(order.documentActivity?.ETIQUETAS?.previewedAt || order.documentActivity?.ETIQUETAS?.printedAt || "").trim()) warnings.push("Etiqueta de caja aun no impresa; corresponde despues del cierre fisico.");
+      if (!labelsData?.rows?.length || labelsData.errors.length) warnings.push("Las etiquetas de caja aun tienen datos obligatorios pendientes.");
+      if (!String(order.documentActivity?.ETIQUETAS?.previewedAt || order.documentActivity?.ETIQUETAS?.printedAt || "").trim()) warnings.push("Etiqueta de caja aun no impresa; puede prepararse antes del cierre fisico de Bodega.");
     }
 
     if (normalizedTarget === "LISTO_DESPACHO") {
@@ -495,6 +562,18 @@
     if (normalizedTarget === "DESPACHADO_DEMO") {
       if (normalizeStatus(order.status) !== "LISTO_DESPACHO") {
         errors.push("El pedido debe estar en LISTO_DESPACHO antes de confirmar despacho demo.");
+      }
+      const fulfillment = BlessERP.comercialOrderFulfillment?.getOrderFulfillment?.(appState, order.id);
+      const requiredBunches = (order.lines || []).reduce((sum, line) => sum + Number(line.bunches || 0), 0);
+      const scannedBunches = (order.lines || []).reduce((sum, line) => (
+        sum + (Array.isArray(line.scannedBunches) ? line.scannedBunches.length : 0)
+      ), 0);
+      if (
+        requiredBunches <= 0
+        || scannedBunches < requiredBunches
+        || (fulfillment && !fulfillment.allBoxesComplete)
+      ) {
+        errors.push(`Faltan ${Math.max(requiredBunches - scannedBunches, 0)} ramo(s) por escanear; no se puede despachar un pedido incompleto.`);
       }
       requiredDispatchDocs.forEach(([docCode, label]) => {
         if (!String(order.documentActivity?.[docCode]?.previewedAt || order.documentActivity?.[docCode]?.printedAt || "").trim()) {
@@ -612,7 +691,7 @@
       if (realDemoRequested && !["VALIDADO_COMERCIAL", "LISTO_BODEGA", "LISTO_DESPACHO", "DESPACHADO_DEMO", "CERRADO_DEMO"].includes(status)) {
         errors.push("Para imprimir este documento en modo real demo, el pedido debe estar al menos en VALIDADO_COMERCIAL.");
       }
-      if (finalDispatchDocuments.includes(docCode) && !["LISTO_DESPACHO", "DESPACHADO_DEMO", "CERRADO_DEMO", "ANULADO"].includes(status)) {
+      if (docCode !== "ETIQUETAS" && finalDispatchDocuments.includes(docCode) && docCode !== "HR" && !["LISTO_DESPACHO", "DESPACHADO_DEMO", "CERRADO_DEMO", "ANULADO"].includes(status)) {
         errors.push("Para imprimir este documento como salida final demo, el pedido debe estar en LISTO_DESPACHO.");
       }
     }
@@ -657,7 +736,7 @@
     if (validation.errors.includes("Fecha vuelo posterior a caducidad DAE.")) {
       alerts.push({ tone: "cancelled", message: "Fecha vuelo posterior a la caducidad DAE." });
     }
-    if (!order.awb || !order.hawb) {
+    if (!utils.isLocalOrder(order) && (!order.awb || !order.hawb)) {
       alerts.push({ tone: "pending", message: "Falta AWB / HAWB." });
     }
     if (validation.warnings.includes("Falta PO cuando la marca lo requiere.")) {
@@ -673,7 +752,7 @@
       alerts.push({ tone: "partial", message: "Documentos de despacho pendientes." });
     }
     if (dispatchState === "OBSERVADO") {
-      alerts.push({ tone: "pending", message: "Despacho operativo observado." });
+      alerts.push({ tone: "pending", message: "Cuarto frío observado." });
     }
     if (status === "LISTO_DESPACHO") {
       alerts.push({ tone: "authorized", message: "Pedido listo para despacho." });
@@ -800,6 +879,7 @@
     getProgressSteps,
     getStatusDefinition,
     isTransitionAllowed,
+    isSriAuthorized,
     lifecycleStatuses,
     markDocumentActivity,
     normalizeStatus,

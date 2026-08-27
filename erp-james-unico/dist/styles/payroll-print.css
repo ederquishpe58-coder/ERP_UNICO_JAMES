@@ -1,0 +1,330 @@
+.payroll-print-shell{
+  padding:10mm;
+  background:#eef1f5;
+}
+
+.payroll-slip-page{
+  position:relative;
+  width:210mm;
+  min-height:270mm;
+  margin:0 auto 10mm;
+  padding:7mm;
+  overflow:hidden;
+  box-sizing:border-box;
+  border:1.2px solid #111;
+  border-radius:0;
+  background:#fff;
+  color:#050505;
+  font-family:Arial,Helvetica,sans-serif;
+  break-after:page;
+  page-break-after:always;
+  break-inside:avoid;
+  page-break-inside:avoid;
+}
+
+.payroll-slip-page:last-child{
+  break-after:auto;
+  page-break-after:auto;
+}
+
+.payroll-slip-header{
+  position:relative;
+  min-height:27mm;
+  display:grid;
+  grid-template-columns:53mm 1fr 53mm;
+  align-items:start;
+}
+
+.payroll-company-logo{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  height:25mm;
+}
+
+.payroll-company-logo img{
+  display:block;
+  width:49mm;
+  height:24mm;
+  object-fit:contain;
+}
+
+.payroll-company-data{
+  grid-column:2;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:.6mm;
+  text-align:center;
+  font-size:9pt;
+  line-height:1.1;
+}
+
+.payroll-company-data strong{
+  font-size:10.5pt;
+}
+
+.payroll-company-data b{
+  margin-top:4mm;
+  font-size:9.5pt;
+}
+
+.payroll-company-data a{
+  color:#447caa;
+  text-decoration:underline;
+}
+
+.payroll-slip-title{
+  margin:6mm 0 10mm;
+  text-align:center;
+  font-size:11pt;
+  line-height:1;
+}
+
+.payroll-meta-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:20mm;
+  min-height:22mm;
+  margin:0;
+}
+
+.payroll-meta-grid dl{
+  margin:0;
+}
+
+.payroll-meta-grid dl > div{
+  display:grid;
+  grid-template-columns:45mm 1fr;
+  gap:2mm;
+  margin:0 0 1.4mm;
+  font-size:9pt;
+  line-height:1;
+}
+
+.payroll-meta-grid dt{
+  font-weight:700;
+}
+
+.payroll-meta-grid dd{
+  min-width:0;
+  margin:0;
+}
+
+.payroll-green-band{
+  height:5mm;
+  margin:1mm 0 6mm;
+  background:#84d36b;
+}
+
+.payroll-values-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:20mm;
+  min-height:42mm;
+}
+
+.payroll-values-grid h2{
+  margin:0 0 5mm;
+  font-size:10pt;
+}
+
+.payroll-values-grid table{
+  width:100%;
+  border-collapse:collapse;
+}
+
+.payroll-values-grid th,
+.payroll-values-grid td{
+  padding:1mm 0;
+  border:0;
+  font-size:9pt;
+  line-height:1;
+}
+
+.payroll-values-grid th{
+  width:65%;
+  text-align:left;
+  text-transform:uppercase;
+}
+
+.payroll-values-grid td{
+  display:grid;
+  grid-template-columns:8mm 1fr;
+  text-align:right;
+}
+
+.payroll-amount-currency{
+  text-align:center;
+  font-weight:400;
+}
+
+.payroll-amount-value{
+  min-width:20mm;
+  text-align:right;
+  font-variant-numeric:tabular-nums;
+}
+
+.payroll-totals{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:20mm;
+  min-height:12mm;
+  align-items:center;
+  border-bottom:1px solid #111;
+}
+
+.payroll-totals > div{
+  display:grid;
+  grid-template-columns:1fr 8mm 25mm;
+  align-items:center;
+  font-size:9.5pt;
+}
+
+.payroll-totals .payroll-amount-currency,
+.payroll-net-result .payroll-amount-currency{
+  grid-column:2;
+}
+
+.payroll-totals .payroll-amount-value,
+.payroll-net-result .payroll-amount-value{
+  grid-column:3;
+}
+
+.payroll-result-grid{
+  display:grid;
+  grid-template-columns:36% 64%;
+  min-height:34mm;
+  border-bottom:1px solid #111;
+}
+
+.payroll-additional-detail{
+  padding:2mm 3mm 2mm 0;
+  border-right:1px solid #111;
+}
+
+.payroll-additional-detail h3{
+  margin:0 0 2mm;
+  text-align:center;
+  font-size:7.5pt;
+}
+
+.payroll-detail-table{
+  width:100%;
+  border-collapse:collapse;
+}
+
+.payroll-detail-table th,
+.payroll-detail-table td{
+  padding:.8mm 0;
+  border:0;
+  font-size:6.8pt;
+}
+
+.payroll-detail-table th{
+  text-align:left;
+}
+
+.payroll-detail-table td{
+  text-align:right;
+}
+
+.payroll-detail-empty{
+  margin:5mm 0;
+  text-align:center;
+  color:#555;
+  font-size:7pt;
+}
+
+.payroll-net-result{
+  display:grid;
+  grid-template-columns:1fr 8mm 25mm;
+  align-content:center;
+  align-items:center;
+  padding:0 6mm 0 40mm;
+  font-size:10pt;
+}
+
+.payroll-net-result strong{
+  white-space:nowrap;
+}
+
+.payroll-signatures{
+  display:grid;
+  grid-template-columns:58% 42%;
+  align-items:center;
+  min-height:28mm;
+}
+
+.payroll-signatures p{
+  margin:0;
+  padding-right:8mm;
+  font-size:7.5pt;
+  line-height:1.3;
+}
+
+.payroll-signatures div{
+  display:flex;
+  justify-content:center;
+  padding-top:11mm;
+}
+
+.payroll-signatures span{
+  width:54mm;
+  padding-top:1.5mm;
+  border-top:1px solid #111;
+  text-align:center;
+  font-size:8.5pt;
+}
+
+.payroll-watermark{
+  position:absolute;
+  top:44%;
+  left:20%;
+  z-index:0;
+  transform:rotate(-28deg);
+  color:rgba(30,70,50,.10);
+  font-size:50pt;
+  font-weight:900;
+  pointer-events:none;
+}
+
+.payroll-slip-page > *:not(.payroll-watermark){
+  position:relative;
+  z-index:1;
+}
+
+@page{
+  size:A4 portrait;
+  margin:0;
+}
+
+@media print{
+  body[data-print-preview="true"]{
+    margin:0!important;
+    padding:0!important;
+    background:#fff!important;
+  }
+
+  .payroll-print-shell{
+    padding:0!important;
+    background:#fff!important;
+  }
+
+  .payroll-slip-page{
+    width:210mm!important;
+    height:297mm!important;
+    min-height:297mm!important;
+    margin:0!important;
+    padding:10mm!important;
+    border:1px solid #111!important;
+    border-radius:0!important;
+  }
+}
+
+@media screen and (max-width:900px){
+  .payroll-print-shell{
+    overflow:auto;
+    padding:8px;
+  }
+}

@@ -134,11 +134,37 @@
         acc.credit = round2(acc.credit + item.credit);
         return acc;
       }, { debit: 0, credit: 0 });
+    const controlReport = accumulateAccountMetrics({
+      ...filters,
+      accountCode: "",
+      accountType: "",
+      includeZeroRows: true
+    });
+    const controlTotals = controlReport.rows.filter(item => item.isMovement).reduce((acc, item) => {
+      acc.debit = round2(acc.debit + item.debit);
+      acc.credit = round2(acc.credit + item.credit);
+      return acc;
+    }, { debit: 0, credit: 0 });
+    controlTotals.difference = round2(controlTotals.debit - controlTotals.credit);
+    const journalAudit = journalService.auditEntries({
+      dateFrom: report.filters.dateFrom,
+      dateTo: report.filters.dateTo,
+      status: report.filters.status || ""
+    });
+    const catalogAudit = chartService.auditCatalog();
     return {
       ...report,
       totals: {
         debit: movementTotals.debit,
-        credit: movementTotals.credit
+        credit: movementTotals.credit,
+        difference: round2(movementTotals.debit - movementTotals.credit)
+      },
+      controlTotals,
+      validation: {
+        difference: controlTotals.difference,
+        isBalanced: controlTotals.difference === 0 && journalAudit.isBalanced && catalogAudit.isValid,
+        journalAudit,
+        catalogAudit
       }
     };
   }
@@ -150,34 +176,64 @@
     );
   }
 
+  function movementTotalByType(rows, type) {
+    return round2(rows
+      .filter(item => item.type === type && item.isMovement)
+      .reduce((sum, item) => sum + item.finalSigned, 0));
+  }
+
+  function statementFilters(filters = {}) {
+    return { ...filters, accountCode: "", accountType: "", includeZeroRows: false };
+  }
+
+  function statementValidation(filters, difference) {
+    const resolved = resolveFilters(filters);
+    const journalAudit = journalService.auditEntries({
+      dateFrom: resolved.dateFrom,
+      dateTo: resolved.dateTo,
+      status: resolved.status || ""
+    });
+    const catalogAudit = chartService.auditCatalog();
+    return {
+      difference: round2(difference),
+      isBalanced: round2(difference) === 0 && journalAudit.isBalanced && catalogAudit.isValid,
+      journalAudit,
+      catalogAudit
+    };
+  }
+
   function incomeStatement(filters = {}) {
-    const base = accumulateAccountMetrics(filters);
+    const scopedFilters = statementFilters(filters);
+    const base = accumulateAccountMetrics(scopedFilters);
     const sectionTypes = [
       { key: "Ingreso", label: "Ingresos" },
       { key: "Costo", label: "Costos" },
       { key: "Gasto", label: "Gastos" }
     ];
     const sections = sectionTypes.map(section => {
-      const rows = base.rows.filter(item => item.type === section.key && item.hasActivity);
-      const total = round2(rootsByType(rows, section.key).reduce((sum, item) => sum + item.finalSigned, 0));
+      const rows = base.rows.filter(item => item.type === section.key && item.hasActivity && item.code !== "5");
+      const total = movementTotalByType(base.rows, section.key);
       return { ...section, total, rows };
     });
     const totalIncome = sections.find(item => item.key === "Ingreso")?.total || 0;
     const totalCost = sections.find(item => item.key === "Costo")?.total || 0;
     const totalExpense = sections.find(item => item.key === "Gasto")?.total || 0;
+    const resultPeriod = round2(totalIncome - totalCost - totalExpense);
     return {
       filters: base.filters,
       sections,
       totalIncome,
       totalCost,
       totalExpense,
-      resultPeriod: round2(totalIncome - totalCost - totalExpense)
+      resultPeriod,
+      validation: statementValidation(scopedFilters, totalIncome - totalCost - totalExpense - resultPeriod)
     };
   }
 
   function balanceSheet(filters = {}) {
-    const base = accumulateAccountMetrics(filters);
-    const result = incomeStatement(filters);
+    const scopedFilters = statementFilters(filters);
+    const base = accumulateAccountMetrics(scopedFilters);
+    const result = incomeStatement(scopedFilters);
     const sectionTypes = [
       { key: "Activo", label: "Activos" },
       { key: "Pasivo", label: "Pasivos" },
@@ -188,14 +244,20 @@
       const total = round2(rootsByType(rows, section.key).reduce((sum, item) => sum + item.finalSigned, 0));
       return { ...section, total, rows };
     });
+    const totalAssets = sections.find(item => item.key === "Activo")?.total || 0;
+    const totalLiabilities = sections.find(item => item.key === "Pasivo")?.total || 0;
+    const totalPatrimony = sections.find(item => item.key === "Patrimonio")?.total || 0;
+    const patrimonyWithResult = round2(totalPatrimony + result.resultPeriod);
+    const difference = round2(totalAssets - totalLiabilities - patrimonyWithResult);
     return {
       filters: base.filters,
       sections,
-      totalAssets: sections.find(item => item.key === "Activo")?.total || 0,
-      totalLiabilities: sections.find(item => item.key === "Pasivo")?.total || 0,
-      totalPatrimony: sections.find(item => item.key === "Patrimonio")?.total || 0,
+      totalAssets,
+      totalLiabilities,
+      totalPatrimony,
       resultPeriod: result.resultPeriod,
-      patrimonyWithResult: round2((sections.find(item => item.key === "Patrimonio")?.total || 0) + result.resultPeriod)
+      patrimonyWithResult,
+      validation: statementValidation(scopedFilters, difference)
     };
   }
 
@@ -214,6 +276,36 @@
         dateTo: resolved.dateTo,
         status: resolved.status || ""
       })
+    };
+  }
+
+  function generalLedgerReport(filters = {}) {
+    const resolved = resolveFilters(filters);
+    const accounts = chartService.movementOptions()
+      .filter(account => !resolved.accountType || account.type === resolved.accountType)
+      .filter(account => withinTree(account.code, resolved.accountCode || ""));
+    const ledgers = accounts
+      .map(account => journalService.ledgerByAccount(account.code, {
+        dateFrom: resolved.dateFrom,
+        dateTo: resolved.dateTo,
+        status: resolved.status || ""
+      }))
+      .filter(ledger => ledger && (
+        resolved.includeZeroRows
+        || ledger.initialBalance
+        || ledger.finalBalance
+        || ledger.rows.length
+      ));
+    return {
+      filters: resolved,
+      ledgers,
+      totals: ledgers.reduce((summary, ledger) => {
+        summary.debit = round2(summary.debit + Number(ledger.totals?.debit || 0));
+        summary.credit = round2(summary.credit + Number(ledger.totals?.credit || 0));
+        summary.accounts += 1;
+        summary.movements += Number(ledger.rows?.length || 0);
+        return summary;
+      }, { debit: 0, credit: 0, accounts: 0, movements: 0 })
     };
   }
 
@@ -305,6 +397,108 @@
     return {
       filters: resolveFilters(filters),
       rows: Array.from(supplierMap.values()).sort((a, b) => String(a.providerName).localeCompare(String(b.providerName), "es"))
+    };
+  }
+
+  function purchasesReport(filters = {}) {
+    const resolved = resolveFilters(filters);
+    const retentionMap = issuedWithholdingTotalsByPurchase();
+    const rows = filteredPurchases(resolved).map(item => {
+      const retentions = retentionMap.get(item.id) || { rent: 0, vat: 0, total: 0 };
+      return {
+        id: item.id,
+        issueDate: item.issueDate || "",
+        accountingDate: item.accountingDate || item.issueDate || "",
+        supplierName: item.supplierName || "",
+        supplierRuc: item.supplierRuc || "",
+        documentNumber: item.documentNumber || item.fullNumber || "",
+        authorizationNumber: item.authorizationNumber || item.accessKey || "",
+        taxSupportCode: item.taxSupportCode || "",
+        purchaseType: item.purchaseType || "",
+        base0: num(item.totals?.base0),
+        baseIva: num(item.totals?.baseIva),
+        iva: num(item.totals?.iva),
+        noVatBase: num(item.totals?.noVatBase || item.totals?.baseNoObjeto),
+        exemptBase: num(item.totals?.exemptBase || item.totals?.baseExenta),
+        total: num(item.totals?.total),
+        retentionRent: num(retentions.rent),
+        retentionVat: num(retentions.vat),
+        retentionTotal: num(retentions.total),
+        status: item.status || ""
+      };
+    });
+    return {
+      filters: resolved,
+      rows,
+      totals: rows.reduce((summary, row) => {
+        ["base0", "baseIva", "iva", "noVatBase", "exemptBase", "total", "retentionRent", "retentionVat", "retentionTotal"]
+          .forEach(field => { summary[field] = round2(summary[field] + Number(row[field] || 0)); });
+        return summary;
+      }, { base0: 0, baseIva: 0, iva: 0, noVatBase: 0, exemptBase: 0, total: 0, retentionRent: 0, retentionVat: 0, retentionTotal: 0 })
+    };
+  }
+
+  function commercialOrders() {
+    const state = BlessERP.state?.state;
+    return BlessERP.comercialState?.getOrders?.(state) || [];
+  }
+
+  function salesReport(filters = {}) {
+    const resolved = resolveFilters(filters);
+    const rows = commercialOrders()
+      .filter(order => String(order.sriAuthorizationStatus || "").toUpperCase() === "AUTORIZADO")
+      .filter(order => matchesDate(order.sriIssueDate || String(order.sriAuthorizedAt || "").slice(0, 10) || order.issuedAt || "", resolved.dateFrom, resolved.dateTo))
+      .map(order => {
+        const metrics = BlessERP.comercialUtils?.getOrderMetrics?.(order) || {};
+        const customer = BlessERP.comercialUtils?.findCustomer?.(order.customerId) || {};
+        const brand = BlessERP.comercialUtils?.findBrand?.(order.brandId) || {};
+        const agency = BlessERP.comercialUtils?.findAgency?.(order.agencyId) || {};
+        const airline = BlessERP.comercialUtils?.findAirline?.(order.airlineId, BlessERP.state?.state) || {};
+        const fallbackGuides = String(order.sriGuides || "").split(/\s*\/\s*/).filter(Boolean);
+        const creditNotes = (order.sriCreditNotes || []).filter(note => String(note.status || "").toUpperCase() === "AUTORIZADO");
+        const credited = round2(creditNotes.reduce((sum, note) => sum + Number(note.total || note.modificationValue || 0), 0));
+        const total = num(metrics.totalUsd);
+        return {
+          orderId: order.id,
+          issueDate: order.sriIssueDate || String(order.sriAuthorizedAt || "").slice(0, 10) || order.issuedAt || "",
+          authorizationDate: String(order.sriAuthorizedAt || "").slice(0, 10),
+          documentNumber: order.sriInvoiceNumber || order.number || "",
+          authorizationNumber: order.sriAuthorizationNumber || "",
+          accessKey: order.sriAccessKey || "",
+          customerName: customer.legalName || customer.commercialName || "",
+          customerTaxId: customer.identification || "",
+          brandName: brand.finalClientName || brand.name || "",
+          destination: brand.destination || order.destination || "",
+          country: brand.country || order.destinationCountry || "",
+          transportType: String(order.transportType || "").toUpperCase(),
+          incoterm: order.incoterm || brand.incoterm || BlessERP.services?.companyBranding?.resolveForOrder?.(order)?.incoterm || "",
+          dae: order.sriDaeNumber || order.daeNumber || "",
+          guides: [order.awb, order.hawb, order.sriGuides].filter(Boolean).join(" / "),
+          masterGuide: order.awb || fallbackGuides[0] || "",
+          childGuide: order.hawb || fallbackGuides.slice(1).join(" / ") || "",
+          airline: airline.name || order.airlineName || "",
+          agency: agency.name || order.agencyName || "",
+          boxes: num(metrics.totalBoxes),
+          fulls: num(metrics.totalFulls),
+          bunches: num(metrics.totalBunches),
+          stems: num(metrics.totalStems),
+          subtotal: total,
+          iva: 0,
+          total,
+          credited,
+          netTotal: round2(total - credited),
+          seller: order.sellerName || order.vendedorNombre || "",
+          status: order.sriAuthorizationStatus || ""
+        };
+      });
+    return {
+      filters: resolved,
+      rows,
+      totals: rows.reduce((summary, row) => {
+        ["boxes", "fulls", "bunches", "stems", "subtotal", "iva", "total", "credited", "netTotal"]
+          .forEach(field => { summary[field] = round2(summary[field] + Number(row[field] || 0)); });
+        return summary;
+      }, { boxes: 0, fulls: 0, bunches: 0, stems: 0, subtotal: 0, iva: 0, total: 0, credited: 0, netTotal: 0 })
     };
   }
 
@@ -759,6 +953,9 @@
     incomeStatement,
     balanceSheet,
     accountMovementReport,
+    generalLedgerReport,
+    purchasesReport,
+    salesReport,
     purchasesByTaxSupport,
     purchasesBySupplier,
     issuedWithholdingsReport,

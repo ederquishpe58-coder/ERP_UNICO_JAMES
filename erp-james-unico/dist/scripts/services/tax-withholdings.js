@@ -286,7 +286,7 @@
     };
   }
 
-  function parseRetentionXmlString(xmlText, fileName = "") {
+  function parseRetentionXmlString(xmlText, fileName = "", options = {}) {
     try {
       const parser = new DOMParser();
       const outer = parser.parseFromString(String(xmlText || ""), "application/xml");
@@ -352,7 +352,7 @@
         return { ok: true, fileName, importStatus: "DUPLICADO", received: candidate, duplicateId: duplicate.id };
       }
 
-      const suggestion = suggestReceivable(candidate);
+      const suggestion = options.suggestReceivable === false ? null : suggestReceivable(candidate);
       if (suggestion) {
         candidate.suggestedReceivableId = suggestion.receivableId;
         candidate.suggestedReceivableNumber = suggestion.documentNumber;
@@ -366,9 +366,9 @@
     }
   }
 
-  async function parseRetentionXmlFile(file) {
+  async function parseRetentionXmlFile(file, options = {}) {
     const text = await file.text();
-    return parseRetentionXmlString(text, file.name);
+    return parseRetentionXmlString(text, file.name, options);
   }
 
   function importReceivedXmlBatch(batch = []) {
@@ -434,7 +434,9 @@
 
     const entry = journalService.emptyEntry();
     entry.accountingDate = record.issueDate || today();
-    entry.accountingPeriod = companyService.settings().activePeriod || entry.accountingPeriod;
+    entry.accountingPeriod = journalService.accountingPeriodForDate?.(entry.accountingDate, entry.accountingPeriod)
+      || String(entry.accountingDate || "").slice(0, 7)
+      || entry.accountingPeriod;
     entry.concept = `Retencion recibida ${record.documentNumber} - ${record.issuerName}`;
     entry.originModule = "RETENCIONES_RECIBIDAS";
     entry.sourceDocument = record.documentNumber;
