@@ -1029,14 +1029,7 @@
       item.inventoryScope = "HISTORIAL_OPERATIVO_MALLAS";
       item.accountingImpact = false;
     });
-    store.yieldSettings = {
-      ...(store.yieldSettings || {}),
-      workdayHours: 8,
-      classifierHourlyGoal: 33,
-      classifierDailyGoal: 264,
-      buncherHourlyGoal: 25,
-      buncherDailyGoal: 200
-    };
+    store.yieldSettings = data.createYieldSettings(store.yieldSettings || {});
     store.yieldWorkdayHistory = Array.isArray(store.yieldWorkdayHistory) ? store.yieldWorkdayHistory : [];
     const rawWorkday = store.yieldWorkday || data.createYieldWorkday();
     const normalizedWorkdayStatus = workdayCore.normalizeStatus(rawWorkday.status);
