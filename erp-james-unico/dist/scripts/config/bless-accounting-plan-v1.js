@@ -2520,6 +2520,20 @@
     return clone(OFFICIAL_ACCOUNTS);
   }
 
+  const OFFICIAL_ACCOUNT_BY_ID = new Map(OFFICIAL_ACCOUNTS.map(account => [String(account.id || ""), account]));
+
+  function isEmbeddedTemplateAccount(account) {
+    const template = OFFICIAL_ACCOUNT_BY_ID.get(String(account?.id || ""));
+    if (!template) return false;
+    return Object.keys(template).every(key => JSON.stringify(account?.[key] ?? null) === JSON.stringify(template[key] ?? null));
+  }
+
+  function hasCanonicalServerMetadata(account) {
+    return Number(account?.__syncVersion || 0) > 0
+      || Boolean(String(account?.__syncUpdatedAt || "").trim())
+      || Boolean(String(account?.__syncOperationId || "").trim());
+  }
+
   function vatPurchaseAccountCode(rate, defaults = DEFAULT_ACCOUNTS) {
     const value = Number(rate || 0);
     if (Math.abs(value - 15) < 0.001) return defaults.vatPurchases15 || defaults.vatPurchases;
@@ -2575,6 +2589,17 @@
     if (!store || typeof store !== "object") return store;
     store.companySettings = store.companySettings && typeof store.companySettings === "object" ? store.companySettings : {};
     const currentAccounts = Array.isArray(store.chartOfAccounts) ? store.chartOfAccounts : [];
+    // OFFICIAL_ACCOUNTS es una plantilla local para empresas que todavía no
+    // tienen plan. En cuanto Supabase confirma al menos una cuenta, el arreglo
+    // completo pertenece al backend: no se completa, mezcla ni restaura desde
+    // esta plantilla durante reload, cambio de ruta o persistencia de caché.
+    if (currentAccounts.some(hasCanonicalServerMetadata)) {
+      store.chartOfAccounts = currentAccounts.filter(account => !(
+        !hasCanonicalServerMetadata(account)
+        && isEmbeddedTemplateAccount(account)
+      ));
+      return store;
+    }
     const currentByCode = new Map(currentAccounts.map(account => [String(account.code || "").trim(), account]));
     const planIsComplete = OFFICIAL_ACCOUNTS.every(account => {
       const current = currentByCode.get(account.code);
@@ -2647,6 +2672,7 @@
     purchaseTypeAccounts: clone(PURCHASE_TYPE_ACCOUNTS),
     taxSupportAccounts: clone(TAX_SUPPORT_ACCOUNTS),
     createAccounts,
+    isEmbeddedTemplateAccount,
     migrateDatabase,
     migrateStore,
     retentionAccountCodes,

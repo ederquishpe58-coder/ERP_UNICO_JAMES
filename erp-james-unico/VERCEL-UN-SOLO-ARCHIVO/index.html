@@ -18295,6 +18295,20 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     return clone(OFFICIAL_ACCOUNTS);
   }
 
+  const OFFICIAL_ACCOUNT_BY_ID = new Map(OFFICIAL_ACCOUNTS.map(account => [String(account.id || ""), account]));
+
+  function isEmbeddedTemplateAccount(account) {
+    const template = OFFICIAL_ACCOUNT_BY_ID.get(String(account?.id || ""));
+    if (!template) return false;
+    return Object.keys(template).every(key => JSON.stringify(account?.[key] ?? null) === JSON.stringify(template[key] ?? null));
+  }
+
+  function hasCanonicalServerMetadata(account) {
+    return Number(account?.__syncVersion || 0) > 0
+      || Boolean(String(account?.__syncUpdatedAt || "").trim())
+      || Boolean(String(account?.__syncOperationId || "").trim());
+  }
+
   function vatPurchaseAccountCode(rate, defaults = DEFAULT_ACCOUNTS) {
     const value = Number(rate || 0);
     if (Math.abs(value - 15) < 0.001) return defaults.vatPurchases15 || defaults.vatPurchases;
@@ -18350,6 +18364,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (!store || typeof store !== "object") return store;
     store.companySettings = store.companySettings && typeof store.companySettings === "object" ? store.companySettings : {};
     const currentAccounts = Array.isArray(store.chartOfAccounts) ? store.chartOfAccounts : [];
+    // OFFICIAL_ACCOUNTS es una plantilla local para empresas que todavía no
+    // tienen plan. En cuanto Supabase confirma al menos una cuenta, el arreglo
+    // completo pertenece al backend: no se completa, mezcla ni restaura desde
+    // esta plantilla durante reload, cambio de ruta o persistencia de caché.
+    if (currentAccounts.some(hasCanonicalServerMetadata)) {
+      store.chartOfAccounts = currentAccounts.filter(account => !(
+        !hasCanonicalServerMetadata(account)
+        && isEmbeddedTemplateAccount(account)
+      ));
+      return store;
+    }
     const currentByCode = new Map(currentAccounts.map(account => [String(account.code || "").trim(), account]));
     const planIsComplete = OFFICIAL_ACCOUNTS.every(account => {
       const current = currentByCode.get(account.code);
@@ -18422,6 +18447,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     purchaseTypeAccounts: clone(PURCHASE_TYPE_ACCOUNTS),
     taxSupportAccounts: clone(TAX_SUPPORT_ACCOUNTS),
     createAccounts,
+    isEmbeddedTemplateAccount,
     migrateDatabase,
     migrateStore,
     retentionAccountCodes,
@@ -30306,6 +30332,15 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
 
   function isSyncEligibleRecord(descriptor, record) {
+    if (
+      descriptor?.entity === "accounting_chart_accounts"
+      && Number(record?.__syncVersion || 0) <= 0
+      && BlessERP.accountingPlanBlessV1?.isEmbeddedTemplateAccount?.(record) === true
+    ) {
+      // La plantilla contable ayuda a una empresa vacía, pero no es un registro
+      // empresarial ni puede originar INSERT/DELETE offline por sí sola.
+      return false;
+    }
     // Las etiquetas creadas por la RPC Zebra V2 ya fueron confirmadas por el
     // servidor. Aunque la colección conserva temporalmente etiquetas antiguas
     // del flujo legacy, un registro V2 nunca debe volver a enviarse por la
@@ -30468,7 +30503,16 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     // Los registros con escritura explícita no se capturan como operaciones
     // locales, pero sí deben aceptar la versión canónica recibida desde
     // Supabase/Realtime para que los demás equipos vean el cambio al instante.
-    const rows = [...recordsFor(db, descriptor)];
+    let rows = [...recordsFor(db, descriptor)];
+    if (descriptor.entity === "accounting_chart_accounts") {
+      // La primera evidencia canónica del chart retira únicamente copias
+      // intactas y nunca confirmadas de OFFICIAL_ACCOUNTS. Cuentas del usuario,
+      // pendientes o ya hidratadas conservan su identidad y contenido.
+      rows = rows.filter(record => !(
+        Number(record?.__syncVersion || 0) <= 0
+        && BlessERP.accountingPlanBlessV1?.isEmbeddedTemplateAccount?.(record) === true
+      ));
+    }
     const index = rows.findIndex(record => (
       descriptor.kind === "singleton" ? descriptor.entity : recordId(record)
     ) === id);

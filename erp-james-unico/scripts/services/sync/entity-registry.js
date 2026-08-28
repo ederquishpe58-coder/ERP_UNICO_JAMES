@@ -555,6 +555,15 @@
   }
 
   function isSyncEligibleRecord(descriptor, record) {
+    if (
+      descriptor?.entity === "accounting_chart_accounts"
+      && Number(record?.__syncVersion || 0) <= 0
+      && BlessERP.accountingPlanBlessV1?.isEmbeddedTemplateAccount?.(record) === true
+    ) {
+      // La plantilla contable ayuda a una empresa vacía, pero no es un registro
+      // empresarial ni puede originar INSERT/DELETE offline por sí sola.
+      return false;
+    }
     // Las etiquetas creadas por la RPC Zebra V2 ya fueron confirmadas por el
     // servidor. Aunque la colección conserva temporalmente etiquetas antiguas
     // del flujo legacy, un registro V2 nunca debe volver a enviarse por la
@@ -717,7 +726,16 @@
     // Los registros con escritura explícita no se capturan como operaciones
     // locales, pero sí deben aceptar la versión canónica recibida desde
     // Supabase/Realtime para que los demás equipos vean el cambio al instante.
-    const rows = [...recordsFor(db, descriptor)];
+    let rows = [...recordsFor(db, descriptor)];
+    if (descriptor.entity === "accounting_chart_accounts") {
+      // La primera evidencia canónica del chart retira únicamente copias
+      // intactas y nunca confirmadas de OFFICIAL_ACCOUNTS. Cuentas del usuario,
+      // pendientes o ya hidratadas conservan su identidad y contenido.
+      rows = rows.filter(record => !(
+        Number(record?.__syncVersion || 0) <= 0
+        && BlessERP.accountingPlanBlessV1?.isEmbeddedTemplateAccount?.(record) === true
+      ));
+    }
     const index = rows.findIndex(record => (
       descriptor.kind === "singleton" ? descriptor.entity : recordId(record)
     ) === id);
