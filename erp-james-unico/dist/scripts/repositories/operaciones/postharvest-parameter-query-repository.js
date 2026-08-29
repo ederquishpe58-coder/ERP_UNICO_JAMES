@@ -2,7 +2,7 @@
   const BlessERP = window.BlessERP = window.BlessERP || {};
 
   const TYPES = Object.freeze({
-    suppliers: Object.freeze({ entity: "operations_suppliers", label: "Proveedores" }),
+    suppliers: Object.freeze({ entity: "operations_suppliers", label: "Fincas / Bloques" }),
     classifiers: Object.freeze({ entity: "operations_classifiers", label: "Clasificadores" }),
     bunchers: Object.freeze({ entity: "operations_bunchers", label: "Embonchadores" }),
     receptionists: Object.freeze({ entity: "operations_receptionists", label: "Recepcionistas" }),

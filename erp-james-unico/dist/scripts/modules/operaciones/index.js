@@ -865,7 +865,7 @@
     if (route.id !== "operations-bunch-intake") unmountZebraIntakeHid();
     if (route.id !== "operations-dispatch") BlessERP.operacionesCuartoFrioV2?.unmount?.();
     if (route.id !== "operations-labels") BlessERP.operacionesEtiquetas?.unmount?.(container);
-    if (route.id !== "operations-parameters") BlessERP.operacionesParametros?.unmount?.();
+    if (!BlessERP.operacionesParametros?.isParameterRoute?.(route.id)) BlessERP.operacionesParametros?.unmount?.();
     const presentationRoute = route.id === "operations-yield-screen";
     document.body.classList.toggle("yield-presentation-route", presentationRoute);
     if (!presentationRoute) BlessERP.operacionesPantallaRendimientos?.unmount?.();
@@ -879,7 +879,7 @@
       }
       container.replaceChildren();
       return;
-    } else if (route.id === "operations-parameters") {
+    } else if (BlessERP.operacionesParametros?.isParameterRoute?.(route.id)) {
       html = BlessERP.operacionesParametros.render(appState, route);
     } else if (route.id === "operations-reception") {
       html = BlessERP.operacionesRecepcion.render(appState, route);
@@ -916,7 +916,7 @@
     }
     bind(container, appState);
     if (route.id === "operations-bunch-intake") mountZebraIntakeHid(container, appState);
-    if (route.id === "operations-parameters") BlessERP.operacionesParametros?.mount?.(container, appState);
+    if (BlessERP.operacionesParametros?.isParameterRoute?.(route.id)) BlessERP.operacionesParametros?.mount?.(container, appState);
     if (route.id === "operations-labels") BlessERP.operacionesEtiquetas?.mount?.(container, appState);
     if (presentationRoute) BlessERP.operacionesPantallaRendimientos.mount(container, appState);
     if (route.id === "operations-yields" && stateApi.getUi(appState).yieldsView === "records") {
@@ -1495,6 +1495,7 @@
             stateApi.updateDraftField(appState, "parameterDraft", field.dataset.field, field.value);
           });
           const parameterType = String(stateApi.getUi(appState).parameterDraft?.type || "");
+          if (!BlessERP.operacionesParametros?.assertManageType?.(parameterType)) return;
           const result = stateApi.saveParameter(appState);
           if (result?.ok) {
             BlessERP.operacionesParametros?.noteLocalMutation?.(appState, parameterType, result.entry?.id);
@@ -1516,17 +1517,20 @@
         return;
       }
       if (action.dataset.opsAction === "parameter-edit") {
+        if (!BlessERP.operacionesParametros?.assertManageType?.(String(action.dataset.type || ""))) return;
         stateApi.editParameter(appState, action.dataset.type, action.dataset.id);
         rerender();
         return;
       }
       if (action.dataset.opsAction === "parameter-toggle") {
+        if (!BlessERP.operacionesParametros?.assertManageType?.(String(action.dataset.type || ""))) return;
         const changed = stateApi.toggleParameter(appState, action.dataset.type, action.dataset.id);
         if (changed) BlessERP.operacionesParametros?.noteLocalMutation?.(appState, action.dataset.type, action.dataset.id);
         rerender();
         return;
       }
       if (action.dataset.opsAction === "parameter-delete") {
+        if (!BlessERP.operacionesParametros?.assertManageType?.(String(action.dataset.type || ""))) return;
         const changed = stateApi.deleteParameter(appState, action.dataset.type, action.dataset.id);
         if (changed) BlessERP.operacionesParametros?.noteLocalMutation?.(appState, action.dataset.type, action.dataset.id);
         rerender();

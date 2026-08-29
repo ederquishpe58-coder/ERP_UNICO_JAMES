@@ -40,7 +40,7 @@ begin
     raise exception 'GERENCIA_GENERAL_PROFILE_MISSING';
   end if;
 
-  if (select count(*) from public.erp_security_profile_capabilities where profile_id = 'GERENCIA_GENERAL') <> 173 then
+  if (select count(*) from public.erp_security_profile_capabilities where profile_id = 'GERENCIA_GENERAL') <> 175 then
     raise exception 'GERENCIA_GENERAL_GRANT_COUNT_MISMATCH';
   end if;
 
@@ -151,7 +151,7 @@ begin
     where profile_capability.capability_id = effective.capability_id
   );
 
-  if (v_effective, v_missing, v_extra, v_base_denied_effective) <> (173, 0, 0, 0) then
+  if (v_effective, v_missing, v_extra, v_base_denied_effective) <> (175, 0, 0, 0) then
     raise exception 'GERENCIA_GENERAL_EFFECTIVE_MISMATCH: effective=%, missing=%, extra=%, base_denied=%',
       v_effective, v_missing, v_extra, v_base_denied_effective;
   end if;
@@ -190,7 +190,7 @@ $$;
 
 select jsonb_build_object(
   'profile', 'GERENCIA_GENERAL',
-  'expected_capabilities', 173,
+  'expected_capabilities', 175,
   'actual_profile_capabilities', (
     select count(*)
     from public.erp_security_profile_capabilities

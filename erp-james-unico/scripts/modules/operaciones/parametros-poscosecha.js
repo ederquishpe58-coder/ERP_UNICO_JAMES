@@ -2,7 +2,7 @@
   const BlessERP = window.BlessERP = window.BlessERP || {};
 
   const TYPE_LABELS = {
-    suppliers: "Proveedores",
+    suppliers: "Fincas / Bloques",
     classifiers: "Clasificadores",
     bunchers: "Embonchadores",
     receptionists: "Recepcionistas",
@@ -14,11 +14,21 @@
     stemTypes: "Tipos de tallo",
     labelTypes: "Tipos de etiqueta"
   };
+  const PARAMETER_ROUTE_TYPES = Object.freeze({
+    "operations-parameters": "",
+    "operations-farms-blocks": "suppliers",
+    "operations-varieties": "varieties"
+  });
+  const TYPE_MANAGE_CAPABILITIES = Object.freeze({
+    suppliers: "operations.farms_blocks.manage",
+    varieties: "operations.varieties.manage"
+  });
   const PERSON_TYPES = new Set(["classifiers", "bunchers", "receptionists", "digitizers", "scanners", "responsibles"]);
   const PAYROLL_LINK_TYPES = Object.freeze({ classifiers: "CLASSIFIER", bunchers: "BUNCHER" });
   const payrollUi = { loading: false, loaded: false, error: "" };
   const catalogUi = {
     companyId: "",
+    routeId: "",
     type: "varieties",
     search: "",
     status: "ACTIVO",
@@ -40,6 +50,24 @@
   };
   let mountController = null;
 
+  function isParameterRoute(routeId = BlessERP.state?.state?.route) {
+    return Object.prototype.hasOwnProperty.call(PARAMETER_ROUTE_TYPES, String(routeId || ""));
+  }
+
+  function manageCapabilityForType(type) {
+    return TYPE_MANAGE_CAPABILITIES[String(type || "")] || "operations.parameters.manage";
+  }
+
+  function canManageType(type) {
+    return BlessERP.capabilityRuntime?.can?.(manageCapabilityForType(type)) === true;
+  }
+
+  function assertManageType(type) {
+    if (canManageType(type)) return true;
+    BlessERP.layout?.toast?.("No tiene permiso para administrar este catálogo.", { tone: "danger" });
+    return false;
+  }
+
   function payrollService() {
     return BlessERP.services?.payrollV2 || null;
   }
@@ -57,6 +85,29 @@
     if (catalogUi.companyId === companyId) return;
     Object.assign(catalogUi, {
       companyId,
+      page: 1,
+      queried: false,
+      loading: false,
+      rows: [],
+      total: 0,
+      error: "",
+      elapsedMs: 0,
+      payloadBytes: 0,
+      detailId: "",
+      historyId: "",
+      historyLoading: false,
+      historyRows: [],
+      historyError: ""
+    });
+  }
+
+  function ensureCatalogRoute(routeId) {
+    const normalizedRouteId = String(routeId || "");
+    if (!isParameterRoute(normalizedRouteId) || catalogUi.routeId === normalizedRouteId) return;
+    const fixedType = PARAMETER_ROUTE_TYPES[normalizedRouteId];
+    Object.assign(catalogUi, {
+      routeId: normalizedRouteId,
+      type: fixedType || catalogUi.type || "varieties",
       page: 1,
       queried: false,
       loading: false,
@@ -198,11 +249,11 @@
         <td><details class="ops-parameter-options">
           <summary aria-label="Opciones para ${utils.esc(item.name || item.code)}">Opciones</summary>
           <div class="ops-parameter-options-menu">
-            <button type="button" data-ops-action="parameter-edit" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Editar</button>
+            ${canManageType(item.type) ? `<button type="button" data-ops-action="parameter-edit" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Editar</button>` : ""}
             <button type="button" data-ops-parameter-query-action="detail" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Ver detalle</button>
             <button type="button" data-ops-parameter-query-action="history" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Ver historial</button>
-            <button type="button" data-ops-action="parameter-toggle" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">${item.active !== false ? "Desactivar" : "Activar"}</button>
-            <button type="button" class="is-danger" data-ops-action="parameter-delete" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Eliminar</button>
+            ${canManageType(item.type) ? `<button type="button" data-ops-action="parameter-toggle" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">${item.active !== false ? "Desactivar" : "Activar"}</button>
+            <button type="button" class="is-danger" data-ops-action="parameter-delete" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Eliminar</button>` : ""}
           </div>
         </details></td>
       </tr>`).join("")}</tbody>
@@ -255,8 +306,15 @@
     const stateApi = BlessERP.operacionesState;
     const utils = BlessERP.operacionesUtils;
     const store = stateApi.getStore(appState);
-    const draft = store.ui.parameterDraft;
     ensureCatalogCompany();
+    ensureCatalogRoute(route?.id);
+    const fixedType = PARAMETER_ROUTE_TYPES[String(route?.id || "")] || "";
+    const sourceDraft = store.ui.parameterDraft;
+    const draft = fixedType && sourceDraft.type !== fixedType
+      ? { ...sourceDraft, id: "", code: "", name: "", observation: "", assignedBlock: "", labelColor: "", type: fixedType }
+      : sourceDraft;
+    const typeEntries = Object.entries(TYPE_LABELS).filter(([type]) => !fixedType || type === fixedType);
+    const manageAllowed = canManageType(draft.type);
     const payroll = canonicalPayrollData();
     const employees = payroll.employees;
     const rows = catalogRows(store);
@@ -275,15 +333,15 @@
         { label: "Página", value: catalogUi.queried ? `${catalogUi.page} / ${pageCount}` : "—", help: catalogUi.queried ? `${from}–${to}` : "Consulta bajo demanda" },
         { label: "Catalogos", value: utils.number(Object.keys(TYPE_LABELS).length), help: "Administracion central" }
       ])}
-      <section class="panel-card ops-parameter-form-card" data-ops-parameter-form>
+      ${manageAllowed ? `<section class="panel-card ops-parameter-form-card" data-ops-parameter-form>
           <div class="panel-card-head">
             <div><p class="section-kicker">PARAMETRO</p><h3>${draft.id ? "Editar parametro" : "Nuevo parametro"}</h3></div>
-            <span class="status-badge partial">Local/demo</span>
+            <span class="status-badge authorized">CANÓNICO</span>
           </div>
           <div class="ops-form-grid">
-            <label class="compact-inline-field"><span>Tipo</span><select data-ops-bind="parameterDraft" data-field="type">${Object.entries(TYPE_LABELS).map(([value, label]) => `<option value="${utils.esc(value)}" ${value === draft.type ? "selected" : ""}>${utils.esc(label)}</option>`).join("")}</select></label>
+            <label class="compact-inline-field"><span>Tipo</span><select data-ops-bind="parameterDraft" data-field="type" ${fixedType ? "disabled" : ""}>${typeEntries.map(([value, label]) => `<option value="${utils.esc(value)}" ${value === draft.type ? "selected" : ""}>${utils.esc(label)}</option>`).join("")}</select>${fixedType ? `<input type="hidden" data-ops-bind="parameterDraft" data-field="type" value="${utils.esc(fixedType)}">` : ""}</label>
             <label class="compact-inline-field"><span>Codigo</span><input value="${utils.esc(draft.code)}" data-ops-bind="parameterDraft" data-field="code" placeholder="Automatico si queda vacio"></label>
-            <label class="compact-inline-field"><span>${draft.type === "suppliers" ? "Nombre del proveedor" : "Nombre / valor"}</span><input value="${utils.esc(draft.name)}" data-ops-bind="parameterDraft" data-field="name" autocomplete="off"></label>
+            <label class="compact-inline-field"><span>${draft.type === "suppliers" ? "Nombre de finca / proveedor" : "Nombre / valor"}</span><input value="${utils.esc(draft.name)}" data-ops-bind="parameterDraft" data-field="name" autocomplete="off"></label>
             ${PAYROLL_LINK_TYPES[draft.type] ? (() => {
               const link = canonicalLinkFor(draft, draft.type, payroll.links);
               const selectedEmployeeId = String(link?.employee_id || link?.employeeId || "");
@@ -299,11 +357,11 @@
             <button class="primary-button" data-ops-action="parameter-save">Guardar parametro</button>
             <button class="secondary-button" data-ops-action="parameter-reset">Nuevo / limpiar</button>
           </div>
-      </section>
+      </section>` : `<section class="inline-alert warning"><strong>Consulta autorizada.</strong> La administración de ${utils.esc(TYPE_LABELS[draft.type] || "este catálogo")} requiere ${utils.esc(manageCapabilityForType(draft.type))}.</section>`}
       <section class="panel-card ops-parameter-catalog-card">
         <div class="panel-card-head"><div><p class="section-kicker">CONSULTAR / EDITAR</p><h3>Parámetros de Operaciones / Poscosecha</h3></div><span class="status-badge ${catalogUi.queried ? "authorized" : "pending"}">${catalogUi.queried ? "CONSULTA REALIZADA" : "SIN CONSULTAR"}</span></div>
         <form class="ops-catalog-filter-bar" data-ops-parameter-query-form>
-          <label><span>Tipo de parámetro</span><select name="type" required>${Object.entries(TYPE_LABELS).map(([value, label]) => `<option value="${utils.esc(value)}" ${catalogUi.type === value ? "selected" : ""}>${utils.esc(label)}</option>`).join("")}</select></label>
+          <label><span>Tipo de parámetro</span><select name="type" required ${fixedType ? "disabled" : ""}>${typeEntries.map(([value, label]) => `<option value="${utils.esc(value)}" ${catalogUi.type === value ? "selected" : ""}>${utils.esc(label)}</option>`).join("")}</select>${fixedType ? `<input type="hidden" name="type" value="${utils.esc(fixedType)}">` : ""}</label>
           <label><span>Buscar</span><input type="search" name="search" value="${utils.esc(catalogUi.search)}" placeholder="Nombre, código, descripción o identificación" autocomplete="off"></label>
           <label><span>Estado</span><select name="status"><option value="ACTIVO" ${catalogUi.status === "ACTIVO" ? "selected" : ""}>Activos</option><option value="INACTIVO" ${catalogUi.status === "INACTIVO" ? "selected" : ""}>Inactivos</option><option value="TODOS" ${catalogUi.status === "TODOS" ? "selected" : ""}>Todos</option></select></label>
           <label><span>Por página</span><select name="pageSize"><option value="25" ${catalogUi.pageSize === 25 ? "selected" : ""}>25</option><option value="50" ${catalogUi.pageSize === 50 ? "selected" : ""}>50</option></select></label>
@@ -332,7 +390,7 @@
       payrollUi.error = error?.message || "No se pudo verificar Nómina V2.";
     } finally {
       payrollUi.loading = false;
-      if (BlessERP.state?.state?.route === "operations-parameters") BlessERP.layout?.renderPage?.();
+      if (isParameterRoute()) BlessERP.layout?.renderPage?.();
     }
   }
 
@@ -394,7 +452,7 @@
     catalogUi.historyLoading = false;
     if (result?.ok) catalogUi.historyRows = result.rows || [];
     else catalogUi.historyError = result?.message || "No se pudo consultar el historial individual.";
-    if (BlessERP.state?.state?.route === "operations-parameters") BlessERP.layout?.renderPage?.();
+    if (isParameterRoute()) BlessERP.layout?.renderPage?.();
     return result;
   }
 
@@ -461,12 +519,12 @@
 
     container.querySelector("[data-ops-parameter-query-form]")?.addEventListener("submit", event => {
       event.preventDefault();
-      if (BlessERP.state?.state?.route !== "operations-parameters") return;
+      if (!isParameterRoute()) return;
       void queryCatalog(1, event.currentTarget);
     }, { signal });
 
     container.addEventListener("click", event => {
-      if (BlessERP.state?.state?.route !== "operations-parameters") return;
+      if (!isParameterRoute()) return;
       const action = event.target.closest("[data-ops-parameter-query-action]");
       if (!action) return;
       const intention = String(action.dataset.opsParameterQueryAction || "");
@@ -521,7 +579,7 @@
       window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(async () => {
         await payrollService()?.refresh?.();
-        if (BlessERP.state?.state?.route === "operations-parameters") BlessERP.layout?.renderPage?.();
+        if (isParameterRoute()) BlessERP.layout?.renderPage?.();
       }, 120);
     });
   }
@@ -529,7 +587,7 @@
   if (!window.__OPS_PARAMETERS_SEARCH_REALTIME_BOUND__) {
     window.__OPS_PARAMETERS_SEARCH_REALTIME_BOUND__ = true;
     window.addEventListener("erp:canonical-record-updated", event => {
-      if (BlessERP.state?.state?.route !== "operations-parameters") return;
+      if (!isParameterRoute()) return;
       const repository = catalogRepository();
       const type = repository?.typeForEntity?.(event.detail?.entity);
       if (!type) return;
@@ -564,6 +622,10 @@
     queryCatalog,
     queryHistory,
     noteLocalMutation,
+    isParameterRoute,
+    manageCapabilityForType,
+    canManageType,
+    assertManageType,
     queryState: () => ({ ...catalogUi, rows: [...catalogUi.rows], historyRows: [...catalogUi.historyRows] })
   };
 })();
