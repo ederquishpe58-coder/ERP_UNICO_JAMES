@@ -249,6 +249,36 @@
     };
   }
 
+  const EMBEDDED_MASTER_DATA_FIELDS = Object.freeze([
+    "code",
+    "name",
+    "employee_id",
+    "employeeId",
+    "user_id",
+    "labelColor",
+    "active",
+    "observation",
+    "assignedBlock"
+  ]);
+
+  const EMBEDDED_MASTER_DATA_KEYS = Object.freeze({
+    operations_varieties: "varieties",
+    operations_lengths: "lengths",
+    operations_stem_types: "stemTypes",
+    operations_label_types: "labelTypes"
+  });
+
+  function matchesEmbeddedRecord(record, template, fields) {
+    return fields.every(field => JSON.stringify(record?.[field] ?? null) === JSON.stringify(template?.[field] ?? null));
+  }
+
+  function isEmbeddedMasterRecord(entity, record) {
+    if (Number(record?.__syncVersion || 0) > 0) return false;
+    const key = EMBEDDED_MASTER_DATA_KEYS[String(entity || "")];
+    if (!key) return false;
+    return createMasterData()[key].some(template => matchesEmbeddedRecord(record, template, EMBEDDED_MASTER_DATA_FIELDS));
+  }
+
   function createYieldWorkday(seed = {}) {
     const now = new Date();
     const localNow = new Date(now.getTime() - (now.getTimezoneOffset() * 60000));
@@ -283,6 +313,17 @@
       buncherDailyGoal: 200,
       ...seed
     };
+  }
+
+  function isEmbeddedYieldSettings(record) {
+    if (Number(record?.__syncVersion || 0) > 0) return false;
+    return matchesEmbeddedRecord(record, createYieldSettings(), [
+      "workdayHours",
+      "classifierDailyGoal",
+      "classifierHourlyGoal",
+      "buncherHourlyGoal",
+      "buncherDailyGoal"
+    ]);
   }
 
   function createAvailabilityDemoEntries() {
@@ -1164,6 +1205,8 @@
     createYieldMeshDraft,
     createYieldScannerDraft,
     createYieldSettings,
-    createYieldWorkday
+    createYieldWorkday,
+    isEmbeddedMasterRecord,
+    isEmbeddedYieldSettings
   };
 })();

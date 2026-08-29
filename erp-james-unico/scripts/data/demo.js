@@ -272,6 +272,45 @@
     ];
   }
 
+  const TAX_PARAMETER_TEMPLATE_FIELDS = Object.freeze([
+    "internalCode",
+    "sriCode",
+    "name",
+    "taxType",
+    "rate",
+    "appliesTo",
+    "effectiveFrom",
+    "effectiveTo",
+    "status",
+    "observation"
+  ]);
+
+  const RETENTION_PARAMETER_TEMPLATE_FIELDS = Object.freeze([
+    "internalCode",
+    "sriCode",
+    "description",
+    "taxType",
+    "percentage",
+    "appliesTo",
+    "category",
+    "effectiveFrom",
+    "effectiveTo",
+    "status",
+    "observation"
+  ]);
+
+  let embeddedTaxParameterTemplates = null;
+  let embeddedRetentionParameterTemplates = null;
+
+  function matchesEmbeddedTemplate(record, template, fields) {
+    return fields.every(field => JSON.stringify(record?.[field] ?? null) === JSON.stringify(template?.[field] ?? null));
+  }
+
+  function isEmbeddedTaxParameter(record) {
+    embeddedTaxParameterTemplates ||= createTaxParametersSeed();
+    return embeddedTaxParameterTemplates.some(template => matchesEmbeddedTemplate(record, template, TAX_PARAMETER_TEMPLATE_FIELDS));
+  }
+
   function createPurchaseTypesSeed() {
     return [
       { id: uid("PTY"), code: "BIENES", label: "Bienes", suggestedAccountCode: "5.4", requiresRetentionRent: false, requiresRetentionVat: false, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: false, suggestedSupportCode: "01" },
@@ -313,6 +352,11 @@
       { id: uid("WHT"), internalCode: "RET_IVA_70", sriCode: "2", description: "Retencion IVA 70%", taxType: "IVA", percentage: 70, appliesTo: "compra", category: "servicios", payableAccountCode: "2.1.02.01", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "Codigo SRI de comprobante electronico: 2." },
       { id: uid("WHT"), internalCode: "RET_IVA_100", sriCode: "3", description: "Retencion IVA 100%", taxType: "IVA", percentage: 100, appliesTo: "compra", category: "servicios", payableAccountCode: "2.1.02.01", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "Codigo SRI de comprobante electronico: 3." }
     ];
+  }
+
+  function isEmbeddedRetentionParameter(record) {
+    embeddedRetentionParameterTemplates ||= createRetentionParametersSeed();
+    return embeddedRetentionParameterTemplates.some(template => matchesEmbeddedTemplate(record, template, RETENTION_PARAMETER_TEMPLATE_FIELDS));
   }
 
   function createPurchaseMemorySeed(providers) {
@@ -2664,6 +2708,53 @@
     ];
   }
 
+  const COMPANY_SETTINGS_TEMPLATE_FIELDS = Object.freeze([
+    "ruc",
+    "legalName",
+    "commercialName",
+    "matrixAddress",
+    "branchAddress",
+    "phone",
+    "email",
+    "accountingRequired",
+    "taxRegime",
+    "baseCurrency",
+    "activePeriod",
+    "periodLabel",
+    "periodStart",
+    "periodEnd",
+    "periodStatus",
+    "sriEnvironment",
+    "mainEstablishment",
+    "mainEmissionPoint",
+    "retentionEstablishmentCode",
+    "retentionEmissionPointCode",
+    "defaultAccounts"
+  ]);
+
+  const COST_CENTER_TEMPLATE_FIELDS = Object.freeze([
+    "code",
+    "name",
+    "type",
+    "responsible",
+    "status",
+    "relatedAccount",
+    "observation"
+  ]);
+
+  let embeddedCompanySettingsTemplate = null;
+  let embeddedCostCenterTemplates = null;
+
+  function isEmbeddedCompanySettings(record) {
+    embeddedCompanySettingsTemplate ||= createCompanySettings();
+    return matchesEmbeddedTemplate(record, embeddedCompanySettingsTemplate, COMPANY_SETTINGS_TEMPLATE_FIELDS);
+  }
+
+  function isEmbeddedCostCenter(record) {
+    embeddedCostCenterTemplates ||= createCostCentersSeed();
+    return embeddedCostCenterTemplates.some(template => matchesEmbeddedTemplate(record, template, COST_CENTER_TEMPLATE_FIELDS));
+  }
+
   function createAuditLogsSeed() {
     return [
       { id: "AUD-DEMO-001", createdAt: "2026-07-24T09:15:00.000Z", userId: "USR-ADMIN-001", userName: "James Lanchimba", userEmail: "", userRole: "Administrador / Contador", userArea: "Administracion / Contabilidad", module: "COMPRAS", action: "CONTABILIZAR_COMPRA", entityType: "purchase", entityId: "PUR-DEMO-001", entityLabel: "001-001-000000123", documentLabel: "Compra Agroinsumos del Ecuador", previousStatus: "PENDIENTE_CLASIFICACION", nextStatus: "PENDIENTE_RETENCION", description: "Compra contabilizada y enviada a cuenta por pagar.", reason: "", result: "exitoso", ipDevice: "local / navegador", before: { status: "PENDIENTE_CLASIFICACION" }, after: { status: "PENDIENTE_RETENCION" } },
@@ -2866,6 +2957,10 @@
     createDemoDatabase,
     createInitialDatabase,
     createOperationalDatabase,
-    isOperationalDeployment
+    isOperationalDeployment,
+    isEmbeddedCompanySettings,
+    isEmbeddedCostCenter,
+    isEmbeddedTaxParameter,
+    isEmbeddedRetentionParameter
   };
 })();

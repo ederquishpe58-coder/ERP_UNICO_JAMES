@@ -18986,6 +18986,45 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     ];
   }
 
+  const TAX_PARAMETER_TEMPLATE_FIELDS = Object.freeze([
+    "internalCode",
+    "sriCode",
+    "name",
+    "taxType",
+    "rate",
+    "appliesTo",
+    "effectiveFrom",
+    "effectiveTo",
+    "status",
+    "observation"
+  ]);
+
+  const RETENTION_PARAMETER_TEMPLATE_FIELDS = Object.freeze([
+    "internalCode",
+    "sriCode",
+    "description",
+    "taxType",
+    "percentage",
+    "appliesTo",
+    "category",
+    "effectiveFrom",
+    "effectiveTo",
+    "status",
+    "observation"
+  ]);
+
+  let embeddedTaxParameterTemplates = null;
+  let embeddedRetentionParameterTemplates = null;
+
+  function matchesEmbeddedTemplate(record, template, fields) {
+    return fields.every(field => JSON.stringify(record?.[field] ?? null) === JSON.stringify(template?.[field] ?? null));
+  }
+
+  function isEmbeddedTaxParameter(record) {
+    embeddedTaxParameterTemplates ||= createTaxParametersSeed();
+    return embeddedTaxParameterTemplates.some(template => matchesEmbeddedTemplate(record, template, TAX_PARAMETER_TEMPLATE_FIELDS));
+  }
+
   function createPurchaseTypesSeed() {
     return [
       { id: uid("PTY"), code: "BIENES", label: "Bienes", suggestedAccountCode: "5.4", requiresRetentionRent: false, requiresRetentionVat: false, affectsInventory: false, affectsCostOrExpense: true, requiresCostCenter: false, suggestedSupportCode: "01" },
@@ -19027,6 +19066,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       { id: uid("WHT"), internalCode: "RET_IVA_70", sriCode: "2", description: "Retencion IVA 70%", taxType: "IVA", percentage: 70, appliesTo: "compra", category: "servicios", payableAccountCode: "2.1.02.01", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "Codigo SRI de comprobante electronico: 2." },
       { id: uid("WHT"), internalCode: "RET_IVA_100", sriCode: "3", description: "Retencion IVA 100%", taxType: "IVA", percentage: 100, appliesTo: "compra", category: "servicios", payableAccountCode: "2.1.02.01", receivableAccountCode: "1.1.05", effectiveFrom: "2026-01-01", effectiveTo: "", status: "activo", observation: "Codigo SRI de comprobante electronico: 3." }
     ];
+  }
+
+  function isEmbeddedRetentionParameter(record) {
+    embeddedRetentionParameterTemplates ||= createRetentionParametersSeed();
+    return embeddedRetentionParameterTemplates.some(template => matchesEmbeddedTemplate(record, template, RETENTION_PARAMETER_TEMPLATE_FIELDS));
   }
 
   function createPurchaseMemorySeed(providers) {
@@ -21378,6 +21422,53 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     ];
   }
 
+  const COMPANY_SETTINGS_TEMPLATE_FIELDS = Object.freeze([
+    "ruc",
+    "legalName",
+    "commercialName",
+    "matrixAddress",
+    "branchAddress",
+    "phone",
+    "email",
+    "accountingRequired",
+    "taxRegime",
+    "baseCurrency",
+    "activePeriod",
+    "periodLabel",
+    "periodStart",
+    "periodEnd",
+    "periodStatus",
+    "sriEnvironment",
+    "mainEstablishment",
+    "mainEmissionPoint",
+    "retentionEstablishmentCode",
+    "retentionEmissionPointCode",
+    "defaultAccounts"
+  ]);
+
+  const COST_CENTER_TEMPLATE_FIELDS = Object.freeze([
+    "code",
+    "name",
+    "type",
+    "responsible",
+    "status",
+    "relatedAccount",
+    "observation"
+  ]);
+
+  let embeddedCompanySettingsTemplate = null;
+  let embeddedCostCenterTemplates = null;
+
+  function isEmbeddedCompanySettings(record) {
+    embeddedCompanySettingsTemplate ||= createCompanySettings();
+    return matchesEmbeddedTemplate(record, embeddedCompanySettingsTemplate, COMPANY_SETTINGS_TEMPLATE_FIELDS);
+  }
+
+  function isEmbeddedCostCenter(record) {
+    embeddedCostCenterTemplates ||= createCostCentersSeed();
+    return embeddedCostCenterTemplates.some(template => matchesEmbeddedTemplate(record, template, COST_CENTER_TEMPLATE_FIELDS));
+  }
+
   function createAuditLogsSeed() {
     return [
       { id: "AUD-DEMO-001", createdAt: "2026-07-24T09:15:00.000Z", userId: "USR-ADMIN-001", userName: "James Lanchimba", userEmail: "", userRole: "Administrador / Contador", userArea: "Administracion / Contabilidad", module: "COMPRAS", action: "CONTABILIZAR_COMPRA", entityType: "purchase", entityId: "PUR-DEMO-001", entityLabel: "001-001-000000123", documentLabel: "Compra Agroinsumos del Ecuador", previousStatus: "PENDIENTE_CLASIFICACION", nextStatus: "PENDIENTE_RETENCION", description: "Compra contabilizada y enviada a cuenta por pagar.", reason: "", result: "exitoso", ipDevice: "local / navegador", before: { status: "PENDIENTE_CLASIFICACION" }, after: { status: "PENDIENTE_RETENCION" } },
@@ -21580,7 +21671,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     createDemoDatabase,
     createInitialDatabase,
     createOperationalDatabase,
-    isOperationalDeployment
+    isOperationalDeployment,
+    isEmbeddedCompanySettings,
+    isEmbeddedCostCenter,
+    isEmbeddedTaxParameter,
+    isEmbeddedRetentionParameter
   };
 })();
 
@@ -29988,6 +30083,41 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     throw new Error(`Entidad CONT-D sin decisión explícita: ${key}`);
   }
 
+  function canonicalMasterContract(localBootstrapWhenEmpty = false) {
+    return Object.freeze({
+      canonicalServerAuthority: true,
+      fullSnapshotPrunesLocalLegacy: true,
+      localBootstrapWhenEmpty: localBootstrapWhenEmpty === true
+    });
+  }
+
+  // Lista positiva: solo estos maestros company-scoped permiten que un full
+  // snapshot del backend reemplace cache/defaults locales. Nunca se infiere por
+  // nombre y ninguna entidad transaccional participa de este contrato.
+  const CANONICAL_MASTER_CONTRACTS = Object.freeze({
+    company_settings: canonicalMasterContract(true),
+    accounting_chart_accounts: canonicalMasterContract(true),
+    accounting_tax_parameters: canonicalMasterContract(true),
+    accounting_retention_parameters: canonicalMasterContract(true),
+    accounting_cost_centers: canonicalMasterContract(true),
+    commercial_customers: canonicalMasterContract(false),
+    commercial_brands: canonicalMasterContract(false),
+    commercial_airlines: canonicalMasterContract(true),
+    commercial_countries: canonicalMasterContract(true),
+    commercial_destinations: canonicalMasterContract(false),
+    operations_suppliers: canonicalMasterContract(false),
+    operations_varieties: canonicalMasterContract(true),
+    operations_lengths: canonicalMasterContract(true),
+    operations_stem_types: canonicalMasterContract(true),
+    operations_label_types: canonicalMasterContract(true),
+    operations_yield_settings: canonicalMasterContract(true),
+    treasury_cash_accounts: canonicalMasterContract(false)
+  });
+
+  function canonicalMasterContractFor(entity) {
+    return CANONICAL_MASTER_CONTRACTS[String(entity || "")] || null;
+  }
+
   const DESCRIPTORS = Object.freeze([
     // Configuración empresarial. Los objetos singleton se sincronizan como un
     // solo registro por empresa; el navegador nunca es su única fuente.
@@ -30128,10 +30258,16 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     ,["payroll_v2_policy_assignments", "payrollV2.policyAssignments"]
     ,["payroll_v2_policy_snapshots", "payrollV2.policySnapshots"]
     ,["payroll_v2_events", "payrollV2.events"]
-  ].map(([entity, path, kind = "collection"]) => Object.freeze({
+  ].map(([entity, path, kind = "collection"]) => {
+    const masterContract = canonicalMasterContractFor(entity);
+    return Object.freeze({
     entity,
     path,
     kind,
+    canonicalAuthority: masterContract?.canonicalServerAuthority === true,
+    canonicalMasterContract: masterContract,
+    fullSnapshotPrunesLocalLegacy: masterContract?.fullSnapshotPrunesLocalLegacy === true,
+    localBootstrapWhenEmpty: masterContract?.localBootstrapWhenEmpty === true,
     preloadClass: preloadClassForEntity(entity),
     domain: DOMAIN_BY_ENTITY.get(entity) || "",
     derivedFields: DERIVED_FIELDS_BY_ENTITY[entity] || Object.freeze([]),
@@ -30170,7 +30306,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
               : PAYROLL_V2_ENTITIES.has(entity)
                 ? "EXPLICIT_PAYROLL_V2"
         : "LEGACY_INCREMENTAL"
-  })));
+  });
+  }));
 
   const BY_ENTITY = new Map(DESCRIPTORS.map(descriptor => [descriptor.entity, descriptor]));
   const ID_FIELDS = Object.freeze([
@@ -30331,14 +30468,68 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     return sanitizePayload(descriptorOrEntity, output);
   }
 
-  function isSyncEligibleRecord(descriptor, record) {
+  function isCanonicalBootstrapRecord(descriptor, record) {
+    if (Number(record?.__syncVersion || 0) > 0) return false;
+    if (descriptor?.entity === "company_settings") {
+      return BlessERP.demo?.isEmbeddedCompanySettings?.(record) === true;
+    }
+    if (descriptor?.entity === "accounting_chart_accounts") {
+      return BlessERP.accountingPlanBlessV1?.isEmbeddedTemplateAccount?.(record) === true;
+    }
+    if (descriptor?.entity === "accounting_tax_parameters") {
+      return BlessERP.demo?.isEmbeddedTaxParameter?.(record) === true;
+    }
+    if (descriptor?.entity === "accounting_retention_parameters") {
+      return BlessERP.demo?.isEmbeddedRetentionParameter?.(record) === true;
+    }
+    if (descriptor?.entity === "accounting_cost_centers") {
+      return BlessERP.demo?.isEmbeddedCostCenter?.(record) === true;
+    }
+    if (descriptor?.entity === "commercial_airlines") {
+      return BlessERP.comercialData?.isEmbeddedAirline?.(record) === true;
+    }
+    if (descriptor?.entity === "commercial_countries") {
+      return BlessERP.comercialData?.isEmbeddedCountry?.(record) === true;
+    }
+    if ([
+      "operations_varieties",
+      "operations_lengths",
+      "operations_stem_types",
+      "operations_label_types"
+    ].includes(descriptor?.entity)) {
+      return BlessERP.operacionesData?.isEmbeddedMasterRecord?.(descriptor.entity, record) === true;
+    }
+    if (descriptor?.entity === "operations_yield_settings") {
+      return BlessERP.operacionesData?.isEmbeddedYieldSettings?.(record) === true;
+    }
+    return false;
+  }
+
+  function hasCanonicalServerEvidence(db, descriptorOrEntity) {
+    const descriptor = typeof descriptorOrEntity === "string"
+      ? BY_ENTITY.get(String(descriptorOrEntity || ""))
+      : descriptorOrEntity;
+    if (descriptor?.canonicalAuthority !== true || !db) return false;
+    return recordsFor(db, descriptor).some(record => Number(record?.__syncVersion || 0) > 0);
+  }
+
+  function shouldPruneOnCanonicalFullSnapshot(descriptor, record, options = {}) {
     if (
-      descriptor?.entity === "accounting_chart_accounts"
-      && Number(record?.__syncVersion || 0) <= 0
-      && BlessERP.accountingPlanBlessV1?.isEmbeddedTemplateAccount?.(record) === true
-    ) {
-      // La plantilla contable ayuda a una empresa vacía, pero no es un registro
-      // empresarial ni puede originar INSERT/DELETE offline por sí sola.
+      descriptor?.canonicalAuthority !== true
+      || descriptor?.fullSnapshotPrunesLocalLegacy !== true
+    ) return false;
+    if (
+      options.remoteHasRows !== true
+      && descriptor.localBootstrapWhenEmpty === true
+      && isCanonicalBootstrapRecord(descriptor, record)
+    ) return false;
+    return true;
+  }
+
+  function isSyncEligibleRecord(descriptor, record) {
+    if (isCanonicalBootstrapRecord(descriptor, record)) {
+      // Las plantillas ayudan a una empresa vacía, pero no son registros
+      // empresariales ni pueden originar INSERT/DELETE offline por sí solas.
       return false;
     }
     // Las etiquetas creadas por la RPC Zebra V2 ya fueron confirmadas por el
@@ -30504,15 +30695,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     // locales, pero sí deben aceptar la versión canónica recibida desde
     // Supabase/Realtime para que los demás equipos vean el cambio al instante.
     let rows = [...recordsFor(db, descriptor)];
-    if (descriptor.entity === "accounting_chart_accounts") {
-      // La primera evidencia canónica del chart retira únicamente copias
-      // intactas y nunca confirmadas de OFFICIAL_ACCOUNTS. Cuentas del usuario,
-      // pendientes o ya hidratadas conservan su identidad y contenido.
-      rows = rows.filter(record => !(
-        Number(record?.__syncVersion || 0) <= 0
-        && BlessERP.accountingPlanBlessV1?.isEmbeddedTemplateAccount?.(record) === true
-      ));
+    const originalRowCount = rows.length;
+    if (descriptor.canonicalAuthority === true) {
+      // La primera evidencia canónica retira únicamente copias intactas y nunca
+      // confirmadas de la plantilla correspondiente. Registros personalizados,
+      // pendientes o ya hidratados conservan su identidad y contenido.
+      rows = rows.filter(record => !isCanonicalBootstrapRecord(descriptor, record));
     }
+    const bootstrapRemoved = rows.length !== originalRowCount;
     const index = rows.findIndex(record => (
       descriptor.kind === "singleton" ? descriptor.entity : recordId(record)
     ) === id);
@@ -30520,9 +30710,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       ? { apply: true, reason: "SUPABASE_AUTHORITY" }
       : compareServerRecord(index >= 0 ? rows[index] : null, serverRecord);
     if (!comparison.apply) {
+      if (bootstrapRemoved) setRecords(db, descriptor, rows);
       return {
         ok: true,
-        changed: false,
+        changed: bootstrapRemoved,
         ignoredOlder: comparison.ignoredOlder === true,
         duplicate: comparison.duplicate === true,
         reason: comparison.reason,
@@ -30532,7 +30723,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     }
     const deleted = Boolean(serverRecord.deleted_at);
     if (deleted) {
-      if (index < 0) return { ok: true, changed: false, deleted: true };
+      if (index < 0) {
+        if (bootstrapRemoved) setRecords(db, descriptor, rows);
+        return { ok: true, changed: bootstrapRemoved, deleted: true };
+      }
       rows.splice(index, 1);
       setRecords(db, descriptor, rows);
       return { ok: true, changed: true, deleted: true };
@@ -30567,6 +30761,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   BlessERP.syncEntityRegistry = {
     PRELOAD_CLASS,
     descriptors: DESCRIPTORS,
+    canonicalMasterContracts: CANONICAL_MASTER_CONTRACTS,
+    canonicalMasterContractFor,
     descriptor: entity => BY_ENTITY.get(String(entity || "")) || null,
     hydrationInventory,
     isBootstrapEntity,
@@ -30584,6 +30780,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     derivedFieldsForEntity,
     isDerivedField,
     isSyncEligibleRecord,
+    isCanonicalBootstrapRecord,
+    hasCanonicalServerEvidence,
+    shouldPruneOnCanonicalFullSnapshot,
     recordSyncMeta,
     compareServerRecord,
     isExplicitCaptureReady,
@@ -31658,9 +31857,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   async function discardCacheOnlyExplicitRecords(observedRemoteRecords, allowedEntities, db = BlessERP.state?.state?.db) {
     // Una carga completa es también una reconciliación de caché. Para las
-    // entidades V2, un registro que no existe en Supabase no puede conservarse
-    // como si fuera empresarial. Los módulos legacy todavía no se podan porque
-    // pueden tener una operación incremental legítima pendiente de migración.
+    // entidades V2 y catálogos que declaran autoridad canónica, un registro que
+    // no existe en Supabase no puede conservarse como si fuera empresarial. Los
+    // demás módulos legacy todavía no se podan porque pueden tener una operación
+    // incremental legítima pendiente de migración.
     if (!(observedRemoteRecords instanceof Set) || !db) {
       return { discarded: 0, preservedPending: 0 };
     }
@@ -31669,15 +31869,31 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     let preservedPending = 0;
     const discardedRecords = [];
     const allowed = allowedEntities instanceof Set ? allowedEntities : null;
+    const observedRemoteEntities = new Set();
+    observedRemoteRecords.forEach(key => {
+      const separator = String(key || "").indexOf(":");
+      if (separator > 0) observedRemoteEntities.add(String(key).slice(0, separator));
+    });
     for (const descriptor of registry().descriptors) {
       if (allowed && !allowed.has(descriptor.entity)) continue;
-      if (!registry().isExplicitCaptureReady?.(descriptor)) continue;
+      if (descriptor.canonicalAuthority !== true && !registry().isExplicitCaptureReady?.(descriptor)) continue;
+      const remoteHasRows = descriptor.canonicalAuthority === true
+        && observedRemoteEntities.has(descriptor.entity);
       const localRows = [...registry().recordsFor(db, descriptor)];
       for (const row of localRows) {
         const recordId = descriptor.kind === "singleton"
           ? descriptor.entity
           : registry().recordId(row);
         if (!recordId || observedRemoteRecords.has(recordGuardKey(descriptor.entity, recordId))) continue;
+        if (
+          descriptor.canonicalAuthority === true
+          && registry().shouldPruneOnCanonicalFullSnapshot?.(descriptor, row, { remoteHasRows }) !== true
+        ) {
+          // Solo la plantilla declarada de una empresa realmente vacía puede
+          // sobrevivir. Cache legacy y defaults ausentes del full snapshot se
+          // retiran sin convertir la reconciliación en una escritura remota.
+          continue;
+        }
         const pending = syncContext.companyId
           ? await store().findPendingForRecord(syncContext.companyId, descriptor.entity, recordId)
           : null;
@@ -41082,10 +41298,18 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function migrateRetentionCatalog2026() {
     const version = "RETENCIONES-2026-08-PLAN-CUENTAS-BLESS-V2-332";
     if (stateApi.state.db.taxCatalogVersion === version) return;
+    const persistedRows = cloneList("retentionParameters");
+    if (persistedRows.some(record => Number(record?.__syncVersion || 0) > 0)) {
+      // Supabase ya confirmó este catálogo. La migración local no puede
+      // completar, restaurar ni reinsertar defaults ausentes del servidor.
+      stateApi.state.db.taxCatalogVersion = version;
+      stateApi.saveDb();
+      return;
+    }
     const defaults = settingsDefaults();
     const payableAccountCode = defaults.incomeTaxWithholdingPayable || "";
     const receivableAccountCode = defaults.withholdingReceivable || "";
-    const rows = cloneList("retentionParameters");
+    const rows = persistedRows;
     let changed = false;
 
     const replaceLegacy = (internalCode, expectedSriCode, patch, predicate = () => true) => {
@@ -78424,6 +78648,16 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
   const { clone } = BlessERP.utils;
 
+  function syncMetadata(seed = {}) {
+    return {
+      ...(seed.__syncVersion === undefined ? {} : { __syncVersion: seed.__syncVersion }),
+      ...(seed.__syncUpdatedAt === undefined ? {} : { __syncUpdatedAt: seed.__syncUpdatedAt }),
+      ...(seed.__syncUpdatedBy === undefined ? {} : { __syncUpdatedBy: seed.__syncUpdatedBy }),
+      ...(seed.__syncDeviceId === undefined ? {} : { __syncDeviceId: seed.__syncDeviceId }),
+      ...(seed.__syncOperationId === undefined ? {} : { __syncOperationId: seed.__syncOperationId })
+    };
+  }
+
   const operationalDeployment = isOperationalDeployment();
   const sriSalePaymentMethods = Object.freeze([
     {
@@ -78507,7 +78741,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         seed.sriPaymentMethod ?? seed.sri_payment_method ?? seed.paymentMethod ?? seed.formaPago,
         "20"
       ),
-      observation: seed.observation || ""
+      observation: seed.observation || "",
+      ...syncMetadata(seed)
     };
   }
 
@@ -78605,7 +78840,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       printedMark: seed.printedMark || "",
       printedInvoiceAddress: seed.printedInvoiceAddress || "",
       observation: seed.observation || "",
-      status: seed.status || "ACTIVO"
+      status: seed.status || "ACTIVO",
+      ...syncMetadata(seed)
     };
   }
 
@@ -78893,7 +79129,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       code: seed.code || "",
       name: seed.name || "",
       awbPrefix: String(seed.awbPrefix || ""),
-      status: seed.status || "ACTIVA"
+      status: seed.status || "ACTIVA",
+      ...syncMetadata(seed)
     };
   }
 
@@ -78905,13 +79142,15 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     { id: "air-avianca", code: "AIR-AVI", name: "AVIANCA", awbPrefix: "134", status: "ACTIVA" },
     { id: "air-american", code: "AIR-AAL", name: "AMERICAN AIRLINES", awbPrefix: "001", status: "ACTIVA" }
   ].map(createAirline);
+  const embeddedAirlineTemplates = airlines.map(item => ({ ...item }));
 
   function createCountry(seed = {}) {
     return {
       id: seed.id || BlessERP.utils.uid("COM-PAIS"),
       code: String(seed.code || "").trim().toUpperCase(),
       name: String(seed.name || "").trim().toUpperCase(),
-      status: seed.status || "ACTIVO"
+      status: seed.status || "ACTIVO",
+      ...syncMetadata(seed)
     };
   }
 
@@ -78923,6 +79162,29 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     { id: "country-nl", code: "PAIS-NL", name: "NETHERLANDS" },
     { id: "country-ru", code: "PAIS-RU", name: "RUSIA" }
   ].map(createCountry);
+  const embeddedCountryTemplates = countries.map(item => ({ ...item }));
+
+  function matchesEmbeddedCatalogRecord(record, template, fields) {
+    return fields.every(field => JSON.stringify(record?.[field] ?? null) === JSON.stringify(template?.[field] ?? null));
+  }
+
+  function isEmbeddedAirline(record) {
+    if (Number(record?.__syncVersion || 0) > 0) return false;
+    return embeddedAirlineTemplates.some(template => matchesEmbeddedCatalogRecord(
+      record,
+      template,
+      ["code", "name", "awbPrefix", "status"]
+    ));
+  }
+
+  function isEmbeddedCountry(record) {
+    if (Number(record?.__syncVersion || 0) > 0) return false;
+    return embeddedCountryTemplates.some(template => matchesEmbeddedCatalogRecord(
+      record,
+      template,
+      ["code", "name", "status"]
+    ));
+  }
 
   function createDestination(seed = {}) {
     return {
@@ -78931,7 +79193,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       destination: seed.destination || "",
       country: seed.country || seed.destination || "",
       suggestedTransport: seed.suggestedTransport || "aereo",
-      status: seed.status || "ACTIVO"
+      status: seed.status || "ACTIVO",
+      ...syncMetadata(seed)
     };
   }
 
@@ -79657,6 +79920,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     createCountry,
     createDae,
     createDestination,
+    isEmbeddedAirline,
+    isEmbeddedCountry,
     customers,
     brands,
     countries,
@@ -81979,6 +82244,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     appState.db.commercial = mergeMissing(base, appState.db.commercial || {});
     const store = appState.db.commercial;
 
+    const countriesUseCanonicalServerAuthority = BlessERP.syncEntityRegistry
+      ?.descriptor?.("commercial_countries")?.canonicalAuthority === true;
     store.countryCatalog = (store.countryCatalog || []).map(data.createCountry);
     const referencedCountries = [
       ...(store.customerCatalog || []).map(item => item.country),
@@ -81986,14 +82253,16 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       ...(store.destinationCatalog || []).map(item => item.country),
       ...(store.daeCatalog || []).map(item => item.country)
     ].map(item => String(item || "").trim()).filter(Boolean);
-    referencedCountries.forEach(countryName => {
-      const exists = store.countryCatalog.some(item => item.name.toUpperCase() === countryName.toUpperCase());
-      if (!exists) store.countryCatalog.push(data.createCountry({
-        code: nextCatalogCode(store.countryCatalog, "PAIS"),
-        name: countryName,
-        status: "ACTIVO"
-      }));
-    });
+    if (!countriesUseCanonicalServerAuthority) {
+      referencedCountries.forEach(countryName => {
+        const exists = store.countryCatalog.some(item => item.name.toUpperCase() === countryName.toUpperCase());
+        if (!exists) store.countryCatalog.push(data.createCountry({
+          code: nextCatalogCode(store.countryCatalog, "PAIS"),
+          name: countryName,
+          status: "ACTIVO"
+        }));
+      });
+    }
     data.countries.splice(0, data.countries.length, ...store.countryCatalog.map(item => BlessERP.utils.clone(item)));
     const countryDraftIsNew = Boolean(store.ui.countryDraft?.id && !store.countryCatalog.some(item => item.id === store.ui.countryDraft.id));
     if (!store.countryCatalog.some(item => item.id === store.ui.selectedCountryId) && !countryDraftIsNew) {
@@ -87451,10 +87720,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     db.commercial.exportShipmentFlights = Array.isArray(db.commercial.exportShipmentFlights) ? db.commercial.exportShipmentFlights : [];
     db.commercial.exportShipmentEvents = Array.isArray(db.commercial.exportShipmentEvents) ? db.commercial.exportShipmentEvents : [];
     db.commercial.airlineCatalog = Array.isArray(db.commercial.airlineCatalog) ? db.commercial.airlineCatalog : [];
-    REQUIRED_AIRLINES.forEach(required => {
-      const exists = db.commercial.airlineCatalog.some(row => String(row.awbPrefix || "").padStart(3, "0") === required.awbPrefix);
-      if (!exists) db.commercial.airlineCatalog.push(clone(required));
-    });
+    const airlinesHaveCanonicalEvidence = BlessERP.syncEntityRegistry
+      ?.hasCanonicalServerEvidence?.(db, "commercial_airlines") === true;
+    if (!airlinesHaveCanonicalEvidence) {
+      REQUIRED_AIRLINES.forEach(required => {
+        const exists = db.commercial.airlineCatalog.some(row => String(row.awbPrefix || "").padStart(3, "0") === required.awbPrefix);
+        if (!exists) db.commercial.airlineCatalog.push(clone(required));
+      });
+    }
     db.commercial.sequenceLedger = db.commercial.sequenceLedger && typeof db.commercial.sequenceLedger === "object"
       ? db.commercial.sequenceLedger
       : {};
@@ -100523,6 +100796,36 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     };
   }
 
+  const EMBEDDED_MASTER_DATA_FIELDS = Object.freeze([
+    "code",
+    "name",
+    "employee_id",
+    "employeeId",
+    "user_id",
+    "labelColor",
+    "active",
+    "observation",
+    "assignedBlock"
+  ]);
+
+  const EMBEDDED_MASTER_DATA_KEYS = Object.freeze({
+    operations_varieties: "varieties",
+    operations_lengths: "lengths",
+    operations_stem_types: "stemTypes",
+    operations_label_types: "labelTypes"
+  });
+
+  function matchesEmbeddedRecord(record, template, fields) {
+    return fields.every(field => JSON.stringify(record?.[field] ?? null) === JSON.stringify(template?.[field] ?? null));
+  }
+
+  function isEmbeddedMasterRecord(entity, record) {
+    if (Number(record?.__syncVersion || 0) > 0) return false;
+    const key = EMBEDDED_MASTER_DATA_KEYS[String(entity || "")];
+    if (!key) return false;
+    return createMasterData()[key].some(template => matchesEmbeddedRecord(record, template, EMBEDDED_MASTER_DATA_FIELDS));
+  }
+
   function createYieldWorkday(seed = {}) {
     const now = new Date();
     const localNow = new Date(now.getTime() - (now.getTimezoneOffset() * 60000));
@@ -100557,6 +100860,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       buncherDailyGoal: 200,
       ...seed
     };
+  }
+
+  function isEmbeddedYieldSettings(record) {
+    if (Number(record?.__syncVersion || 0) > 0) return false;
+    return matchesEmbeddedRecord(record, createYieldSettings(), [
+      "workdayHours",
+      "classifierDailyGoal",
+      "classifierHourlyGoal",
+      "buncherHourlyGoal",
+      "buncherDailyGoal"
+    ]);
   }
 
   function createAvailabilityDemoEntries() {
@@ -101438,7 +101752,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     createYieldMeshDraft,
     createYieldScannerDraft,
     createYieldSettings,
-    createYieldWorkday
+    createYieldWorkday,
+    isEmbeddedMasterRecord,
+    isEmbeddedYieldSettings
   };
 })();
 

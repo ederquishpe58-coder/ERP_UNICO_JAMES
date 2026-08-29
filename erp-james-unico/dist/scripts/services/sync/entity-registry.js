@@ -211,6 +211,41 @@
     throw new Error(`Entidad CONT-D sin decisión explícita: ${key}`);
   }
 
+  function canonicalMasterContract(localBootstrapWhenEmpty = false) {
+    return Object.freeze({
+      canonicalServerAuthority: true,
+      fullSnapshotPrunesLocalLegacy: true,
+      localBootstrapWhenEmpty: localBootstrapWhenEmpty === true
+    });
+  }
+
+  // Lista positiva: solo estos maestros company-scoped permiten que un full
+  // snapshot del backend reemplace cache/defaults locales. Nunca se infiere por
+  // nombre y ninguna entidad transaccional participa de este contrato.
+  const CANONICAL_MASTER_CONTRACTS = Object.freeze({
+    company_settings: canonicalMasterContract(true),
+    accounting_chart_accounts: canonicalMasterContract(true),
+    accounting_tax_parameters: canonicalMasterContract(true),
+    accounting_retention_parameters: canonicalMasterContract(true),
+    accounting_cost_centers: canonicalMasterContract(true),
+    commercial_customers: canonicalMasterContract(false),
+    commercial_brands: canonicalMasterContract(false),
+    commercial_airlines: canonicalMasterContract(true),
+    commercial_countries: canonicalMasterContract(true),
+    commercial_destinations: canonicalMasterContract(false),
+    operations_suppliers: canonicalMasterContract(false),
+    operations_varieties: canonicalMasterContract(true),
+    operations_lengths: canonicalMasterContract(true),
+    operations_stem_types: canonicalMasterContract(true),
+    operations_label_types: canonicalMasterContract(true),
+    operations_yield_settings: canonicalMasterContract(true),
+    treasury_cash_accounts: canonicalMasterContract(false)
+  });
+
+  function canonicalMasterContractFor(entity) {
+    return CANONICAL_MASTER_CONTRACTS[String(entity || "")] || null;
+  }
+
   const DESCRIPTORS = Object.freeze([
     // Configuración empresarial. Los objetos singleton se sincronizan como un
     // solo registro por empresa; el navegador nunca es su única fuente.
@@ -351,10 +386,16 @@
     ,["payroll_v2_policy_assignments", "payrollV2.policyAssignments"]
     ,["payroll_v2_policy_snapshots", "payrollV2.policySnapshots"]
     ,["payroll_v2_events", "payrollV2.events"]
-  ].map(([entity, path, kind = "collection"]) => Object.freeze({
+  ].map(([entity, path, kind = "collection"]) => {
+    const masterContract = canonicalMasterContractFor(entity);
+    return Object.freeze({
     entity,
     path,
     kind,
+    canonicalAuthority: masterContract?.canonicalServerAuthority === true,
+    canonicalMasterContract: masterContract,
+    fullSnapshotPrunesLocalLegacy: masterContract?.fullSnapshotPrunesLocalLegacy === true,
+    localBootstrapWhenEmpty: masterContract?.localBootstrapWhenEmpty === true,
     preloadClass: preloadClassForEntity(entity),
     domain: DOMAIN_BY_ENTITY.get(entity) || "",
     derivedFields: DERIVED_FIELDS_BY_ENTITY[entity] || Object.freeze([]),
@@ -393,7 +434,8 @@
               : PAYROLL_V2_ENTITIES.has(entity)
                 ? "EXPLICIT_PAYROLL_V2"
         : "LEGACY_INCREMENTAL"
-  })));
+  });
+  }));
 
   const BY_ENTITY = new Map(DESCRIPTORS.map(descriptor => [descriptor.entity, descriptor]));
   const ID_FIELDS = Object.freeze([
@@ -554,14 +596,68 @@
     return sanitizePayload(descriptorOrEntity, output);
   }
 
-  function isSyncEligibleRecord(descriptor, record) {
+  function isCanonicalBootstrapRecord(descriptor, record) {
+    if (Number(record?.__syncVersion || 0) > 0) return false;
+    if (descriptor?.entity === "company_settings") {
+      return BlessERP.demo?.isEmbeddedCompanySettings?.(record) === true;
+    }
+    if (descriptor?.entity === "accounting_chart_accounts") {
+      return BlessERP.accountingPlanBlessV1?.isEmbeddedTemplateAccount?.(record) === true;
+    }
+    if (descriptor?.entity === "accounting_tax_parameters") {
+      return BlessERP.demo?.isEmbeddedTaxParameter?.(record) === true;
+    }
+    if (descriptor?.entity === "accounting_retention_parameters") {
+      return BlessERP.demo?.isEmbeddedRetentionParameter?.(record) === true;
+    }
+    if (descriptor?.entity === "accounting_cost_centers") {
+      return BlessERP.demo?.isEmbeddedCostCenter?.(record) === true;
+    }
+    if (descriptor?.entity === "commercial_airlines") {
+      return BlessERP.comercialData?.isEmbeddedAirline?.(record) === true;
+    }
+    if (descriptor?.entity === "commercial_countries") {
+      return BlessERP.comercialData?.isEmbeddedCountry?.(record) === true;
+    }
+    if ([
+      "operations_varieties",
+      "operations_lengths",
+      "operations_stem_types",
+      "operations_label_types"
+    ].includes(descriptor?.entity)) {
+      return BlessERP.operacionesData?.isEmbeddedMasterRecord?.(descriptor.entity, record) === true;
+    }
+    if (descriptor?.entity === "operations_yield_settings") {
+      return BlessERP.operacionesData?.isEmbeddedYieldSettings?.(record) === true;
+    }
+    return false;
+  }
+
+  function hasCanonicalServerEvidence(db, descriptorOrEntity) {
+    const descriptor = typeof descriptorOrEntity === "string"
+      ? BY_ENTITY.get(String(descriptorOrEntity || ""))
+      : descriptorOrEntity;
+    if (descriptor?.canonicalAuthority !== true || !db) return false;
+    return recordsFor(db, descriptor).some(record => Number(record?.__syncVersion || 0) > 0);
+  }
+
+  function shouldPruneOnCanonicalFullSnapshot(descriptor, record, options = {}) {
     if (
-      descriptor?.entity === "accounting_chart_accounts"
-      && Number(record?.__syncVersion || 0) <= 0
-      && BlessERP.accountingPlanBlessV1?.isEmbeddedTemplateAccount?.(record) === true
-    ) {
-      // La plantilla contable ayuda a una empresa vacía, pero no es un registro
-      // empresarial ni puede originar INSERT/DELETE offline por sí sola.
+      descriptor?.canonicalAuthority !== true
+      || descriptor?.fullSnapshotPrunesLocalLegacy !== true
+    ) return false;
+    if (
+      options.remoteHasRows !== true
+      && descriptor.localBootstrapWhenEmpty === true
+      && isCanonicalBootstrapRecord(descriptor, record)
+    ) return false;
+    return true;
+  }
+
+  function isSyncEligibleRecord(descriptor, record) {
+    if (isCanonicalBootstrapRecord(descriptor, record)) {
+      // Las plantillas ayudan a una empresa vacía, pero no son registros
+      // empresariales ni pueden originar INSERT/DELETE offline por sí solas.
       return false;
     }
     // Las etiquetas creadas por la RPC Zebra V2 ya fueron confirmadas por el
@@ -727,15 +823,14 @@
     // locales, pero sí deben aceptar la versión canónica recibida desde
     // Supabase/Realtime para que los demás equipos vean el cambio al instante.
     let rows = [...recordsFor(db, descriptor)];
-    if (descriptor.entity === "accounting_chart_accounts") {
-      // La primera evidencia canónica del chart retira únicamente copias
-      // intactas y nunca confirmadas de OFFICIAL_ACCOUNTS. Cuentas del usuario,
-      // pendientes o ya hidratadas conservan su identidad y contenido.
-      rows = rows.filter(record => !(
-        Number(record?.__syncVersion || 0) <= 0
-        && BlessERP.accountingPlanBlessV1?.isEmbeddedTemplateAccount?.(record) === true
-      ));
+    const originalRowCount = rows.length;
+    if (descriptor.canonicalAuthority === true) {
+      // La primera evidencia canónica retira únicamente copias intactas y nunca
+      // confirmadas de la plantilla correspondiente. Registros personalizados,
+      // pendientes o ya hidratados conservan su identidad y contenido.
+      rows = rows.filter(record => !isCanonicalBootstrapRecord(descriptor, record));
     }
+    const bootstrapRemoved = rows.length !== originalRowCount;
     const index = rows.findIndex(record => (
       descriptor.kind === "singleton" ? descriptor.entity : recordId(record)
     ) === id);
@@ -743,9 +838,10 @@
       ? { apply: true, reason: "SUPABASE_AUTHORITY" }
       : compareServerRecord(index >= 0 ? rows[index] : null, serverRecord);
     if (!comparison.apply) {
+      if (bootstrapRemoved) setRecords(db, descriptor, rows);
       return {
         ok: true,
-        changed: false,
+        changed: bootstrapRemoved,
         ignoredOlder: comparison.ignoredOlder === true,
         duplicate: comparison.duplicate === true,
         reason: comparison.reason,
@@ -755,7 +851,10 @@
     }
     const deleted = Boolean(serverRecord.deleted_at);
     if (deleted) {
-      if (index < 0) return { ok: true, changed: false, deleted: true };
+      if (index < 0) {
+        if (bootstrapRemoved) setRecords(db, descriptor, rows);
+        return { ok: true, changed: bootstrapRemoved, deleted: true };
+      }
       rows.splice(index, 1);
       setRecords(db, descriptor, rows);
       return { ok: true, changed: true, deleted: true };
@@ -790,6 +889,8 @@
   BlessERP.syncEntityRegistry = {
     PRELOAD_CLASS,
     descriptors: DESCRIPTORS,
+    canonicalMasterContracts: CANONICAL_MASTER_CONTRACTS,
+    canonicalMasterContractFor,
     descriptor: entity => BY_ENTITY.get(String(entity || "")) || null,
     hydrationInventory,
     isBootstrapEntity,
@@ -807,6 +908,9 @@
     derivedFieldsForEntity,
     isDerivedField,
     isSyncEligibleRecord,
+    isCanonicalBootstrapRecord,
+    hasCanonicalServerEvidence,
+    shouldPruneOnCanonicalFullSnapshot,
     recordSyncMeta,
     compareServerRecord,
     isExplicitCaptureReady,

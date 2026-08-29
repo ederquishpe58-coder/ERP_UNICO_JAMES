@@ -15,6 +15,16 @@
   }
   const { clone } = BlessERP.utils;
 
+  function syncMetadata(seed = {}) {
+    return {
+      ...(seed.__syncVersion === undefined ? {} : { __syncVersion: seed.__syncVersion }),
+      ...(seed.__syncUpdatedAt === undefined ? {} : { __syncUpdatedAt: seed.__syncUpdatedAt }),
+      ...(seed.__syncUpdatedBy === undefined ? {} : { __syncUpdatedBy: seed.__syncUpdatedBy }),
+      ...(seed.__syncDeviceId === undefined ? {} : { __syncDeviceId: seed.__syncDeviceId }),
+      ...(seed.__syncOperationId === undefined ? {} : { __syncOperationId: seed.__syncOperationId })
+    };
+  }
+
   const operationalDeployment = isOperationalDeployment();
   const sriSalePaymentMethods = Object.freeze([
     {
@@ -98,7 +108,8 @@
         seed.sriPaymentMethod ?? seed.sri_payment_method ?? seed.paymentMethod ?? seed.formaPago,
         "20"
       ),
-      observation: seed.observation || ""
+      observation: seed.observation || "",
+      ...syncMetadata(seed)
     };
   }
 
@@ -196,7 +207,8 @@
       printedMark: seed.printedMark || "",
       printedInvoiceAddress: seed.printedInvoiceAddress || "",
       observation: seed.observation || "",
-      status: seed.status || "ACTIVO"
+      status: seed.status || "ACTIVO",
+      ...syncMetadata(seed)
     };
   }
 
@@ -484,7 +496,8 @@
       code: seed.code || "",
       name: seed.name || "",
       awbPrefix: String(seed.awbPrefix || ""),
-      status: seed.status || "ACTIVA"
+      status: seed.status || "ACTIVA",
+      ...syncMetadata(seed)
     };
   }
 
@@ -496,13 +509,15 @@
     { id: "air-avianca", code: "AIR-AVI", name: "AVIANCA", awbPrefix: "134", status: "ACTIVA" },
     { id: "air-american", code: "AIR-AAL", name: "AMERICAN AIRLINES", awbPrefix: "001", status: "ACTIVA" }
   ].map(createAirline);
+  const embeddedAirlineTemplates = airlines.map(item => ({ ...item }));
 
   function createCountry(seed = {}) {
     return {
       id: seed.id || BlessERP.utils.uid("COM-PAIS"),
       code: String(seed.code || "").trim().toUpperCase(),
       name: String(seed.name || "").trim().toUpperCase(),
-      status: seed.status || "ACTIVO"
+      status: seed.status || "ACTIVO",
+      ...syncMetadata(seed)
     };
   }
 
@@ -514,6 +529,29 @@
     { id: "country-nl", code: "PAIS-NL", name: "NETHERLANDS" },
     { id: "country-ru", code: "PAIS-RU", name: "RUSIA" }
   ].map(createCountry);
+  const embeddedCountryTemplates = countries.map(item => ({ ...item }));
+
+  function matchesEmbeddedCatalogRecord(record, template, fields) {
+    return fields.every(field => JSON.stringify(record?.[field] ?? null) === JSON.stringify(template?.[field] ?? null));
+  }
+
+  function isEmbeddedAirline(record) {
+    if (Number(record?.__syncVersion || 0) > 0) return false;
+    return embeddedAirlineTemplates.some(template => matchesEmbeddedCatalogRecord(
+      record,
+      template,
+      ["code", "name", "awbPrefix", "status"]
+    ));
+  }
+
+  function isEmbeddedCountry(record) {
+    if (Number(record?.__syncVersion || 0) > 0) return false;
+    return embeddedCountryTemplates.some(template => matchesEmbeddedCatalogRecord(
+      record,
+      template,
+      ["code", "name", "status"]
+    ));
+  }
 
   function createDestination(seed = {}) {
     return {
@@ -522,7 +560,8 @@
       destination: seed.destination || "",
       country: seed.country || seed.destination || "",
       suggestedTransport: seed.suggestedTransport || "aereo",
-      status: seed.status || "ACTIVO"
+      status: seed.status || "ACTIVO",
+      ...syncMetadata(seed)
     };
   }
 
@@ -1248,6 +1287,8 @@
     createCountry,
     createDae,
     createDestination,
+    isEmbeddedAirline,
+    isEmbeddedCountry,
     customers,
     brands,
     countries,

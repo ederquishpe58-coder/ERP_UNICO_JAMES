@@ -709,9 +709,10 @@
 
   async function discardCacheOnlyExplicitRecords(observedRemoteRecords, allowedEntities, db = BlessERP.state?.state?.db) {
     // Una carga completa es también una reconciliación de caché. Para las
-    // entidades V2, un registro que no existe en Supabase no puede conservarse
-    // como si fuera empresarial. Los módulos legacy todavía no se podan porque
-    // pueden tener una operación incremental legítima pendiente de migración.
+    // entidades V2 y catálogos que declaran autoridad canónica, un registro que
+    // no existe en Supabase no puede conservarse como si fuera empresarial. Los
+    // demás módulos legacy todavía no se podan porque pueden tener una operación
+    // incremental legítima pendiente de migración.
     if (!(observedRemoteRecords instanceof Set) || !db) {
       return { discarded: 0, preservedPending: 0 };
     }
@@ -720,15 +721,31 @@
     let preservedPending = 0;
     const discardedRecords = [];
     const allowed = allowedEntities instanceof Set ? allowedEntities : null;
+    const observedRemoteEntities = new Set();
+    observedRemoteRecords.forEach(key => {
+      const separator = String(key || "").indexOf(":");
+      if (separator > 0) observedRemoteEntities.add(String(key).slice(0, separator));
+    });
     for (const descriptor of registry().descriptors) {
       if (allowed && !allowed.has(descriptor.entity)) continue;
-      if (!registry().isExplicitCaptureReady?.(descriptor)) continue;
+      if (descriptor.canonicalAuthority !== true && !registry().isExplicitCaptureReady?.(descriptor)) continue;
+      const remoteHasRows = descriptor.canonicalAuthority === true
+        && observedRemoteEntities.has(descriptor.entity);
       const localRows = [...registry().recordsFor(db, descriptor)];
       for (const row of localRows) {
         const recordId = descriptor.kind === "singleton"
           ? descriptor.entity
           : registry().recordId(row);
         if (!recordId || observedRemoteRecords.has(recordGuardKey(descriptor.entity, recordId))) continue;
+        if (
+          descriptor.canonicalAuthority === true
+          && registry().shouldPruneOnCanonicalFullSnapshot?.(descriptor, row, { remoteHasRows }) !== true
+        ) {
+          // Solo la plantilla declarada de una empresa realmente vacía puede
+          // sobrevivir. Cache legacy y defaults ausentes del full snapshot se
+          // retiran sin convertir la reconciliación en una escritura remota.
+          continue;
+        }
         const pending = syncContext.companyId
           ? await store().findPendingForRecord(syncContext.companyId, descriptor.entity, recordId)
           : null;

@@ -68,10 +68,14 @@
     db.commercial.exportShipmentFlights = Array.isArray(db.commercial.exportShipmentFlights) ? db.commercial.exportShipmentFlights : [];
     db.commercial.exportShipmentEvents = Array.isArray(db.commercial.exportShipmentEvents) ? db.commercial.exportShipmentEvents : [];
     db.commercial.airlineCatalog = Array.isArray(db.commercial.airlineCatalog) ? db.commercial.airlineCatalog : [];
-    REQUIRED_AIRLINES.forEach(required => {
-      const exists = db.commercial.airlineCatalog.some(row => String(row.awbPrefix || "").padStart(3, "0") === required.awbPrefix);
-      if (!exists) db.commercial.airlineCatalog.push(clone(required));
-    });
+    const airlinesHaveCanonicalEvidence = BlessERP.syncEntityRegistry
+      ?.hasCanonicalServerEvidence?.(db, "commercial_airlines") === true;
+    if (!airlinesHaveCanonicalEvidence) {
+      REQUIRED_AIRLINES.forEach(required => {
+        const exists = db.commercial.airlineCatalog.some(row => String(row.awbPrefix || "").padStart(3, "0") === required.awbPrefix);
+        if (!exists) db.commercial.airlineCatalog.push(clone(required));
+      });
+    }
     db.commercial.sequenceLedger = db.commercial.sequenceLedger && typeof db.commercial.sequenceLedger === "object"
       ? db.commercial.sequenceLedger
       : {};

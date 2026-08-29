@@ -194,6 +194,8 @@
     appState.db.commercial = mergeMissing(base, appState.db.commercial || {});
     const store = appState.db.commercial;
 
+    const countriesUseCanonicalServerAuthority = BlessERP.syncEntityRegistry
+      ?.descriptor?.("commercial_countries")?.canonicalAuthority === true;
     store.countryCatalog = (store.countryCatalog || []).map(data.createCountry);
     const referencedCountries = [
       ...(store.customerCatalog || []).map(item => item.country),
@@ -201,14 +203,16 @@
       ...(store.destinationCatalog || []).map(item => item.country),
       ...(store.daeCatalog || []).map(item => item.country)
     ].map(item => String(item || "").trim()).filter(Boolean);
-    referencedCountries.forEach(countryName => {
-      const exists = store.countryCatalog.some(item => item.name.toUpperCase() === countryName.toUpperCase());
-      if (!exists) store.countryCatalog.push(data.createCountry({
-        code: nextCatalogCode(store.countryCatalog, "PAIS"),
-        name: countryName,
-        status: "ACTIVO"
-      }));
-    });
+    if (!countriesUseCanonicalServerAuthority) {
+      referencedCountries.forEach(countryName => {
+        const exists = store.countryCatalog.some(item => item.name.toUpperCase() === countryName.toUpperCase());
+        if (!exists) store.countryCatalog.push(data.createCountry({
+          code: nextCatalogCode(store.countryCatalog, "PAIS"),
+          name: countryName,
+          status: "ACTIVO"
+        }));
+      });
+    }
     data.countries.splice(0, data.countries.length, ...store.countryCatalog.map(item => BlessERP.utils.clone(item)));
     const countryDraftIsNew = Boolean(store.ui.countryDraft?.id && !store.countryCatalog.some(item => item.id === store.ui.countryDraft.id));
     if (!store.countryCatalog.some(item => item.id === store.ui.selectedCountryId) && !countryDraftIsNew) {

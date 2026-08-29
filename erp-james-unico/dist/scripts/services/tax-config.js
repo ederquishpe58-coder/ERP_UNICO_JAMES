@@ -40,10 +40,18 @@
   function migrateRetentionCatalog2026() {
     const version = "RETENCIONES-2026-08-PLAN-CUENTAS-BLESS-V2-332";
     if (stateApi.state.db.taxCatalogVersion === version) return;
+    const persistedRows = cloneList("retentionParameters");
+    if (persistedRows.some(record => Number(record?.__syncVersion || 0) > 0)) {
+      // Supabase ya confirmó este catálogo. La migración local no puede
+      // completar, restaurar ni reinsertar defaults ausentes del servidor.
+      stateApi.state.db.taxCatalogVersion = version;
+      stateApi.saveDb();
+      return;
+    }
     const defaults = settingsDefaults();
     const payableAccountCode = defaults.incomeTaxWithholdingPayable || "";
     const receivableAccountCode = defaults.withholdingReceivable || "";
-    const rows = cloneList("retentionParameters");
+    const rows = persistedRows;
     let changed = false;
 
     const replaceLegacy = (internalCode, expectedSriCode, patch, predicate = () => true) => {
