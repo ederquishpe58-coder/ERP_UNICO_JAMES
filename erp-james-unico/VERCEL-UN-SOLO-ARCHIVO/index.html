@@ -24649,7 +24649,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     "reports-inventory": "reports.inventory.view",
     "reports-commercial": "reports.commercial.view",
     "settings-company": "admin.company.view",
-    "settings-users": "admin.users.view",
+    "settings-users": "admin.users.manage",
     "settings-audit": "admin.audit.view",
     "settings-sequences": "admin.sequences.view",
     "settings-cost-centers": "admin.cost_centers.view",
@@ -29291,6 +29291,34 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     });
   }
 
+  function allowedCompanyKeys() {
+    const access = BlessERP.authAccess?.activeAccess?.() || {};
+    return new Set(
+      (access.allowedCompanyKeys || [access.activeCompanyKey])
+        .map(value => String(value || "").trim())
+        .filter(Boolean)
+    );
+  }
+
+  function scopedCompanyEntries(user) {
+    const allowed = allowedCompanyKeys();
+    return Object.entries(user.companyAccess || {}).filter(([companyKey, access]) => {
+      if (allowed.has(companyKey)) return true;
+      return access?.enabled !== true && String(access?.status || "inactivo").toLowerCase() === "inactivo";
+    }).filter(([companyKey]) => allowed.has(companyKey));
+  }
+
+  function unauthorizedEnabledCompanyKeys(user) {
+    const allowed = allowedCompanyKeys();
+    return Object.entries(user.companyAccess || {})
+      .filter(([companyKey, access]) => (
+        !allowed.has(companyKey)
+        && access?.enabled === true
+        && String(access?.status || "activo").toLowerCase() !== "inactivo"
+      ))
+      .map(([companyKey]) => companyKey);
+  }
+
   function payloadFor(user, options = {}) {
     const companyAccess = user.companyAccess || {};
     return {
@@ -29300,6 +29328,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       code: user.code || "",
       name: user.name || user.fullName || "",
       fullName: user.fullName || user.name || "",
+      phone: user.phone || "",
       cargo: user.cargo || user.role || "",
       role: user.role || user.cargo || "",
       area: user.area || "",
@@ -29308,9 +29337,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       preserveAuthEmail: user.preserveAuthEmail === true,
       password: String(options.password || ""),
       inviteRedirectTo: `${window.location.origin}/crear-contrasena`,
-      companies: Object.entries(companyAccess).map(([companyKey, access], index) => ({
+      companies: scopedCompanyEntries({ companyAccess }).map(([companyKey, access], index) => ({
         companyKey,
         membershipRole: membershipRole(access),
+        profileId: String(access.profileId || "").trim().toUpperCase(),
         enabled: access.enabled !== false,
         status: access.status || "activo",
         isDefault: index === 0,
@@ -29373,6 +29403,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   async function save(user, options = {}) {
     if (!enabled()) return { ok: true, user };
+    const unauthorizedCompanies = unauthorizedEnabledCompanyKeys(user);
+    if (unauthorizedCompanies.length) {
+      return {
+        ok: false,
+        code: "COMPANY_SCOPE_DENIED",
+        errors: ["No tiene autorización para administrar usuarios de la empresa solicitada."]
+      };
+    }
     if (!user.cloudManaged && inviteBlockedUntil > Date.now()) {
       return {
         ok: false,
@@ -29438,6 +29476,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     };
   }
 
+  async function listProfiles() {
+    if (!enabled()) return { ok: true, data: [] };
+    const companyKey = BlessERP.authAccess?.activeAccess?.()?.activeCompanyKey || "";
+    return requestJson(`/api/admin-users?company=${encodeURIComponent(companyKey)}&profiles=1`, {
+      method: "GET"
+    });
+  }
+
   function roleCodeForMembership(role = "VIEWER") {
     const normalized = String(role || "VIEWER").toUpperCase();
     if (["OWNER", "ADMIN"].includes(normalized)) return "ADMIN";
@@ -29474,6 +29520,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
           name: String(membership.display_name_override || profile.display_name || row.email || row.loginEmail || "Usuario").trim(),
           fullName: String(membership.display_name_override || profile.display_name || row.email || row.loginEmail || "Usuario").trim(),
           email: String(row.email || "").trim(),
+          phone: String(profile.phone || "").trim(),
           role: roleCodeForMembership(membership.membership_role),
           cargo: String(membership.job_title || membership.membership_role || "").trim(),
           area: String(membership.area || "").trim(),
@@ -29489,6 +29536,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
           roleCode: roleCodeForMembership(membership.membership_role),
           membershipRole: membership.membership_role,
           membershipId: membership.id,
+          profileId: String(row.securityProfile?.profile_id || "").trim(),
           routeAccess: Object.fromEntries((row.permissions || []).map(permission => [permission.route_id, permission.can_view === true])),
           permissions: row.permissions || []
         };
@@ -29507,6 +29555,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   BlessERP.remoteUserAccess = {
     enabled,
     listDirectory,
+    listProfiles,
     listUnlinked,
     payloadFor,
     remove,
@@ -41839,7 +41888,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     return ["test", "production"].includes(String(configured || "").trim().toLowerCase());
   }
 
-  function companyProfiles() {
+  function localCompanyProfiles() {
     const rows = BlessERP.companyCapabilities?.listCompanies?.() || [];
     if (rows.length) return rows;
     return [
@@ -41848,11 +41897,55 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     ];
   }
 
+  function companyProfiles() {
+    const localProfiles = localCompanyProfiles();
+    if (!isOperationalDeployment()) return localProfiles;
+
+    const access = BlessERP.authAccess?.activeAccess?.() || {};
+    const allowedKeys = new Set(
+      (access.allowedCompanyKeys || [access.activeCompanyKey])
+        .map(value => String(value || "").trim())
+        .filter(Boolean)
+    );
+    const activeKey = String(access.activeCompanyKey || "").trim();
+    const canonicalRows = (Array.isArray(access.companies) ? access.companies : [])
+      .filter(company => company?.is_active !== false)
+      .filter(company => allowedKeys.has(String(company?.company_key || "").trim()))
+      .map(company => {
+        const companyKey = String(company.company_key || "").trim();
+        const local = localProfiles.find(profile => profile.id === companyKey) || {};
+        return {
+          ...local,
+          id: companyKey,
+          companyKey,
+          cloudCompanyId: String(company.id || "").trim(),
+          code: String(company.company_code || local.code || companyKey).trim(),
+          commercialName: String(company.commercial_name || local.commercialName || companyKey).trim(),
+          legalName: String(company.legal_name || local.legalName || "").trim(),
+          status: "ACTIVA"
+        };
+      })
+      .filter(company => company.id && company.cloudCompanyId)
+      .sort((left, right) => Number(right.id === activeKey) - Number(left.id === activeKey));
+
+    return canonicalRows;
+  }
+
   function activeCompanyId() {
     return BlessERP.services?.companyContext?.activeCompanyId?.()
       || stateApi.state.db.activeCompanyId
       || companyProfiles()[0]?.id
       || "COMP-BLESS-FLOWER";
+  }
+
+  function activeCompanyIdentity() {
+    const companyKey = activeCompanyId();
+    const company = companyProfiles().find(profile => profile.id === companyKey) || null;
+    return {
+      companyId: String(company?.cloudCompanyId || "").trim(),
+      companyKey,
+      active: Boolean(company && company.status !== "INACTIVA")
+    };
   }
 
   function normalizeRouteAccess(value = {}) {
@@ -41868,6 +41961,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       enabled: Boolean(enabled),
       status: enabled ? "activo" : "inactivo",
       roleCode: BlessERP.menuService?.normalizeRoleCode?.(roleValue) || "INVITADO",
+      membershipRole: "",
+      profileId: "",
       routeAccess: {}
     };
   }
@@ -41888,6 +41983,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         enabled,
         status: enabled && String(current.status || "activo").toLowerCase() !== "inactivo" ? "activo" : "inactivo",
         roleCode: BlessERP.menuService?.normalizeRoleCode?.(current.roleCode || roleValue) || "INVITADO",
+        membershipRole: String(current.membershipRole || "").trim().toUpperCase(),
+        profileId: String(current.profileId || current.profile_id || "").trim().toUpperCase(),
         routeAccess: normalizeRouteAccess(current.routeAccess)
       };
     });
@@ -42121,6 +42218,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       name: String(current.name || current.fullName || "").trim(),
       fullName: String(current.fullName || current.name || "").trim(),
       email: String(current.email || "").trim(),
+      phone: String(current.phone || "").trim(),
       username,
       role,
       cargo: String(current.cargo || current.role || "").trim(),
@@ -42301,6 +42399,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       name: "",
       fullName: "",
       email: "",
+      phone: "",
       username: "",
       role: "Solo consulta básica",
       cargo: "",
@@ -42902,6 +43001,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     sequenceAllowed,
     ensureStore,
     activeUser,
+    activeCompanyIdentity,
     accessPreview,
     companyProfiles,
     createUserDraft,
@@ -59900,7 +60000,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       passwordConfirmation: "",
       unlinkedUsers: [],
       unlinkedLoaded: false,
-      unlinkedLoading: false
+      unlinkedLoading: false,
+      profiles: []
     },
     audit: {
       search: "",
@@ -60055,6 +60156,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       name: String(data.fullName || "").trim(),
       fullName: String(data.fullName || "").trim(),
       email: String(data.email || "").trim(),
+      phone: String(data.phone || "").trim(),
       username: String(data.username || "").trim(),
       role: String(data.cargo || "").trim(),
       cargo: String(data.cargo || "").trim(),
@@ -60121,6 +60223,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
           <label class="compact-field"><span>Nombres y apellidos</span><input name="fullName" value="${esc(draft.fullName || draft.name || "")}" required></label>
           <label class="compact-field"><span>Usuario de ingreso</span><input name="username" autocomplete="username" value="${esc(draft.username || draft.code || "")}" required></label>
           <label class="compact-field"><span>Correo</span><input name="email" type="email" value="${esc(draft.email || "")}"></label>
+          <label class="compact-field"><span>Teléfono (opcional)</span><input name="phone" type="tel" value="${esc(draft.phone || "")}"></label>
           ${window.__ERP_LOCAL_MODE__ === true ? `
             <label class="compact-field">
               <span>${stored ? "Nueva contraseña (opcional)" : "Contraseña inicial"}</span>
@@ -60166,6 +60269,13 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
               ${adminService.roleOptions.map(item => `<option value="${esc(item.code)}" ${membership.roleCode === item.code ? "selected" : ""}>${esc(item.label)}</option>`).join("")}
             </select>
           </label>
+          ${BlessERP.remoteUserAccess?.enabled?.() ? `<label class="compact-field">
+            <span>Perfil funcional</span>
+            <select data-user-company-profile="${esc(selectedCompanyId)}" ${membership.enabled ? "" : "disabled"} required>
+              <option value="">Seleccione un perfil canónico</option>
+              ${uiState.users.profiles.map(profile => `<option value="${esc(profile.profile_id)}" ${membership.profileId === profile.profile_id ? "selected" : ""}>${esc(profile.display_name)}</option>`).join("")}
+            </select>
+          </label>` : ""}
           <label class="compact-field">
             <span>Estado de membresia</span>
             <select data-user-company-status="${esc(selectedCompanyId)}" ${membership.enabled ? "" : "disabled"}>
@@ -60277,7 +60387,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       && !uiState.users.unlinkedLoading
     ) {
       uiState.users.unlinkedLoading = true;
-      BlessERP.remoteUserAccess.listDirectory().then(result => {
+      Promise.all([
+        BlessERP.remoteUserAccess.listDirectory(),
+        BlessERP.remoteUserAccess.listProfiles()
+      ]).then(([result, profilesResult]) => {
         uiState.users.unlinkedLoading = false;
         uiState.users.unlinkedLoaded = true;
         if (result.ok) {
@@ -60285,6 +60398,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
           adminService.replaceCloudDirectory(result.data?.users || []);
         }
         else uiState.users.errors = result.errors || ["No se pudieron consultar las cuentas sin acceso a JAEDER SYSTEMS."];
+        if (profilesResult.ok) uiState.users.profiles = Array.isArray(profilesResult.data) ? profilesResult.data : [];
+        else uiState.users.errors = [...uiState.users.errors, ...(profilesResult.errors || ["No se pudieron consultar los perfiles autorizados."])];
         BlessERP.layout.renderPage();
       });
     }
@@ -60513,6 +60628,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     document.querySelector("[data-user-company-role]")?.addEventListener("change", event => {
       syncUserDraftFromForm();
       userAccessFor(uiState.users.draft, event.target.dataset.userCompanyRole).roleCode = event.target.value;
+      BlessERP.layout.renderPage();
+    });
+    document.querySelector("[data-user-company-profile]")?.addEventListener("change", event => {
+      syncUserDraftFromForm();
+      userAccessFor(uiState.users.draft, event.target.dataset.userCompanyProfile).profileId = event.target.value;
       BlessERP.layout.renderPage();
     });
     document.querySelector("[data-user-company-status]")?.addEventListener("change", event => {

@@ -17,7 +17,8 @@
       passwordConfirmation: "",
       unlinkedUsers: [],
       unlinkedLoaded: false,
-      unlinkedLoading: false
+      unlinkedLoading: false,
+      profiles: []
     },
     audit: {
       search: "",
@@ -172,6 +173,7 @@
       name: String(data.fullName || "").trim(),
       fullName: String(data.fullName || "").trim(),
       email: String(data.email || "").trim(),
+      phone: String(data.phone || "").trim(),
       username: String(data.username || "").trim(),
       role: String(data.cargo || "").trim(),
       cargo: String(data.cargo || "").trim(),
@@ -238,6 +240,7 @@
           <label class="compact-field"><span>Nombres y apellidos</span><input name="fullName" value="${esc(draft.fullName || draft.name || "")}" required></label>
           <label class="compact-field"><span>Usuario de ingreso</span><input name="username" autocomplete="username" value="${esc(draft.username || draft.code || "")}" required></label>
           <label class="compact-field"><span>Correo</span><input name="email" type="email" value="${esc(draft.email || "")}"></label>
+          <label class="compact-field"><span>Teléfono (opcional)</span><input name="phone" type="tel" value="${esc(draft.phone || "")}"></label>
           ${window.__ERP_LOCAL_MODE__ === true ? `
             <label class="compact-field">
               <span>${stored ? "Nueva contraseña (opcional)" : "Contraseña inicial"}</span>
@@ -283,6 +286,13 @@
               ${adminService.roleOptions.map(item => `<option value="${esc(item.code)}" ${membership.roleCode === item.code ? "selected" : ""}>${esc(item.label)}</option>`).join("")}
             </select>
           </label>
+          ${BlessERP.remoteUserAccess?.enabled?.() ? `<label class="compact-field">
+            <span>Perfil funcional</span>
+            <select data-user-company-profile="${esc(selectedCompanyId)}" ${membership.enabled ? "" : "disabled"} required>
+              <option value="">Seleccione un perfil canónico</option>
+              ${uiState.users.profiles.map(profile => `<option value="${esc(profile.profile_id)}" ${membership.profileId === profile.profile_id ? "selected" : ""}>${esc(profile.display_name)}</option>`).join("")}
+            </select>
+          </label>` : ""}
           <label class="compact-field">
             <span>Estado de membresia</span>
             <select data-user-company-status="${esc(selectedCompanyId)}" ${membership.enabled ? "" : "disabled"}>
@@ -394,7 +404,10 @@
       && !uiState.users.unlinkedLoading
     ) {
       uiState.users.unlinkedLoading = true;
-      BlessERP.remoteUserAccess.listDirectory().then(result => {
+      Promise.all([
+        BlessERP.remoteUserAccess.listDirectory(),
+        BlessERP.remoteUserAccess.listProfiles()
+      ]).then(([result, profilesResult]) => {
         uiState.users.unlinkedLoading = false;
         uiState.users.unlinkedLoaded = true;
         if (result.ok) {
@@ -402,6 +415,8 @@
           adminService.replaceCloudDirectory(result.data?.users || []);
         }
         else uiState.users.errors = result.errors || ["No se pudieron consultar las cuentas sin acceso a JAEDER SYSTEMS."];
+        if (profilesResult.ok) uiState.users.profiles = Array.isArray(profilesResult.data) ? profilesResult.data : [];
+        else uiState.users.errors = [...uiState.users.errors, ...(profilesResult.errors || ["No se pudieron consultar los perfiles autorizados."])];
         BlessERP.layout.renderPage();
       });
     }
@@ -630,6 +645,11 @@
     document.querySelector("[data-user-company-role]")?.addEventListener("change", event => {
       syncUserDraftFromForm();
       userAccessFor(uiState.users.draft, event.target.dataset.userCompanyRole).roleCode = event.target.value;
+      BlessERP.layout.renderPage();
+    });
+    document.querySelector("[data-user-company-profile]")?.addEventListener("change", event => {
+      syncUserDraftFromForm();
+      userAccessFor(uiState.users.draft, event.target.dataset.userCompanyProfile).profileId = event.target.value;
       BlessERP.layout.renderPage();
     });
     document.querySelector("[data-user-company-status]")?.addEventListener("change", event => {

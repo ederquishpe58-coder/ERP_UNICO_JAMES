@@ -1,6 +1,7 @@
 const { assertUserCapability, getSupabaseAdmin, bearerToken } = require("./sri/_lib/supabase-admin.cjs");
 
 const COMPANY_KEY_PATTERN = /^COMP-[A-Z0-9]+(?:-[A-Z0-9]+)*$/;
+const PROFILE_ID_PATTERN = /^[A-Z][A-Z0-9_]{2,63}$/;
 const ROUTE_PATTERN = /^(?:\*|[a-z0-9][a-z0-9._:-]{0,127})$/;
 const MEMBERSHIP_ROLES = new Set(["OWNER", "ADMIN", "EDITOR", "VIEWER"]);
 const AUTH_USERNAME_DOMAIN = "users.jaeder.systems";
@@ -127,6 +128,30 @@ async function assertCanManage(client, actorUser, companyId, requestedRole = "VI
   return membership;
 }
 
+async function activeSecurityProfile(client, profileId) {
+  const id = String(profileId || "").trim().toUpperCase();
+  if (!PROFILE_ID_PATTERN.test(id)) throw new Error("Debe seleccionar un perfil de seguridad válido.");
+  const { data, error } = await client
+    .from("erp_security_profiles")
+    .select("profile_id, display_name, description, active, system_defined")
+    .eq("profile_id", id)
+    .eq("active", true)
+    .single();
+  if (error || !data) throw new Error("El perfil de seguridad no existe o está inactivo.");
+  return data;
+}
+
+async function listAssignableProfiles(client, actorUser, company) {
+  await assertCanManage(client, actorUser, company.id, "VIEWER", "admin.users.manage");
+  const { data, error } = await client
+    .from("erp_security_profiles")
+    .select("profile_id, display_name, description, active, system_defined")
+    .eq("active", true)
+    .order("display_name");
+  if (error) throw error;
+  return data || [];
+}
+
 async function assertMembershipTransition(client, actorUser, companyId, targetUserId, requestedRole) {
   const { data: targetMembership, error } = await client
     .from("user_company_memberships")
@@ -192,6 +217,13 @@ async function listUsers(client, actorUser, company) {
         .in("user_id", ids)
     : { data: [], error: null };
   if (profiles.error) throw profiles.error;
+  const securityProfiles = ids.length
+    ? await client.from("erp_security_user_company_profiles")
+        .select("company_id, user_id, profile_id")
+        .eq("company_id", company.id)
+        .in("user_id", ids)
+    : { data: [], error: null };
+  if (securityProfiles.error) throw securityProfiles.error;
   const permissions = ids.length
     ? await client.from("user_route_permissions")
         .select("company_id, user_id, route_id, can_view, can_create, can_edit, can_delete, can_approve, can_print, can_export")
@@ -207,6 +239,7 @@ async function listUsers(client, actorUser, company) {
   if (allMemberships.error) throw allMemberships.error;
   const linkedUserIds = new Set((allMemberships.data || []).map(row => row.user_id));
   const profileById = new Map((profiles.data || []).map(profile => [profile.user_id, profile]));
+  const securityProfileById = new Map((securityProfiles.data || []).map(profile => [profile.user_id, profile]));
   const linked = (memberships || []).map(membership => {
     const profile = profileById.get(membership.user_id) || {};
     const authUser = authUsers.get(membership.user_id);
@@ -222,6 +255,7 @@ async function listUsers(client, actorUser, company) {
       emailConfirmed: Boolean(authUser?.email_confirmed_at),
       unlinked: false,
       profile,
+      securityProfile: securityProfileById.get(membership.user_id) || null,
       membership,
       permissions: (permissions.data || []).filter(row => row.user_id === membership.user_id)
     };
@@ -356,7 +390,9 @@ async function upsertUser(client, actorUser, input) {
     const role = String(row.membershipRole || "VIEWER").toUpperCase();
     if (!MEMBERSHIP_ROLES.has(role)) throw new Error("El rol de membresía no es válido.");
     await assertCanManage(client, actorUser, company.id, role);
-    resolvedCompanies.push({ ...row, company, role });
+    const enabled = row.enabled !== false && String(row.status || "activo").toLowerCase() === "activo";
+    const securityProfile = enabled ? await activeSecurityProfile(client, row.profileId) : null;
+    resolvedCompanies.push({ ...row, company, role, enabled, securityProfile });
   }
 
   const resolvedTarget = await resolveTargetUser(client, input);
@@ -367,6 +403,7 @@ async function upsertUser(client, actorUser, input) {
     user_id: target.id,
     display_name: displayName,
     username: String(input.username || input.code || "").trim() || null,
+    phone: String(input.phone || "").trim() || null,
     is_active: isActive,
     default_company_id: resolvedCompanies.find(row => row.isDefault)?.company.id || resolvedCompanies[0].company.id
   }, { onConflict: "user_id" });
@@ -374,7 +411,7 @@ async function upsertUser(client, actorUser, input) {
 
   for (const row of resolvedCompanies) {
     await assertMembershipTransition(client, actorUser, row.company.id, target.id, row.role);
-    const active = isActive && row.enabled !== false && String(row.status || "activo").toLowerCase() === "activo";
+    const active = isActive && row.enabled;
     const { error: membershipError } = await client.from("user_company_memberships").upsert({
       company_id: row.company.id,
       user_id: target.id,
@@ -387,6 +424,16 @@ async function upsertUser(client, actorUser, input) {
       notes: String(input.observation || "").trim() || null
     }, { onConflict: "company_id,user_id" });
     if (membershipError) throw membershipError;
+
+    if (active && row.securityProfile) {
+      const { error: securityProfileError } = await client.from("erp_security_user_company_profiles").upsert({
+        company_id: row.company.id,
+        user_id: target.id,
+        profile_id: row.securityProfile.profile_id,
+        assigned_by: actorUser.id
+      }, { onConflict: "company_id,user_id" });
+      if (securityProfileError) throw securityProfileError;
+    }
 
     const { error: deleteError } = await client
       .from("user_route_permissions")
@@ -511,6 +558,9 @@ module.exports = async function handler(request, response) {
     const currentActor = await actor(client, request);
     if (request.method === "GET") {
       const company = await companyByKey(client, queryOf(request, "company"));
+      if (String(queryOf(request, "profiles") || "") === "1") {
+        return send(response, 200, { ok: true, data: await listAssignableProfiles(client, currentActor, company) });
+      }
       return send(response, 200, { ok: true, data: await listUsers(client, currentActor, company) });
     }
     if (request.method !== "POST") return send(response, 405, { ok: false, error: "Método no permitido." });

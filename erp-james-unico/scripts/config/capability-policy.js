@@ -172,7 +172,7 @@
     "reports-inventory": "reports.inventory.view",
     "reports-commercial": "reports.commercial.view",
     "settings-company": "admin.company.view",
-    "settings-users": "admin.users.view",
+    "settings-users": "admin.users.manage",
     "settings-audit": "admin.audit.view",
     "settings-sequences": "admin.sequences.view",
     "settings-cost-centers": "admin.cost_centers.view",

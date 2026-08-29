@@ -35,7 +35,7 @@
     return ["test", "production"].includes(String(configured || "").trim().toLowerCase());
   }
 
-  function companyProfiles() {
+  function localCompanyProfiles() {
     const rows = BlessERP.companyCapabilities?.listCompanies?.() || [];
     if (rows.length) return rows;
     return [
@@ -44,11 +44,55 @@
     ];
   }
 
+  function companyProfiles() {
+    const localProfiles = localCompanyProfiles();
+    if (!isOperationalDeployment()) return localProfiles;
+
+    const access = BlessERP.authAccess?.activeAccess?.() || {};
+    const allowedKeys = new Set(
+      (access.allowedCompanyKeys || [access.activeCompanyKey])
+        .map(value => String(value || "").trim())
+        .filter(Boolean)
+    );
+    const activeKey = String(access.activeCompanyKey || "").trim();
+    const canonicalRows = (Array.isArray(access.companies) ? access.companies : [])
+      .filter(company => company?.is_active !== false)
+      .filter(company => allowedKeys.has(String(company?.company_key || "").trim()))
+      .map(company => {
+        const companyKey = String(company.company_key || "").trim();
+        const local = localProfiles.find(profile => profile.id === companyKey) || {};
+        return {
+          ...local,
+          id: companyKey,
+          companyKey,
+          cloudCompanyId: String(company.id || "").trim(),
+          code: String(company.company_code || local.code || companyKey).trim(),
+          commercialName: String(company.commercial_name || local.commercialName || companyKey).trim(),
+          legalName: String(company.legal_name || local.legalName || "").trim(),
+          status: "ACTIVA"
+        };
+      })
+      .filter(company => company.id && company.cloudCompanyId)
+      .sort((left, right) => Number(right.id === activeKey) - Number(left.id === activeKey));
+
+    return canonicalRows;
+  }
+
   function activeCompanyId() {
     return BlessERP.services?.companyContext?.activeCompanyId?.()
       || stateApi.state.db.activeCompanyId
       || companyProfiles()[0]?.id
       || "COMP-BLESS-FLOWER";
+  }
+
+  function activeCompanyIdentity() {
+    const companyKey = activeCompanyId();
+    const company = companyProfiles().find(profile => profile.id === companyKey) || null;
+    return {
+      companyId: String(company?.cloudCompanyId || "").trim(),
+      companyKey,
+      active: Boolean(company && company.status !== "INACTIVA")
+    };
   }
 
   function normalizeRouteAccess(value = {}) {
@@ -64,6 +108,8 @@
       enabled: Boolean(enabled),
       status: enabled ? "activo" : "inactivo",
       roleCode: BlessERP.menuService?.normalizeRoleCode?.(roleValue) || "INVITADO",
+      membershipRole: "",
+      profileId: "",
       routeAccess: {}
     };
   }
@@ -84,6 +130,8 @@
         enabled,
         status: enabled && String(current.status || "activo").toLowerCase() !== "inactivo" ? "activo" : "inactivo",
         roleCode: BlessERP.menuService?.normalizeRoleCode?.(current.roleCode || roleValue) || "INVITADO",
+        membershipRole: String(current.membershipRole || "").trim().toUpperCase(),
+        profileId: String(current.profileId || current.profile_id || "").trim().toUpperCase(),
         routeAccess: normalizeRouteAccess(current.routeAccess)
       };
     });
@@ -317,6 +365,7 @@
       name: String(current.name || current.fullName || "").trim(),
       fullName: String(current.fullName || current.name || "").trim(),
       email: String(current.email || "").trim(),
+      phone: String(current.phone || "").trim(),
       username,
       role,
       cargo: String(current.cargo || current.role || "").trim(),
@@ -497,6 +546,7 @@
       name: "",
       fullName: "",
       email: "",
+      phone: "",
       username: "",
       role: "Solo consulta básica",
       cargo: "",
@@ -1098,6 +1148,7 @@
     sequenceAllowed,
     ensureStore,
     activeUser,
+    activeCompanyIdentity,
     accessPreview,
     companyProfiles,
     createUserDraft,

@@ -45,6 +45,34 @@
     });
   }
 
+  function allowedCompanyKeys() {
+    const access = BlessERP.authAccess?.activeAccess?.() || {};
+    return new Set(
+      (access.allowedCompanyKeys || [access.activeCompanyKey])
+        .map(value => String(value || "").trim())
+        .filter(Boolean)
+    );
+  }
+
+  function scopedCompanyEntries(user) {
+    const allowed = allowedCompanyKeys();
+    return Object.entries(user.companyAccess || {}).filter(([companyKey, access]) => {
+      if (allowed.has(companyKey)) return true;
+      return access?.enabled !== true && String(access?.status || "inactivo").toLowerCase() === "inactivo";
+    }).filter(([companyKey]) => allowed.has(companyKey));
+  }
+
+  function unauthorizedEnabledCompanyKeys(user) {
+    const allowed = allowedCompanyKeys();
+    return Object.entries(user.companyAccess || {})
+      .filter(([companyKey, access]) => (
+        !allowed.has(companyKey)
+        && access?.enabled === true
+        && String(access?.status || "activo").toLowerCase() !== "inactivo"
+      ))
+      .map(([companyKey]) => companyKey);
+  }
+
   function payloadFor(user, options = {}) {
     const companyAccess = user.companyAccess || {};
     return {
@@ -54,6 +82,7 @@
       code: user.code || "",
       name: user.name || user.fullName || "",
       fullName: user.fullName || user.name || "",
+      phone: user.phone || "",
       cargo: user.cargo || user.role || "",
       role: user.role || user.cargo || "",
       area: user.area || "",
@@ -62,9 +91,10 @@
       preserveAuthEmail: user.preserveAuthEmail === true,
       password: String(options.password || ""),
       inviteRedirectTo: `${window.location.origin}/crear-contrasena`,
-      companies: Object.entries(companyAccess).map(([companyKey, access], index) => ({
+      companies: scopedCompanyEntries({ companyAccess }).map(([companyKey, access], index) => ({
         companyKey,
         membershipRole: membershipRole(access),
+        profileId: String(access.profileId || "").trim().toUpperCase(),
         enabled: access.enabled !== false,
         status: access.status || "activo",
         isDefault: index === 0,
@@ -127,6 +157,14 @@
 
   async function save(user, options = {}) {
     if (!enabled()) return { ok: true, user };
+    const unauthorizedCompanies = unauthorizedEnabledCompanyKeys(user);
+    if (unauthorizedCompanies.length) {
+      return {
+        ok: false,
+        code: "COMPANY_SCOPE_DENIED",
+        errors: ["No tiene autorización para administrar usuarios de la empresa solicitada."]
+      };
+    }
     if (!user.cloudManaged && inviteBlockedUntil > Date.now()) {
       return {
         ok: false,
@@ -192,6 +230,14 @@
     };
   }
 
+  async function listProfiles() {
+    if (!enabled()) return { ok: true, data: [] };
+    const companyKey = BlessERP.authAccess?.activeAccess?.()?.activeCompanyKey || "";
+    return requestJson(`/api/admin-users?company=${encodeURIComponent(companyKey)}&profiles=1`, {
+      method: "GET"
+    });
+  }
+
   function roleCodeForMembership(role = "VIEWER") {
     const normalized = String(role || "VIEWER").toUpperCase();
     if (["OWNER", "ADMIN"].includes(normalized)) return "ADMIN";
@@ -228,6 +274,7 @@
           name: String(membership.display_name_override || profile.display_name || row.email || row.loginEmail || "Usuario").trim(),
           fullName: String(membership.display_name_override || profile.display_name || row.email || row.loginEmail || "Usuario").trim(),
           email: String(row.email || "").trim(),
+          phone: String(profile.phone || "").trim(),
           role: roleCodeForMembership(membership.membership_role),
           cargo: String(membership.job_title || membership.membership_role || "").trim(),
           area: String(membership.area || "").trim(),
@@ -243,6 +290,7 @@
           roleCode: roleCodeForMembership(membership.membership_role),
           membershipRole: membership.membership_role,
           membershipId: membership.id,
+          profileId: String(row.securityProfile?.profile_id || "").trim(),
           routeAccess: Object.fromEntries((row.permissions || []).map(permission => [permission.route_id, permission.can_view === true])),
           permissions: row.permissions || []
         };
@@ -261,6 +309,7 @@
   BlessERP.remoteUserAccess = {
     enabled,
     listDirectory,
+    listProfiles,
     listUnlinked,
     payloadFor,
     remove,
