@@ -43,7 +43,8 @@ assert.ok(parameters.includes('suppliers: "operations.farms_blocks.manage"'));
 assert.ok(parameters.includes('varieties: "operations.varieties.manage"'));
 assert.ok(parameters.includes('function assertManageType(type)'));
 assert.ok(moduleIndex.includes('assertManageType?.(parameterType)'));
-assert.ok(moduleIndex.includes('assertManageType?.(String(action.dataset.type || ""))'));
+assert.ok(moduleIndex.includes('const parameterType = String(action.dataset.type || "")'));
+assert.ok(moduleIndex.includes('assertManageType?.(parameterType)'));
 assert.ok(repository.includes('label: "Fincas / Bloques"'));
 
 for (const capability of ['operations.farms_blocks.manage', 'operations.varieties.manage']) {

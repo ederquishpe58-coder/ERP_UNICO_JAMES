@@ -36610,6 +36610,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     labelTypes: Object.freeze({ entity: "operations_label_types", label: "Tipos de etiqueta" })
   });
   const TYPE_BY_ENTITY = new Map(Object.entries(TYPES).map(([type, config]) => [config.entity, type]));
+  const CANONICAL_EDIT_TYPES = new Set(["suppliers", "varieties"]);
+  const RECORD_SELECT = "id,company_id,entity,record_id,payload,version,created_at,updated_at,created_by,updated_by,device_id,last_operation_id,deleted_at";
 
   function activeCompanyId() {
     return String(
@@ -36648,8 +36650,192 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       type,
       __syncVersion: Number(record?.version || payload.__syncVersion || 0),
       __syncUpdatedAt: String(record?.updated_at || payload.updated_at || ""),
-      __canonicalRecordId: String(record?.record_id || payload.id || "")
+      __canonicalRecordId: String(record?.record_id || payload.id || ""),
+      __canonicalPayload: { ...payload }
     };
+  }
+
+  function uuid() {
+    return BlessERP.offlineSync?.createOperationId?.() || globalThis.crypto?.randomUUID?.()
+      || "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, character => {
+        const random = Math.random() * 16 | 0;
+        return (character === "x" ? random : (random & 0x3 | 0x8)).toString(16);
+      });
+  }
+
+  function payloadOf(item = {}) {
+    const source = item.__canonicalPayload && typeof item.__canonicalPayload === "object"
+      ? item.__canonicalPayload
+      : item;
+    return Object.fromEntries(Object.entries(source).filter(([key]) => (
+      key !== "type" && !String(key).startsWith("__")
+    )));
+  }
+
+  async function get(type, recordId) {
+    const config = TYPES[type];
+    const companyId = activeCompanyId();
+    const id = String(recordId || "").trim();
+    if (!config || !companyId || !id || !configured()) {
+      return { ok: false, mode: "REMOTE_REQUIRED", message: "Supabase debe estar disponible para consultar el registro canónico." };
+    }
+    const { data, error } = await BlessERP.getSupabaseClient()
+      .from("erp_entity_records")
+      .select(RECORD_SELECT)
+      .eq("company_id", companyId)
+      .eq("entity", config.entity)
+      .eq("record_id", id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) return { ok: false, mode: "SUPABASE_ERROR", error, message: error.message || "No se pudo consultar el registro canónico." };
+    if (!data) return { ok: false, mode: "NOT_FOUND", message: "El registro ya no existe en el catálogo canónico." };
+    return { ok: true, serverRecord: data, record: mapRecord(data, type), mode: "SUPABASE_CONFIRMED" };
+  }
+
+  function normalizeBusinessValue(value) {
+    return String(value || "").trim().replace(/\s+/g, " ");
+  }
+
+  function likeLiteral(value) {
+    return normalizeBusinessValue(value).replace(/[\\%_]/g, character => `\\${character}`);
+  }
+
+  async function duplicate(type, field, value, recordId = "") {
+    const config = TYPES[type];
+    const companyId = activeCompanyId();
+    const expected = normalizeBusinessValue(value);
+    if (!config || !companyId || !expected) return null;
+    let query = BlessERP.getSupabaseClient()
+      .from("erp_entity_records")
+      .select("record_id,payload")
+      .eq("company_id", companyId)
+      .eq("entity", config.entity)
+      .is("deleted_at", null)
+      .ilike(`payload->>${field}`, likeLiteral(expected))
+      .limit(2);
+    if (recordId) query = query.neq("record_id", recordId);
+    const { data, error } = await query;
+    if (error) throw error;
+    return (Array.isArray(data) ? data : []).find(row => (
+      normalizeBusinessValue(row?.payload?.[field]).toLocaleUpperCase("es-EC")
+      === expected.toLocaleUpperCase("es-EC")
+    )) || null;
+  }
+
+  function mutationPayload(type, draft, basePayload, recordId, operationId) {
+    const next = {
+      ...basePayload,
+      id: recordId,
+      code: normalizeBusinessValue(draft.code || basePayload.code
+        || `${type === "suppliers" ? "FIN" : "VAR"}-${operationId.slice(0, 8).toUpperCase()}`),
+      name: normalizeBusinessValue(draft.name),
+      active: draft.active !== false,
+      observation: normalizeBusinessValue(draft.observation)
+    };
+    if (type === "suppliers") next.assignedBlock = normalizeBusinessValue(draft.assignedBlock).toUpperCase();
+    return next;
+  }
+
+  async function applyConfirmedServerRecord(serverRecord) {
+    const result = await BlessERP.offlineSync?.applyRemoteRecord?.(serverRecord, {
+      source: "POSTHARVEST_PARAMETER_CONFIRMED",
+      force: true,
+      forceServer: true,
+      ignoreRecordHold: true,
+      ignoreEditGuard: true
+    });
+    if (result && result.ok === false) throw new Error("Supabase confirmó el parámetro, pero no se pudo actualizar la caché canónica operativa.");
+    return result;
+  }
+
+  async function save(type, draft = {}) {
+    const config = TYPES[type];
+    const companyId = activeCompanyId();
+    if (!CANONICAL_EDIT_TYPES.has(type) || !config) {
+      return { ok: false, mode: "INVALID_TYPE", message: "Este catálogo no admite edición canónica desde esta pantalla." };
+    }
+    if (!configured() || !companyId) {
+      return { ok: false, mode: "REMOTE_REQUIRED", message: "Supabase debe confirmar la edición del catálogo." };
+    }
+    if (!BlessERP.offlineSync?.applyRemoteRecord || !BlessERP.offlineSync?.buildFieldChanges) {
+      return { ok: false, mode: "SYNC_RUNTIME_REQUIRED", message: "El runtime canónico de sincronización no está disponible." };
+    }
+
+    const name = normalizeBusinessValue(draft.name);
+    const assignedBlock = normalizeBusinessValue(draft.assignedBlock).toUpperCase();
+    if (!name) return { ok: false, mode: "VALIDATION", message: "Ingrese el nombre del parámetro." };
+    if (type === "suppliers" && !assignedBlock) {
+      return { ok: false, mode: "VALIDATION", message: "Asigne el bloque canónico de la finca." };
+    }
+
+    const existingId = String(draft.__canonicalRecordId || draft.id || "").trim();
+    let current = null;
+    if (existingId) {
+      const found = await get(type, existingId);
+      if (!found.ok) return found;
+      current = found.record;
+    }
+
+    try {
+      const duplicateName = await duplicate(type, "name", name, existingId);
+      if (duplicateName) return { ok: false, mode: "DUPLICATE", message: "Ya existe un registro canónico con el mismo nombre." };
+      const normalizedCode = normalizeBusinessValue(draft.code || current?.code);
+      if (normalizedCode) {
+        const duplicateCode = await duplicate(type, "code", normalizedCode, existingId);
+        if (duplicateCode) return { ok: false, mode: "DUPLICATE", message: "Ya existe un registro canónico con el mismo código." };
+      }
+      if (type === "suppliers") {
+        const duplicateBlock = await duplicate(type, "assignedBlock", assignedBlock, existingId);
+        if (duplicateBlock) return { ok: false, mode: "DUPLICATE", message: `El bloque ${assignedBlock} ya pertenece a otra finca canónica.` };
+      }
+    } catch (error) {
+      return { ok: false, mode: "SUPABASE_ERROR", error, message: error.message || "No se pudieron validar los duplicados canónicos." };
+    }
+
+    const operationId = uuid();
+    const recordId = existingId || `${type === "suppliers" ? "FARM" : "VAR"}-${operationId}`;
+    const basePayload = current ? payloadOf(current) : {};
+    const payload = mutationPayload(type, draft, basePayload, recordId, operationId);
+    const deviceId = String(await BlessERP.offlineSync?.getDeviceId?.() || `WEB-PARAM-${operationId.slice(0, 12)}`);
+    const fieldChanges = BlessERP.offlineSync?.buildFieldChanges?.(basePayload, payload) || [];
+    const { data, error } = await BlessERP.getSupabaseClient().rpc("erp_apply_offline_operation", {
+      p_operation_id: operationId,
+      p_company_id: companyId,
+      p_device_id: deviceId,
+      p_entity: config.entity,
+      p_action: current ? "UPDATE" : "INSERT",
+      p_record_id: recordId,
+      p_payload: payload,
+      p_base_payload: basePayload,
+      p_field_changes: fieldChanges,
+      p_base_version: Number(current?.__syncVersion || 0),
+      p_local_created_at: new Date().toISOString()
+    });
+    if (error) return { ok: false, mode: "SUPABASE_ERROR", error, message: error.message || "Supabase rechazó el cambio del catálogo." };
+    const command = Array.isArray(data) ? data[0] : data;
+    if (command?.conflict || String(command?.status || "").toUpperCase() === "CONFLICT") {
+      return { ok: false, mode: "CONFLICT", message: "El registro cambió en otra sesión. Consulte nuevamente antes de editar." };
+    }
+    let serverRecord = command?.server_record || null;
+    if (!serverRecord?.record_id) {
+      const confirmed = await get(type, recordId);
+      if (!confirmed.ok) return { ...confirmed, mode: "CONFIRMATION_FAILED" };
+      serverRecord = confirmed.serverRecord;
+    }
+    await applyConfirmedServerRecord(serverRecord);
+    return {
+      ok: true,
+      confirmed: true,
+      mode: "SUPABASE_CONFIRMED",
+      operationId,
+      serverRecord,
+      record: mapRecord(serverRecord, type)
+    };
+  }
+
+  async function setActive(type, item, active) {
+    if (!item?.id) return { ok: false, mode: "INVALID_RECORD", message: "Seleccione un registro canónico." };
+    return save(type, { ...item, active: Boolean(active) });
   }
 
   async function list(filters = {}) {
@@ -36752,8 +36938,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   const repository = Object.freeze({
     list,
+    get,
     history,
+    save,
+    setActive,
     types: () => TYPES,
+    isCanonicalEditableType: type => CANONICAL_EDIT_TYPES.has(String(type || "")),
     typeForEntity: entity => TYPE_BY_ENTITY.get(String(entity || "")) || "",
     activeCompanyId,
     configured,
@@ -103874,7 +104064,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     };
     Object.entries(map).forEach(([catalogKey, masterKey]) => {
       const values = activeMasterNames(store, masterKey);
-      if (values.length) store.catalogs[catalogKey] = values;
+      // Fincas/bloques y variedades ya son catálogos canónicos de servidor.
+      // Incluso un conjunto activo vacío es autoritativo y debe retirar del
+      // selector operativo cualquier valor legacy previamente cacheado.
+      if (values.length || ["suppliers", "varieties"].includes(masterKey)) {
+        store.catalogs[catalogKey] = values;
+      }
     });
   }
 
@@ -107479,6 +107674,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     linkOperationalCatalogEmployee,
     migrateLegacyEmployeeLinks,
     resolveCatalogEmployee,
+    syncCatalogsFromMasterData,
     syncPayrollPerformanceEntries,
     generateLabelBatch,
     markDispatchReady,
@@ -110859,16 +111055,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     ].join(" ")).includes(search);
   }
 
-  function catalogRows(store) {
-    const localRows = store.masterData?.[catalogUi.type] || [];
-    const byId = new Map(localRows.map(item => [String(item.id), item]));
-    return catalogUi.rows.map(item => {
-      const local = byId.get(String(item.id));
-      if (!local) return item;
-      const localVersion = Number(local.__syncVersion || 0);
-      const remoteVersion = Number(item.__syncVersion || 0);
-      return localVersion >= remoteVersion ? { ...item, ...local, type: catalogUi.type } : item;
-    });
+  function catalogRows() {
+    // La consulta paginada ya proviene de erp_entity_records. No se mezcla con
+    // defaults, caché legacy ni borradores locales: el snapshot del backend es
+    // el conjunto autoritativo visible en Parámetros.
+    return [...catalogUi.rows];
   }
 
   function formatDateTime(value) {
@@ -110929,7 +111120,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   function renderVarietyImageEditor(draft, store, utils) {
     if (draft.type !== "varieties") return "";
-    const variety = (store.masterData?.varieties || []).find(item => String(item.id) === String(draft.id || "")) || draft;
+    const variety = draft;
     const hasCanonicalVersion = Number(variety?.__syncVersion || 0) > 0;
     const hasImage = Boolean(String(variety?.imagePath || "").trim() || varietyImageUrl(variety));
     return `<div class="ops-variety-image-editor ops-form-span-2">
@@ -110969,7 +111160,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
             <button type="button" data-ops-parameter-query-action="detail" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Ver detalle</button>
             <button type="button" data-ops-parameter-query-action="history" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Ver historial</button>
             ${canManageType(item.type) ? `<button type="button" data-ops-action="parameter-toggle" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">${item.active !== false ? "Desactivar" : "Activar"}</button>
-            <button type="button" class="is-danger" data-ops-action="parameter-delete" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Eliminar</button>` : ""}
+            ${catalogRepository()?.isCanonicalEditableType?.(item.type) ? "" : `<button type="button" class="is-danger" data-ops-action="parameter-delete" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Eliminar</button>`}` : ""}
           </div>
         </details></td>
       </tr>`).join("")}</tbody>
@@ -111033,7 +111224,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     const manageAllowed = canManageType(draft.type);
     const payroll = canonicalPayrollData();
     const employees = payroll.employees;
-    const rows = catalogRows(store);
+    const rows = catalogRows();
     const pageCount = Math.max(1, Math.ceil(catalogUi.total / catalogUi.pageSize));
     const from = catalogUi.total ? ((catalogUi.page - 1) * catalogUi.pageSize) + 1 : 0;
     const to = catalogUi.total ? Math.min(catalogUi.page * catalogUi.pageSize, catalogUi.total) : 0;
@@ -111052,7 +111243,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       ${manageAllowed ? `<section class="panel-card ops-parameter-form-card" data-ops-parameter-form>
           <div class="panel-card-head">
             <div><p class="section-kicker">PARAMETRO</p><h3>${draft.id ? "Editar parametro" : "Nuevo parametro"}</h3></div>
-            <span class="status-badge authorized">CANÓNICO</span>
+            <span class="status-badge authorized">SUPABASE CANÓNICO</span>
           </div>
           <div class="ops-form-grid">
             <label class="compact-inline-field"><span>Tipo</span><select data-ops-bind="parameterDraft" data-field="type" ${fixedType ? "disabled" : ""}>${typeEntries.map(([value, label]) => `<option value="${utils.esc(value)}" ${value === draft.type ? "selected" : ""}>${utils.esc(label)}</option>`).join("")}</select>${fixedType ? `<input type="hidden" data-ops-bind="parameterDraft" data-field="type" value="${utils.esc(fixedType)}">` : ""}</label>
@@ -111172,17 +111363,76 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     return result;
   }
 
-  function ensureQueryRowInOperationalCache(appState, type, id) {
+  function queriedRecord(type, id) {
+    return catalogUi.rows.find(item => (
+      String(item.type) === String(type) && String(item.id) === String(id)
+    )) || null;
+  }
+
+  function setCanonicalDraft(appState, record) {
+    if (!record) return false;
     const store = BlessERP.operacionesState.getStore(appState);
-    const list = store.masterData?.[type];
-    if (!Array.isArray(list)) return null;
-    let row = list.find(item => String(item.id) === String(id));
-    if (row) return row;
-    const queried = catalogUi.rows.find(item => String(item.type) === String(type) && String(item.id) === String(id));
-    if (!queried) return null;
-    row = { ...queried };
-    list.push(row);
-    return row;
+    store.ui.parameterType = String(record.type || catalogUi.type);
+    store.ui.parameterDraft = { ...record, type: store.ui.parameterType };
+    return true;
+  }
+
+  function editCanonicalParameter(appState, type, id) {
+    if (!catalogRepository()?.isCanonicalEditableType?.(type)) return false;
+    return setCanonicalDraft(appState, queriedRecord(type, id));
+  }
+
+  function applyCanonicalResult(appState, type, result, options = {}) {
+    if (!result?.ok || !result.record) return false;
+    const record = { ...result.record, type };
+    const store = BlessERP.operacionesState.getStore(appState);
+    BlessERP.operacionesState.syncCatalogsFromMasterData?.(store);
+    const index = catalogUi.rows.findIndex(item => String(item.id) === String(record.id));
+    const visible = matchesCatalogQuery(record, type);
+    if (!visible && index >= 0) {
+      catalogUi.rows.splice(index, 1);
+      catalogUi.total = Math.max(0, catalogUi.total - 1);
+    } else if (visible && index >= 0) {
+      catalogUi.rows[index] = record;
+    } else if (visible && catalogUi.queried && catalogUi.page === 1 && type === catalogUi.type) {
+      catalogUi.rows.unshift(record);
+      catalogUi.rows = catalogUi.rows.slice(0, catalogUi.pageSize);
+      catalogUi.total += 1;
+    }
+    if (options.keepDraft) setCanonicalDraft(appState, record);
+    return true;
+  }
+
+  async function saveCanonicalParameter(appState, type) {
+    if (!catalogRepository()?.isCanonicalEditableType?.(type)) return null;
+    const stateApi = BlessERP.operacionesState;
+    const store = stateApi.getStore(appState);
+    const result = await catalogRepository().save(type, store.ui.parameterDraft || {});
+    if (!result?.ok) {
+      stateApi.setNotice(appState, result?.message || "No se pudo confirmar el parámetro en Supabase.", "warning", false);
+      return result;
+    }
+    applyCanonicalResult(appState, type, result);
+    stateApi.resetParameterDraft(appState, type);
+    stateApi.setNotice(appState, `Parámetro confirmado por Supabase: ${result.record.name}.`, "success", false);
+    BlessERP.performance?.invalidateCache?.("ops-catalogs:");
+    return result;
+  }
+
+  async function setCanonicalParameterActive(appState, type, id) {
+    if (!catalogRepository()?.isCanonicalEditableType?.(type)) return null;
+    const stateApi = BlessERP.operacionesState;
+    const current = queriedRecord(type, id);
+    if (!current) return { ok: false, mode: "NOT_QUERIED", message: "Consulte nuevamente el registro canónico." };
+    const result = await catalogRepository().setActive(type, current, current.active === false);
+    if (!result?.ok) {
+      stateApi.setNotice(appState, result?.message || "No se pudo confirmar el estado en Supabase.", "warning", false);
+      return result;
+    }
+    applyCanonicalResult(appState, type, result);
+    stateApi.setNotice(appState, `${result.record.name}: ${result.record.active !== false ? "ACTIVO" : "INACTIVO"}, confirmado por Supabase.`, "success", false);
+    BlessERP.performance?.invalidateCache?.("ops-catalogs:");
+    return result;
   }
 
   function noteLocalMutation(appState, type, id) {
@@ -111274,8 +111524,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       if (intention === "edit") {
         const type = String(action.dataset.type || "");
         const id = String(action.dataset.id || "");
-        if (ensureQueryRowInOperationalCache(appState, type, id)) {
-          BlessERP.operacionesState.editParameter(appState, type, id);
+        if (editCanonicalParameter(appState, type, id)) {
           BlessERP.layout?.renderPage?.();
         }
       }
@@ -111303,10 +111552,13 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   if (!window.__OPS_PARAMETERS_SEARCH_REALTIME_BOUND__) {
     window.__OPS_PARAMETERS_SEARCH_REALTIME_BOUND__ = true;
     window.addEventListener("erp:canonical-record-updated", event => {
-      if (!isParameterRoute()) return;
       const repository = catalogRepository();
       const type = repository?.typeForEntity?.(event.detail?.entity);
       if (!type) return;
+      const appState = BlessERP.state?.state;
+      const store = appState ? BlessERP.operacionesState?.getStore?.(appState) : null;
+      if (store) BlessERP.operacionesState.syncCatalogsFromMasterData?.(store);
+      if (!isParameterRoute()) return;
       event.preventDefault?.();
       if (!catalogUi.queried || type !== catalogUi.type) return;
       const recordId = String(event.detail?.recordId || "");
@@ -111337,6 +111589,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     operationalWorkerId,
     queryCatalog,
     queryHistory,
+    queriedRecord,
+    editCanonicalParameter,
+    saveCanonicalParameter,
+    setCanonicalParameterActive,
+    applyCanonicalResult,
     noteLocalMutation,
     isParameterRoute,
     manageCapabilityForType,
@@ -120040,14 +120297,21 @@ ${barcodeGraphic.zpl}
     const store = stateApi.getStore(appState);
     const draft = store.ui?.parameterDraft || {};
     if (draft.type !== "varieties" || !draft.id) return null;
-    return (store.masterData?.varieties || []).find(item => String(item.id) === String(draft.id)) || null;
+    return draft;
   }
 
-  function refreshParameterVarietyDraft(appState, varietyId) {
-    const store = stateApi.getStore(appState);
-    const variety = (store.masterData?.varieties || []).find(item => String(item.id) === String(varietyId));
-    if (variety) store.ui.parameterDraft = { ...variety, type: "varieties" };
-    return variety || null;
+  function applyParameterVarietyImageConfirmation(appState, result) {
+    const queryRepository = BlessERP.getPostharvestParameterQueryRepository?.();
+    const record = result?.serverRecord && queryRepository?.mapRecord
+      ? queryRepository.mapRecord(result.serverRecord, "varieties")
+      : null;
+    if (!record) return null;
+    BlessERP.operacionesParametros?.applyCanonicalResult?.(appState, "varieties", {
+      ok: true,
+      record,
+      serverRecord: result.serverRecord
+    }, { keepDraft: true });
+    return record;
   }
 
   async function uploadParameterVarietyImage(appState, file) {
@@ -120068,7 +120332,7 @@ ${barcodeGraphic.zpl}
       stateApi.setNotice(appState, result.message || "No se pudo guardar la imagen.", "danger", false);
       return result;
     }
-    refreshParameterVarietyDraft(appState, variety.id);
+    applyParameterVarietyImageConfirmation(appState, result);
     stateApi.setNotice(appState,
       result.cleanupWarning || `Imagen actualizada para ${variety.name}.`,
       result.cleanupWarning ? "warning" : "success",
@@ -120087,7 +120351,7 @@ ${barcodeGraphic.zpl}
       stateApi.setNotice(appState, result.message || "No se pudo eliminar la imagen.", "danger", false);
       return result;
     }
-    refreshParameterVarietyDraft(appState, variety.id);
+    applyParameterVarietyImageConfirmation(appState, result);
     stateApi.setNotice(appState,
       result.cleanupWarning || `Imagen eliminada de ${variety.name}.`,
       result.cleanupWarning ? "warning" : "success",
@@ -120763,6 +121027,15 @@ ${barcodeGraphic.zpl}
           });
           const parameterType = String(stateApi.getUi(appState).parameterDraft?.type || "");
           if (!BlessERP.operacionesParametros?.assertManageType?.(parameterType)) return;
+          const canonicalRepository = BlessERP.getPostharvestParameterQueryRepository?.();
+          if (canonicalRepository?.isCanonicalEditableType?.(parameterType)) {
+            action.disabled = true;
+            const result = await BlessERP.operacionesParametros?.saveCanonicalParameter?.(appState, parameterType);
+            BlessERP.layout.toast(result?.ok
+              ? `Parámetro confirmado por Supabase: ${result.record.name}`
+              : (result?.message || "No se pudo confirmar el parámetro en Supabase."));
+            return;
+          }
           const result = stateApi.saveParameter(appState);
           if (result?.ok) {
             BlessERP.operacionesParametros?.noteLocalMutation?.(appState, parameterType, result.entry?.id);
@@ -120784,21 +121057,43 @@ ${barcodeGraphic.zpl}
         return;
       }
       if (action.dataset.opsAction === "parameter-edit") {
-        if (!BlessERP.operacionesParametros?.assertManageType?.(String(action.dataset.type || ""))) return;
-        stateApi.editParameter(appState, action.dataset.type, action.dataset.id);
+        const parameterType = String(action.dataset.type || "");
+        if (!BlessERP.operacionesParametros?.assertManageType?.(parameterType)) return;
+        const canonicalRepository = BlessERP.getPostharvestParameterQueryRepository?.();
+        if (canonicalRepository?.isCanonicalEditableType?.(parameterType)) {
+          BlessERP.operacionesParametros?.editCanonicalParameter?.(appState, parameterType, action.dataset.id);
+        } else {
+          stateApi.editParameter(appState, parameterType, action.dataset.id);
+        }
         rerender();
         return;
       }
       if (action.dataset.opsAction === "parameter-toggle") {
-        if (!BlessERP.operacionesParametros?.assertManageType?.(String(action.dataset.type || ""))) return;
-        const changed = stateApi.toggleParameter(appState, action.dataset.type, action.dataset.id);
+        const parameterType = String(action.dataset.type || "");
+        if (!BlessERP.operacionesParametros?.assertManageType?.(parameterType)) return;
+        const canonicalRepository = BlessERP.getPostharvestParameterQueryRepository?.();
+        if (canonicalRepository?.isCanonicalEditableType?.(parameterType)) {
+          action.disabled = true;
+          const result = await BlessERP.operacionesParametros?.setCanonicalParameterActive?.(appState, parameterType, action.dataset.id);
+          BlessERP.layout.toast(result?.ok
+            ? `${result.record.name}: ${result.record.active !== false ? "ACTIVO" : "INACTIVO"}`
+            : (result?.message || "No se pudo confirmar el estado en Supabase."));
+          rerender();
+          return;
+        }
+        const changed = stateApi.toggleParameter(appState, parameterType, action.dataset.id);
         if (changed) BlessERP.operacionesParametros?.noteLocalMutation?.(appState, action.dataset.type, action.dataset.id);
         rerender();
         return;
       }
       if (action.dataset.opsAction === "parameter-delete") {
-        if (!BlessERP.operacionesParametros?.assertManageType?.(String(action.dataset.type || ""))) return;
-        const changed = stateApi.deleteParameter(appState, action.dataset.type, action.dataset.id);
+        const parameterType = String(action.dataset.type || "");
+        if (!BlessERP.operacionesParametros?.assertManageType?.(parameterType)) return;
+        if (BlessERP.getPostharvestParameterQueryRepository?.()?.isCanonicalEditableType?.(parameterType)) {
+          BlessERP.layout.toast("Este catálogo conserva auditoría: use Activar o Desactivar.");
+          return;
+        }
+        const changed = stateApi.deleteParameter(appState, parameterType, action.dataset.id);
         if (changed) BlessERP.operacionesParametros?.noteLocalMutation?.(appState, action.dataset.type, action.dataset.id);
         rerender();
         return;

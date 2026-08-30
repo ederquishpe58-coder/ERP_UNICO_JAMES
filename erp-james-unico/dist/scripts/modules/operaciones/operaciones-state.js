@@ -625,7 +625,12 @@
     };
     Object.entries(map).forEach(([catalogKey, masterKey]) => {
       const values = activeMasterNames(store, masterKey);
-      if (values.length) store.catalogs[catalogKey] = values;
+      // Fincas/bloques y variedades ya son catálogos canónicos de servidor.
+      // Incluso un conjunto activo vacío es autoritativo y debe retirar del
+      // selector operativo cualquier valor legacy previamente cacheado.
+      if (values.length || ["suppliers", "varieties"].includes(masterKey)) {
+        store.catalogs[catalogKey] = values;
+      }
     });
   }
 
@@ -4230,6 +4235,7 @@
     linkOperationalCatalogEmployee,
     migrateLegacyEmployeeLinks,
     resolveCatalogEmployee,
+    syncCatalogsFromMasterData,
     syncPayrollPerformanceEntries,
     generateLabelBatch,
     markDispatchReady,

@@ -773,14 +773,21 @@
     const store = stateApi.getStore(appState);
     const draft = store.ui?.parameterDraft || {};
     if (draft.type !== "varieties" || !draft.id) return null;
-    return (store.masterData?.varieties || []).find(item => String(item.id) === String(draft.id)) || null;
+    return draft;
   }
 
-  function refreshParameterVarietyDraft(appState, varietyId) {
-    const store = stateApi.getStore(appState);
-    const variety = (store.masterData?.varieties || []).find(item => String(item.id) === String(varietyId));
-    if (variety) store.ui.parameterDraft = { ...variety, type: "varieties" };
-    return variety || null;
+  function applyParameterVarietyImageConfirmation(appState, result) {
+    const queryRepository = BlessERP.getPostharvestParameterQueryRepository?.();
+    const record = result?.serverRecord && queryRepository?.mapRecord
+      ? queryRepository.mapRecord(result.serverRecord, "varieties")
+      : null;
+    if (!record) return null;
+    BlessERP.operacionesParametros?.applyCanonicalResult?.(appState, "varieties", {
+      ok: true,
+      record,
+      serverRecord: result.serverRecord
+    }, { keepDraft: true });
+    return record;
   }
 
   async function uploadParameterVarietyImage(appState, file) {
@@ -801,7 +808,7 @@
       stateApi.setNotice(appState, result.message || "No se pudo guardar la imagen.", "danger", false);
       return result;
     }
-    refreshParameterVarietyDraft(appState, variety.id);
+    applyParameterVarietyImageConfirmation(appState, result);
     stateApi.setNotice(appState,
       result.cleanupWarning || `Imagen actualizada para ${variety.name}.`,
       result.cleanupWarning ? "warning" : "success",
@@ -820,7 +827,7 @@
       stateApi.setNotice(appState, result.message || "No se pudo eliminar la imagen.", "danger", false);
       return result;
     }
-    refreshParameterVarietyDraft(appState, variety.id);
+    applyParameterVarietyImageConfirmation(appState, result);
     stateApi.setNotice(appState,
       result.cleanupWarning || `Imagen eliminada de ${variety.name}.`,
       result.cleanupWarning ? "warning" : "success",
@@ -1496,6 +1503,15 @@
           });
           const parameterType = String(stateApi.getUi(appState).parameterDraft?.type || "");
           if (!BlessERP.operacionesParametros?.assertManageType?.(parameterType)) return;
+          const canonicalRepository = BlessERP.getPostharvestParameterQueryRepository?.();
+          if (canonicalRepository?.isCanonicalEditableType?.(parameterType)) {
+            action.disabled = true;
+            const result = await BlessERP.operacionesParametros?.saveCanonicalParameter?.(appState, parameterType);
+            BlessERP.layout.toast(result?.ok
+              ? `Parámetro confirmado por Supabase: ${result.record.name}`
+              : (result?.message || "No se pudo confirmar el parámetro en Supabase."));
+            return;
+          }
           const result = stateApi.saveParameter(appState);
           if (result?.ok) {
             BlessERP.operacionesParametros?.noteLocalMutation?.(appState, parameterType, result.entry?.id);
@@ -1517,21 +1533,43 @@
         return;
       }
       if (action.dataset.opsAction === "parameter-edit") {
-        if (!BlessERP.operacionesParametros?.assertManageType?.(String(action.dataset.type || ""))) return;
-        stateApi.editParameter(appState, action.dataset.type, action.dataset.id);
+        const parameterType = String(action.dataset.type || "");
+        if (!BlessERP.operacionesParametros?.assertManageType?.(parameterType)) return;
+        const canonicalRepository = BlessERP.getPostharvestParameterQueryRepository?.();
+        if (canonicalRepository?.isCanonicalEditableType?.(parameterType)) {
+          BlessERP.operacionesParametros?.editCanonicalParameter?.(appState, parameterType, action.dataset.id);
+        } else {
+          stateApi.editParameter(appState, parameterType, action.dataset.id);
+        }
         rerender();
         return;
       }
       if (action.dataset.opsAction === "parameter-toggle") {
-        if (!BlessERP.operacionesParametros?.assertManageType?.(String(action.dataset.type || ""))) return;
-        const changed = stateApi.toggleParameter(appState, action.dataset.type, action.dataset.id);
+        const parameterType = String(action.dataset.type || "");
+        if (!BlessERP.operacionesParametros?.assertManageType?.(parameterType)) return;
+        const canonicalRepository = BlessERP.getPostharvestParameterQueryRepository?.();
+        if (canonicalRepository?.isCanonicalEditableType?.(parameterType)) {
+          action.disabled = true;
+          const result = await BlessERP.operacionesParametros?.setCanonicalParameterActive?.(appState, parameterType, action.dataset.id);
+          BlessERP.layout.toast(result?.ok
+            ? `${result.record.name}: ${result.record.active !== false ? "ACTIVO" : "INACTIVO"}`
+            : (result?.message || "No se pudo confirmar el estado en Supabase."));
+          rerender();
+          return;
+        }
+        const changed = stateApi.toggleParameter(appState, parameterType, action.dataset.id);
         if (changed) BlessERP.operacionesParametros?.noteLocalMutation?.(appState, action.dataset.type, action.dataset.id);
         rerender();
         return;
       }
       if (action.dataset.opsAction === "parameter-delete") {
-        if (!BlessERP.operacionesParametros?.assertManageType?.(String(action.dataset.type || ""))) return;
-        const changed = stateApi.deleteParameter(appState, action.dataset.type, action.dataset.id);
+        const parameterType = String(action.dataset.type || "");
+        if (!BlessERP.operacionesParametros?.assertManageType?.(parameterType)) return;
+        if (BlessERP.getPostharvestParameterQueryRepository?.()?.isCanonicalEditableType?.(parameterType)) {
+          BlessERP.layout.toast("Este catálogo conserva auditoría: use Activar o Desactivar.");
+          return;
+        }
+        const changed = stateApi.deleteParameter(appState, parameterType, action.dataset.id);
         if (changed) BlessERP.operacionesParametros?.noteLocalMutation?.(appState, action.dataset.type, action.dataset.id);
         rerender();
         return;

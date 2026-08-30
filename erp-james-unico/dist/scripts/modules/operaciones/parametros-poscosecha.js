@@ -143,16 +143,11 @@
     ].join(" ")).includes(search);
   }
 
-  function catalogRows(store) {
-    const localRows = store.masterData?.[catalogUi.type] || [];
-    const byId = new Map(localRows.map(item => [String(item.id), item]));
-    return catalogUi.rows.map(item => {
-      const local = byId.get(String(item.id));
-      if (!local) return item;
-      const localVersion = Number(local.__syncVersion || 0);
-      const remoteVersion = Number(item.__syncVersion || 0);
-      return localVersion >= remoteVersion ? { ...item, ...local, type: catalogUi.type } : item;
-    });
+  function catalogRows() {
+    // La consulta paginada ya proviene de erp_entity_records. No se mezcla con
+    // defaults, caché legacy ni borradores locales: el snapshot del backend es
+    // el conjunto autoritativo visible en Parámetros.
+    return [...catalogUi.rows];
   }
 
   function formatDateTime(value) {
@@ -213,7 +208,7 @@
 
   function renderVarietyImageEditor(draft, store, utils) {
     if (draft.type !== "varieties") return "";
-    const variety = (store.masterData?.varieties || []).find(item => String(item.id) === String(draft.id || "")) || draft;
+    const variety = draft;
     const hasCanonicalVersion = Number(variety?.__syncVersion || 0) > 0;
     const hasImage = Boolean(String(variety?.imagePath || "").trim() || varietyImageUrl(variety));
     return `<div class="ops-variety-image-editor ops-form-span-2">
@@ -253,7 +248,7 @@
             <button type="button" data-ops-parameter-query-action="detail" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Ver detalle</button>
             <button type="button" data-ops-parameter-query-action="history" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Ver historial</button>
             ${canManageType(item.type) ? `<button type="button" data-ops-action="parameter-toggle" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">${item.active !== false ? "Desactivar" : "Activar"}</button>
-            <button type="button" class="is-danger" data-ops-action="parameter-delete" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Eliminar</button>` : ""}
+            ${catalogRepository()?.isCanonicalEditableType?.(item.type) ? "" : `<button type="button" class="is-danger" data-ops-action="parameter-delete" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Eliminar</button>`}` : ""}
           </div>
         </details></td>
       </tr>`).join("")}</tbody>
@@ -317,7 +312,7 @@
     const manageAllowed = canManageType(draft.type);
     const payroll = canonicalPayrollData();
     const employees = payroll.employees;
-    const rows = catalogRows(store);
+    const rows = catalogRows();
     const pageCount = Math.max(1, Math.ceil(catalogUi.total / catalogUi.pageSize));
     const from = catalogUi.total ? ((catalogUi.page - 1) * catalogUi.pageSize) + 1 : 0;
     const to = catalogUi.total ? Math.min(catalogUi.page * catalogUi.pageSize, catalogUi.total) : 0;
@@ -336,7 +331,7 @@
       ${manageAllowed ? `<section class="panel-card ops-parameter-form-card" data-ops-parameter-form>
           <div class="panel-card-head">
             <div><p class="section-kicker">PARAMETRO</p><h3>${draft.id ? "Editar parametro" : "Nuevo parametro"}</h3></div>
-            <span class="status-badge authorized">CANÓNICO</span>
+            <span class="status-badge authorized">SUPABASE CANÓNICO</span>
           </div>
           <div class="ops-form-grid">
             <label class="compact-inline-field"><span>Tipo</span><select data-ops-bind="parameterDraft" data-field="type" ${fixedType ? "disabled" : ""}>${typeEntries.map(([value, label]) => `<option value="${utils.esc(value)}" ${value === draft.type ? "selected" : ""}>${utils.esc(label)}</option>`).join("")}</select>${fixedType ? `<input type="hidden" data-ops-bind="parameterDraft" data-field="type" value="${utils.esc(fixedType)}">` : ""}</label>
@@ -456,17 +451,76 @@
     return result;
   }
 
-  function ensureQueryRowInOperationalCache(appState, type, id) {
+  function queriedRecord(type, id) {
+    return catalogUi.rows.find(item => (
+      String(item.type) === String(type) && String(item.id) === String(id)
+    )) || null;
+  }
+
+  function setCanonicalDraft(appState, record) {
+    if (!record) return false;
     const store = BlessERP.operacionesState.getStore(appState);
-    const list = store.masterData?.[type];
-    if (!Array.isArray(list)) return null;
-    let row = list.find(item => String(item.id) === String(id));
-    if (row) return row;
-    const queried = catalogUi.rows.find(item => String(item.type) === String(type) && String(item.id) === String(id));
-    if (!queried) return null;
-    row = { ...queried };
-    list.push(row);
-    return row;
+    store.ui.parameterType = String(record.type || catalogUi.type);
+    store.ui.parameterDraft = { ...record, type: store.ui.parameterType };
+    return true;
+  }
+
+  function editCanonicalParameter(appState, type, id) {
+    if (!catalogRepository()?.isCanonicalEditableType?.(type)) return false;
+    return setCanonicalDraft(appState, queriedRecord(type, id));
+  }
+
+  function applyCanonicalResult(appState, type, result, options = {}) {
+    if (!result?.ok || !result.record) return false;
+    const record = { ...result.record, type };
+    const store = BlessERP.operacionesState.getStore(appState);
+    BlessERP.operacionesState.syncCatalogsFromMasterData?.(store);
+    const index = catalogUi.rows.findIndex(item => String(item.id) === String(record.id));
+    const visible = matchesCatalogQuery(record, type);
+    if (!visible && index >= 0) {
+      catalogUi.rows.splice(index, 1);
+      catalogUi.total = Math.max(0, catalogUi.total - 1);
+    } else if (visible && index >= 0) {
+      catalogUi.rows[index] = record;
+    } else if (visible && catalogUi.queried && catalogUi.page === 1 && type === catalogUi.type) {
+      catalogUi.rows.unshift(record);
+      catalogUi.rows = catalogUi.rows.slice(0, catalogUi.pageSize);
+      catalogUi.total += 1;
+    }
+    if (options.keepDraft) setCanonicalDraft(appState, record);
+    return true;
+  }
+
+  async function saveCanonicalParameter(appState, type) {
+    if (!catalogRepository()?.isCanonicalEditableType?.(type)) return null;
+    const stateApi = BlessERP.operacionesState;
+    const store = stateApi.getStore(appState);
+    const result = await catalogRepository().save(type, store.ui.parameterDraft || {});
+    if (!result?.ok) {
+      stateApi.setNotice(appState, result?.message || "No se pudo confirmar el parámetro en Supabase.", "warning", false);
+      return result;
+    }
+    applyCanonicalResult(appState, type, result);
+    stateApi.resetParameterDraft(appState, type);
+    stateApi.setNotice(appState, `Parámetro confirmado por Supabase: ${result.record.name}.`, "success", false);
+    BlessERP.performance?.invalidateCache?.("ops-catalogs:");
+    return result;
+  }
+
+  async function setCanonicalParameterActive(appState, type, id) {
+    if (!catalogRepository()?.isCanonicalEditableType?.(type)) return null;
+    const stateApi = BlessERP.operacionesState;
+    const current = queriedRecord(type, id);
+    if (!current) return { ok: false, mode: "NOT_QUERIED", message: "Consulte nuevamente el registro canónico." };
+    const result = await catalogRepository().setActive(type, current, current.active === false);
+    if (!result?.ok) {
+      stateApi.setNotice(appState, result?.message || "No se pudo confirmar el estado en Supabase.", "warning", false);
+      return result;
+    }
+    applyCanonicalResult(appState, type, result);
+    stateApi.setNotice(appState, `${result.record.name}: ${result.record.active !== false ? "ACTIVO" : "INACTIVO"}, confirmado por Supabase.`, "success", false);
+    BlessERP.performance?.invalidateCache?.("ops-catalogs:");
+    return result;
   }
 
   function noteLocalMutation(appState, type, id) {
@@ -558,8 +612,7 @@
       if (intention === "edit") {
         const type = String(action.dataset.type || "");
         const id = String(action.dataset.id || "");
-        if (ensureQueryRowInOperationalCache(appState, type, id)) {
-          BlessERP.operacionesState.editParameter(appState, type, id);
+        if (editCanonicalParameter(appState, type, id)) {
           BlessERP.layout?.renderPage?.();
         }
       }
@@ -587,10 +640,13 @@
   if (!window.__OPS_PARAMETERS_SEARCH_REALTIME_BOUND__) {
     window.__OPS_PARAMETERS_SEARCH_REALTIME_BOUND__ = true;
     window.addEventListener("erp:canonical-record-updated", event => {
-      if (!isParameterRoute()) return;
       const repository = catalogRepository();
       const type = repository?.typeForEntity?.(event.detail?.entity);
       if (!type) return;
+      const appState = BlessERP.state?.state;
+      const store = appState ? BlessERP.operacionesState?.getStore?.(appState) : null;
+      if (store) BlessERP.operacionesState.syncCatalogsFromMasterData?.(store);
+      if (!isParameterRoute()) return;
       event.preventDefault?.();
       if (!catalogUi.queried || type !== catalogUi.type) return;
       const recordId = String(event.detail?.recordId || "");
@@ -621,6 +677,11 @@
     operationalWorkerId,
     queryCatalog,
     queryHistory,
+    queriedRecord,
+    editCanonicalParameter,
+    saveCanonicalParameter,
+    setCanonicalParameterActive,
+    applyCanonicalResult,
     noteLocalMutation,
     isParameterRoute,
     manageCapabilityForType,
