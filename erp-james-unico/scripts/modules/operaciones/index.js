@@ -1528,7 +1528,13 @@
         return;
       }
       if (action.dataset.opsAction === "parameter-reset") {
-        stateApi.resetParameterDraft(appState);
+        const parameterType = String(stateApi.getUi(appState).parameterDraft?.type || "");
+        const canonicalRepository = BlessERP.getPostharvestParameterQueryRepository?.();
+        if (canonicalRepository?.isCanonicalEditableType?.(parameterType)) {
+          BlessERP.operacionesParametros?.resetCanonicalDraft?.(appState, parameterType);
+        } else {
+          stateApi.resetParameterDraft(appState);
+        }
         rerender();
         return;
       }

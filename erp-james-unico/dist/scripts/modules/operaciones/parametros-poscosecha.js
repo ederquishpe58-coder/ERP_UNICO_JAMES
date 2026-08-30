@@ -54,6 +54,41 @@
     return Object.prototype.hasOwnProperty.call(PARAMETER_ROUTE_TYPES, String(routeId || ""));
   }
 
+  function fixedTypeForRoute(routeId = BlessERP.state?.state?.route) {
+    return PARAMETER_ROUTE_TYPES[String(routeId || "")] || "";
+  }
+
+  function createContextualDraft(type, seed = {}) {
+    return BlessERP.operacionesData?.createParameterDraft?.({ ...seed, type }) || {
+      id: "",
+      type,
+      code: "",
+      name: "",
+      assignedBlock: "",
+      labelColor: "",
+      active: true,
+      observation: "",
+      ...seed
+    };
+  }
+
+  function resetCanonicalDraft(appState, type = fixedTypeForRoute()) {
+    const normalizedType = String(type || "");
+    if (!normalizedType) return false;
+    const store = BlessERP.operacionesState.getStore(appState);
+    store.ui.parameterType = normalizedType;
+    store.ui.parameterDraft = createContextualDraft(normalizedType);
+    return true;
+  }
+
+  function ensureContextualDraft(store, fixedType) {
+    const source = store.ui.parameterDraft || {};
+    if (!fixedType || source.type === fixedType) return source;
+    store.ui.parameterType = fixedType;
+    store.ui.parameterDraft = createContextualDraft(fixedType);
+    return store.ui.parameterDraft;
+  }
+
   function manageCapabilityForType(type) {
     return TYPE_MANAGE_CAPABILITIES[String(type || "")] || "operations.parameters.manage";
   }
@@ -229,7 +264,48 @@
     </div>`;
   }
 
-  function renderCatalogRows(rows, store, payroll, utils) {
+  function renderCatalogActions(item, utils) {
+    return `<details class="ops-parameter-options">
+      <summary aria-label="Opciones para ${utils.esc(item.name || item.code)}">Opciones</summary>
+      <div class="ops-parameter-options-menu">
+        ${canManageType(item.type) ? `<button type="button" data-ops-action="parameter-edit" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Editar</button>` : ""}
+        <button type="button" data-ops-parameter-query-action="detail" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Ver detalle</button>
+        <button type="button" data-ops-parameter-query-action="history" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Ver historial</button>
+        ${canManageType(item.type) ? `<button type="button" data-ops-action="parameter-toggle" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">${item.active !== false ? "Desactivar" : "Activar"}</button>
+        ${catalogRepository()?.isCanonicalEditableType?.(item.type) ? "" : `<button type="button" class="is-danger" data-ops-action="parameter-delete" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Eliminar</button>`}` : ""}
+      </div>
+    </details>`;
+  }
+
+  function renderCatalogRows(rows, store, payroll, utils, fixedType = "") {
+    if (fixedType === "varieties") {
+      return `<div class="compact-table-wrap ops-parameter-table-wrap"><table class="compact-table ops-parameter-catalog-table">
+        <thead><tr><th>Código</th><th>Nombre de variedad</th><th>Fotografía</th><th>Observación</th><th>Estado</th><th>Actualizado</th><th>Acciones</th></tr></thead>
+        <tbody>${rows.map(item => `<tr data-ops-parameter-query-row data-type="varieties" data-id="${utils.esc(item.id)}">
+          <td>${utils.esc(item.code || "-")}</td>
+          <td><strong>${utils.esc(item.name || "-")}</strong></td>
+          <td>${renderVarietyImage(item, utils, "is-table")}</td>
+          <td>${utils.esc(item.observation || "-")}</td>
+          <td><span class="status-badge ${item.active !== false ? "authorized" : "pending"}">${item.active !== false ? "ACTIVO" : "INACTIVO"}</span></td>
+          <td>${utils.esc(formatDateTime(item.__syncUpdatedAt || item.updated_at))}</td>
+          <td>${renderCatalogActions(item, utils)}</td>
+        </tr>`).join("")}</tbody>
+      </table></div>`;
+    }
+    if (fixedType === "suppliers") {
+      return `<div class="compact-table-wrap ops-parameter-table-wrap"><table class="compact-table ops-parameter-catalog-table">
+        <thead><tr><th>Código</th><th>Nombre finca / proveedor</th><th>Bloque asignado</th><th>Observación</th><th>Estado</th><th>Actualizado</th><th>Acciones</th></tr></thead>
+        <tbody>${rows.map(item => `<tr data-ops-parameter-query-row data-type="suppliers" data-id="${utils.esc(item.id)}">
+          <td>${utils.esc(item.code || "-")}</td>
+          <td><strong>${utils.esc(item.name || "-")}</strong></td>
+          <td>${utils.esc(item.assignedBlock || "-")}</td>
+          <td>${utils.esc(item.observation || "-")}</td>
+          <td><span class="status-badge ${item.active !== false ? "authorized" : "pending"}">${item.active !== false ? "ACTIVO" : "INACTIVO"}</span></td>
+          <td>${utils.esc(formatDateTime(item.__syncUpdatedAt || item.updated_at))}</td>
+          <td>${renderCatalogActions(item, utils)}</td>
+        </tr>`).join("")}</tbody>
+      </table></div>`;
+    }
     const employeeNames = new Map(payroll.employees.map(item => [String(item.employee_id || item.employeeId), item.full_name || item.fullName]));
     return `<div class="compact-table-wrap ops-parameter-table-wrap"><table class="compact-table ops-parameter-catalog-table">
       <thead><tr><th>Código</th><th>Nombre</th><th>Imagen</th><th>Detalle</th><th>Empleado vinculado</th><th>Estado</th><th>Actualizado</th><th>Acciones</th></tr></thead>
@@ -241,16 +317,7 @@
         <td>${(() => { const link = canonicalLinkFor(item, item.type, payroll.links); const employeeId = String(link?.employee_id || link?.employeeId || ""); return link ? `${utils.esc(employeeNames.get(employeeId) || "Empleado V2")}<br><small>${utils.esc(employeeId)}</small>` : (PAYROLL_LINK_TYPES[item.type] ? '<span class="status-badge pending">SIN VÍNCULO V2</span>' : "-"); })()}</td>
         <td><span class="status-badge ${item.active !== false ? "authorized" : "pending"}">${item.active !== false ? "ACTIVO" : "INACTIVO"}</span></td>
         <td>${utils.esc(formatDateTime(item.__syncUpdatedAt || item.updated_at))}</td>
-        <td><details class="ops-parameter-options">
-          <summary aria-label="Opciones para ${utils.esc(item.name || item.code)}">Opciones</summary>
-          <div class="ops-parameter-options-menu">
-            ${canManageType(item.type) ? `<button type="button" data-ops-action="parameter-edit" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Editar</button>` : ""}
-            <button type="button" data-ops-parameter-query-action="detail" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Ver detalle</button>
-            <button type="button" data-ops-parameter-query-action="history" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Ver historial</button>
-            ${canManageType(item.type) ? `<button type="button" data-ops-action="parameter-toggle" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">${item.active !== false ? "Desactivar" : "Activar"}</button>
-            ${catalogRepository()?.isCanonicalEditableType?.(item.type) ? "" : `<button type="button" class="is-danger" data-ops-action="parameter-delete" data-type="${utils.esc(item.type)}" data-id="${utils.esc(item.id)}">Eliminar</button>`}` : ""}
-          </div>
-        </details></td>
+        <td>${renderCatalogActions(item, utils)}</td>
       </tr>`).join("")}</tbody>
     </table></div>`;
   }
@@ -289,12 +356,13 @@
     </aside>`;
   }
 
-  function renderCatalogResult(rows, store, payroll, utils) {
-    if (!catalogUi.queried) return '<div class="empty-state ops-parameter-query-empty"><strong>Busca un parámetro para consultar o editar.</strong><span>Selecciona un tipo, define los filtros y pulsa Consultar. No se ha cargado historial.</span></div>';
+  function renderCatalogResult(rows, store, payroll, utils, fixedType = "") {
+    const catalogName = TYPE_LABELS[fixedType] || "parámetros";
+    if (!catalogUi.queried) return `<div class="empty-state ops-parameter-query-empty"><strong>${fixedType ? `Consulta ${utils.esc(catalogName)} cuando lo necesites.` : "Busca un parámetro para consultar o editar."}</strong><span>${fixedType ? "Define los filtros y pulsa Consultar. No se ha cargado el catálogo automáticamente." : "Selecciona un tipo, define los filtros y pulsa Consultar. No se ha cargado historial."}</span></div>`;
     if (catalogUi.loading) return '<div class="empty-state ops-parameter-query-empty"><strong>Consultando parámetros…</strong></div>';
     if (catalogUi.error) return `<div class="inline-alert warning">${utils.esc(catalogUi.error)}</div>`;
     if (!rows.length) return '<div class="empty-state ops-parameter-query-empty"><strong>Sin resultados.</strong><span>La consulta no encontró parámetros con esos filtros.</span></div>';
-    return `${renderCatalogRows(rows, store, payroll, utils)}${renderCatalogDetail(rows, utils)}${renderCatalogHistory(rows, utils)}`;
+    return `${renderCatalogRows(rows, store, payroll, utils, fixedType)}${renderCatalogDetail(rows, utils)}${renderCatalogHistory(rows, utils)}`;
   }
 
   function render(appState, route) {
@@ -303,13 +371,13 @@
     const store = stateApi.getStore(appState);
     ensureCatalogCompany();
     ensureCatalogRoute(route?.id);
-    const fixedType = PARAMETER_ROUTE_TYPES[String(route?.id || "")] || "";
-    const sourceDraft = store.ui.parameterDraft;
-    const draft = fixedType && sourceDraft.type !== fixedType
-      ? { ...sourceDraft, id: "", code: "", name: "", observation: "", assignedBlock: "", labelColor: "", type: fixedType }
-      : sourceDraft;
+    const fixedType = fixedTypeForRoute(route?.id);
+    const draft = ensureContextualDraft(store, fixedType);
     const typeEntries = Object.entries(TYPE_LABELS).filter(([type]) => !fixedType || type === fixedType);
     const manageAllowed = canManageType(draft.type);
+    const contextualLabel = TYPE_LABELS[fixedType] || "Parámetros de Operaciones / Poscosecha";
+    const contextualSingular = fixedType === "varieties" ? "variedad" : fixedType === "suppliers" ? "finca / bloque" : "parámetro";
+    const contextualNewLabel = fixedType ? `Nueva ${contextualSingular}` : "Nuevo parámetro";
     const payroll = canonicalPayrollData();
     const employees = payroll.employees;
     const rows = catalogRows();
@@ -319,24 +387,24 @@
 
     return `
       <div class="ops-parameter-page">
-      ${utils.renderPageHeader(route, "Parametros operativos activos", "authorized", "Catalogos maestros reutilizados por Recepcion, Clasificacion, Etiquetas y Escaneo.")}
+      ${utils.renderPageHeader(route, "Catálogo canónico", "authorized", "Catálogos maestros confirmados por Supabase y reutilizados por Recepción, Clasificación, Etiquetas y Escaneo.")}
       ${utils.renderTabs(route)}
       ${utils.renderNotice(store.ui)}
       ${utils.renderSummaryCards([
         { label: "Historial cargado", value: catalogUi.queried ? utils.number(rows.length) : "0", help: catalogUi.queried ? "Solo la página consultada" : "Sin consulta automática" },
         { label: "Resultados", value: catalogUi.queried ? utils.number(catalogUi.total) : "—", help: "Conteo server-side" },
         { label: "Página", value: catalogUi.queried ? `${catalogUi.page} / ${pageCount}` : "—", help: catalogUi.queried ? `${from}–${to}` : "Consulta bajo demanda" },
-        { label: "Catalogos", value: utils.number(Object.keys(TYPE_LABELS).length), help: "Administracion central" }
+        { label: fixedType ? "Catálogo" : "Catálogos", value: fixedType ? contextualLabel : utils.number(Object.keys(TYPE_LABELS).length), help: fixedType ? "Autoridad canónica" : "Administración central" }
       ])}
-      ${manageAllowed ? `<section class="panel-card ops-parameter-form-card" data-ops-parameter-form>
+      ${manageAllowed ? `<section class="panel-card ops-parameter-form-card" data-ops-parameter-form data-ops-context-type="${utils.esc(fixedType || draft.type)}">
           <div class="panel-card-head">
-            <div><p class="section-kicker">PARAMETRO</p><h3>${draft.id ? "Editar parametro" : "Nuevo parametro"}</h3></div>
+            <div><p class="section-kicker">${utils.esc(fixedType ? contextualLabel.toUpperCase() : "PARÁMETRO")}</p><h3>${draft.id ? `Editar ${utils.esc(contextualSingular)}` : utils.esc(contextualNewLabel)}</h3></div>
             <span class="status-badge authorized">SUPABASE CANÓNICO</span>
           </div>
           <div class="ops-form-grid">
-            <label class="compact-inline-field"><span>Tipo</span><select data-ops-bind="parameterDraft" data-field="type" ${fixedType ? "disabled" : ""}>${typeEntries.map(([value, label]) => `<option value="${utils.esc(value)}" ${value === draft.type ? "selected" : ""}>${utils.esc(label)}</option>`).join("")}</select>${fixedType ? `<input type="hidden" data-ops-bind="parameterDraft" data-field="type" value="${utils.esc(fixedType)}">` : ""}</label>
-            <label class="compact-inline-field"><span>Codigo</span><input value="${utils.esc(draft.code)}" data-ops-bind="parameterDraft" data-field="code" placeholder="Automatico si queda vacio"></label>
-            <label class="compact-inline-field"><span>${draft.type === "suppliers" ? "Nombre de finca / proveedor" : "Nombre / valor"}</span><input value="${utils.esc(draft.name)}" data-ops-bind="parameterDraft" data-field="name" autocomplete="off"></label>
+            ${fixedType ? `<input type="hidden" data-ops-bind="parameterDraft" data-field="type" value="${utils.esc(fixedType)}">` : `<label class="compact-inline-field"><span>Tipo</span><select data-ops-bind="parameterDraft" data-field="type">${typeEntries.map(([value, label]) => `<option value="${utils.esc(value)}" ${value === draft.type ? "selected" : ""}>${utils.esc(label)}</option>`).join("")}</select></label>`}
+            <label class="compact-inline-field"><span>Código</span><input value="${utils.esc(draft.code)}" data-ops-bind="parameterDraft" data-field="code" placeholder="Automático si queda vacío"></label>
+            <label class="compact-inline-field"><span>${draft.type === "suppliers" ? "Nombre de finca / proveedor" : draft.type === "varieties" ? "Nombre de variedad" : "Nombre / valor"}</span><input value="${utils.esc(draft.name)}" data-ops-bind="parameterDraft" data-field="name" autocomplete="off"></label>
             ${PAYROLL_LINK_TYPES[draft.type] ? (() => {
               const link = canonicalLinkFor(draft, draft.type, payroll.links);
               const selectedEmployeeId = String(link?.employee_id || link?.employeeId || "");
@@ -344,26 +412,27 @@
               return `<div class="compact-inline-field ops-payroll-v2-link-field"><span>Empleado Nómina V2</span><select data-ops-payroll-employee ${!draft.id || payrollUi.loading || !permission ? "disabled" : ""}><option value="">${payrollUi.loading ? "Cargando empleados V2…" : "Seleccione empleado V2"}</option>${employees.map(item => `<option value="${utils.esc(item.employee_id)}" ${String(item.employee_id) === selectedEmployeeId ? "selected" : ""}>${utils.esc(item.full_name)} · ${utils.esc(item.employee_code || item.employee_id)}</option>`).join("")}</select><small>${draft.id ? `Vínculo UUID por trabajador operativo ${utils.esc(operationalWorkerId(draft))}.` : "Guarde primero el trabajador operativo."}${payrollUi.error ? ` ${utils.esc(payrollUi.error)}` : ""}</small><button type="button" class="secondary-button" data-ops-payroll-link data-type="${utils.esc(draft.type)}" data-id="${utils.esc(draft.id || "")}" ${!draft.id || payrollUi.loading || !permission ? "disabled" : ""}>Confirmar vínculo V2</button></div>`;
             })() : ""}
             ${draft.type === "bunchers" ? `<label class="compact-inline-field"><span>Color de etiqueta</span><input value="${utils.esc(draft.labelColor || "")}" data-ops-bind="parameterDraft" data-field="labelColor" placeholder="Ej. ROJO"><small>Identifica al embonchador en la etiqueta Zebra.</small></label>` : ""}
-            ${draft.type === "suppliers" ? `<label class="compact-inline-field"><span>Numero de bloque asignado</span><input value="${utils.esc(draft.assignedBlock || "")}" data-ops-bind="parameterDraft" data-field="assignedBlock" placeholder="Ej. BQ-01"></label>` : ""}
-            <label class="compact-inline-field ops-form-span-2"><span>Observacion</span><textarea rows="2" data-ops-bind="parameterDraft" data-field="observation">${utils.esc(draft.observation)}</textarea></label>
+            ${draft.type === "suppliers" ? `<label class="compact-inline-field"><span>Bloque asignado</span><input value="${utils.esc(draft.assignedBlock || "")}" data-ops-bind="parameterDraft" data-field="assignedBlock" placeholder="Ej. B1"></label>` : ""}
+            ${fixedType ? `<div class="compact-inline-field"><span>Estado</span><span class="status-badge ${draft.active !== false ? "authorized" : "pending"}">${draft.active !== false ? "ACTIVO" : "INACTIVO"}</span><small>El estado se cambia desde las opciones del registro consultado.</small></div>` : ""}
+            <label class="compact-inline-field ops-form-span-2"><span>Observación</span><textarea rows="2" data-ops-bind="parameterDraft" data-field="observation">${utils.esc(draft.observation)}</textarea></label>
             ${renderVarietyImageEditor(draft, store, utils)}
           </div>
           <div class="table-actions-inline">
-            <button class="primary-button" data-ops-action="parameter-save">Guardar parametro</button>
+            <button class="primary-button" data-ops-action="parameter-save">Guardar ${utils.esc(contextualSingular)}</button>
             <button class="secondary-button" data-ops-action="parameter-reset">Nuevo / limpiar</button>
           </div>
       </section>` : `<section class="inline-alert warning"><strong>Consulta autorizada.</strong> La administración de ${utils.esc(TYPE_LABELS[draft.type] || "este catálogo")} requiere ${utils.esc(manageCapabilityForType(draft.type))}.</section>`}
       <section class="panel-card ops-parameter-catalog-card">
-        <div class="panel-card-head"><div><p class="section-kicker">CONSULTAR / EDITAR</p><h3>Parámetros de Operaciones / Poscosecha</h3></div><span class="status-badge ${catalogUi.queried ? "authorized" : "pending"}">${catalogUi.queried ? "CONSULTA REALIZADA" : "SIN CONSULTAR"}</span></div>
+        <div class="panel-card-head"><div><p class="section-kicker">CONSULTAR / EDITAR</p><h3>${utils.esc(contextualLabel)}</h3></div><span class="status-badge ${catalogUi.queried ? "authorized" : "pending"}">${catalogUi.queried ? "CONSULTA REALIZADA" : "SIN CONSULTAR"}</span></div>
         <form class="ops-catalog-filter-bar" data-ops-parameter-query-form>
-          <label><span>Tipo de parámetro</span><select name="type" required ${fixedType ? "disabled" : ""}>${typeEntries.map(([value, label]) => `<option value="${utils.esc(value)}" ${catalogUi.type === value ? "selected" : ""}>${utils.esc(label)}</option>`).join("")}</select>${fixedType ? `<input type="hidden" name="type" value="${utils.esc(fixedType)}">` : ""}</label>
+          ${fixedType ? `<input type="hidden" name="type" value="${utils.esc(fixedType)}">` : `<label><span>Tipo de parámetro</span><select name="type" required>${typeEntries.map(([value, label]) => `<option value="${utils.esc(value)}" ${catalogUi.type === value ? "selected" : ""}>${utils.esc(label)}</option>`).join("")}</select></label>`}
           <label><span>Buscar</span><input type="search" name="search" value="${utils.esc(catalogUi.search)}" placeholder="Nombre, código, descripción o identificación" autocomplete="off"></label>
           <label><span>Estado</span><select name="status"><option value="ACTIVO" ${catalogUi.status === "ACTIVO" ? "selected" : ""}>Activos</option><option value="INACTIVO" ${catalogUi.status === "INACTIVO" ? "selected" : ""}>Inactivos</option><option value="TODOS" ${catalogUi.status === "TODOS" ? "selected" : ""}>Todos</option></select></label>
           <label><span>Por página</span><select name="pageSize"><option value="25" ${catalogUi.pageSize === 25 ? "selected" : ""}>25</option><option value="50" ${catalogUi.pageSize === 50 ? "selected" : ""}>50</option></select></label>
           <button type="submit" class="primary-button" ${catalogUi.loading ? "disabled" : ""}>${catalogUi.loading ? "Consultando…" : "Consultar"}</button>
         </form>
         ${catalogUi.queried && !catalogUi.loading && !catalogUi.error ? `<div class="ops-catalog-query-meta"><span>Mostrando ${utils.number(from)}–${utils.number(to)} de ${utils.number(catalogUi.total)}</span><span>Página ${utils.number(catalogUi.page)} de ${utils.number(pageCount)}</span><span>${utils.number(catalogUi.payloadBytes)} bytes · ${utils.number(Math.round(catalogUi.elapsedMs))} ms</span></div>` : ""}
-        ${renderCatalogResult(rows, store, payroll, utils)}
+        ${renderCatalogResult(rows, store, payroll, utils, fixedType)}
         ${catalogUi.queried && !catalogUi.loading && !catalogUi.error && pageCount > 1 ? `<nav class="ops-catalog-pagination" aria-label="Paginación de parámetros"><button type="button" class="secondary-button" data-ops-parameter-query-action="page" data-page="${catalogUi.page - 1}" ${catalogUi.page <= 1 ? "disabled" : ""}>Anterior</button><span>Página ${utils.number(catalogUi.page)} / ${utils.number(pageCount)}</span><button type="button" class="secondary-button" data-ops-parameter-query-action="page" data-page="${catalogUi.page + 1}" ${catalogUi.page >= pageCount ? "disabled" : ""}>Siguiente</button></nav>` : ""}
       </section>
       </div>
@@ -501,7 +570,7 @@
       return result;
     }
     applyCanonicalResult(appState, type, result);
-    stateApi.resetParameterDraft(appState, type);
+    resetCanonicalDraft(appState, type);
     stateApi.setNotice(appState, `Parámetro confirmado por Supabase: ${result.record.name}.`, "success", false);
     BlessERP.performance?.invalidateCache?.("ops-catalogs:");
     return result;
@@ -550,7 +619,7 @@
     mountController?.abort?.();
     mountController = new AbortController();
     const { signal } = mountController;
-    if (!payrollUi.loaded && !payrollUi.loading) queueMicrotask(() => loadPayrollV2());
+    if (!fixedTypeForRoute() && !payrollUi.loaded && !payrollUi.loading) queueMicrotask(() => loadPayrollV2());
     container.querySelectorAll("[data-ops-payroll-link]").forEach(button => button.addEventListener("click", async () => {
       if (button.disabled) return;
       const type = String(button.dataset.type || "");
@@ -687,6 +756,7 @@
     manageCapabilityForType,
     canManageType,
     assertManageType,
+    resetCanonicalDraft,
     queryState: () => ({ ...catalogUi, rows: [...catalogUi.rows], historyRows: [...catalogUi.historyRows] })
   };
 })();
