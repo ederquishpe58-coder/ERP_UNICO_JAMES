@@ -2491,6 +2491,11 @@
   }
 
   function canEditProcessedMeshHistory(appState) {
+    if (BlessERP.capabilityRuntime?.can?.("operations.classification.edit") === true) return true;
+    return /ADMIN|SUPERVISOR/i.test(String(appState.db.session?.activeUser?.role || ""));
+  }
+
+  function canAnnulProcessedMeshHistory(appState) {
     return /ADMIN|SUPERVISOR/i.test(String(appState.db.session?.activeUser?.role || ""));
   }
 
@@ -2498,7 +2503,10 @@
     const store = ensureStore(appState);
     const record = store.processedMeshHistory.find(item => item.id === historyId);
     if (!record) return false;
-    if (["EDIT", "ANNUL"].includes(type) && !canEditProcessedMeshHistory(appState)) {
+    const denied = type === "EDIT"
+      ? !canEditProcessedMeshHistory(appState)
+      : type === "ANNUL" && !canAnnulProcessedMeshHistory(appState);
+    if (denied) {
       setNotice(appState, "Solo supervisores o administradores pueden modificar el historial.", "warning");
       return false;
     }
@@ -2556,7 +2564,7 @@
     const draft = store.ui.meshHistoryEditDraft || {};
     const record = store.processedMeshHistory.find(item => item.id === dialog?.historyId);
     const reason = String(draft.annulReason || "").trim();
-    if (!record || dialog?.type !== "ANNUL" || !canEditProcessedMeshHistory(appState) || !reason) {
+    if (!record || dialog?.type !== "ANNUL" || !canAnnulProcessedMeshHistory(appState) || !reason) {
       setNotice(appState, "La anulacion requiere autorizacion y un motivo.", "warning");
       return false;
     }
