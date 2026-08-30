@@ -793,14 +793,23 @@
   async function uploadParameterVarietyImage(appState, file) {
     const repository = BlessERP.getVarietyImageRepository?.();
     const variety = selectedParameterVariety(appState);
-    if (!repository || !variety) {
-      stateApi.setNotice(appState, "Guarde y seleccione una variedad antes de subir su imagen.", "warning", false);
+    if (!repository) {
+      stateApi.setNotice(appState, "El repositorio canónico de imágenes no está disponible.", "warning", false);
       return { ok: false };
     }
     const validation = repository.validateImageFile(file);
     if (!validation.ok) {
       stateApi.setNotice(appState, validation.message, "warning", false);
       return { ok: false };
+    }
+    if (!variety || Number(variety.__syncVersion || 0) < 1) {
+      const staged = BlessERP.operacionesParametros?.stagePendingVarietyImage?.(file) || { ok: false };
+      stateApi.setNotice(appState,
+        staged.ok ? "Fotografía preparada. Pulse GUARDAR para crear la variedad y subir la imagen." : (staged.message || "No se pudo preparar la fotografía."),
+        staged.ok ? "info" : "warning",
+        false
+      );
+      return staged;
     }
     stateApi.setNotice(appState, "Optimizando y subiendo la imagen de la variedad...", "info", false);
     const result = await repository.upload(variety, file);
@@ -818,6 +827,11 @@
   }
 
   async function removeParameterVarietyImage(appState) {
+    if (BlessERP.operacionesParametros?.pendingVarietyImage?.()?.file) {
+      BlessERP.operacionesParametros.clearPendingVarietyImage?.();
+      stateApi.setNotice(appState, "Fotografía opcional retirada. La variedad puede guardarse sin imagen.", "info", false);
+      return { ok: true, staged: true };
+    }
     const repository = BlessERP.getVarietyImageRepository?.();
     const variety = selectedParameterVariety(appState);
     if (!repository || !variety) return { ok: false, message: "No existe una variedad seleccionada." };
@@ -1345,7 +1359,8 @@
 
       if (action.dataset.opsAction === "parameter-image-remove") {
         const variety = selectedParameterVariety(appState);
-        if (!variety || !confirm(`¿Eliminar la imagen de ${variety.name}?`)) return;
+        const pendingImage = BlessERP.operacionesParametros?.pendingVarietyImage?.()?.file;
+        if (!pendingImage && (!variety || !confirm(`¿Eliminar la imagen de ${variety.name}?`))) return;
         action.disabled = true;
         await removeParameterVarietyImage(appState);
         rerender();
@@ -1506,7 +1521,22 @@
           const canonicalRepository = BlessERP.getPostharvestParameterQueryRepository?.();
           if (canonicalRepository?.isCanonicalEditableType?.(parameterType)) {
             action.disabled = true;
-            const result = await BlessERP.operacionesParametros?.saveCanonicalParameter?.(appState, parameterType);
+            const pendingImage = parameterType === "varieties"
+              ? BlessERP.operacionesParametros?.pendingVarietyImage?.()?.file || null
+              : null;
+            const result = await BlessERP.operacionesParametros?.saveCanonicalParameter?.(appState, parameterType, {
+              keepDraft: Boolean(pendingImage)
+            });
+            if (result?.ok && pendingImage) {
+              const imageResult = await uploadParameterVarietyImage(appState, pendingImage);
+              if (imageResult?.ok) {
+                BlessERP.operacionesParametros?.clearPendingVarietyImage?.();
+                BlessERP.operacionesParametros?.resetCanonicalDraft?.(appState, parameterType);
+              } else {
+                BlessERP.layout.toast(`Variedad creada, pero la fotografía no pudo guardarse: ${imageResult?.message || "reintente la fotografía"}.`);
+                return;
+              }
+            }
             BlessERP.layout.toast(result?.ok
               ? `Parámetro confirmado por Supabase: ${result.record.name}`
               : (result?.message || "No se pudo confirmar el parámetro en Supabase."));
