@@ -21,7 +21,8 @@
     STALE_OPERATION: "STALE_OPERATION",
     INVALID_OPERATION_ID: "INVALID_OPERATION_ID",
     DERIVED_FIELD_ONLY: "DERIVED_FIELD_ONLY",
-    SERVER_ALREADY_APPLIED: "SERVER_ALREADY_APPLIED"
+    SERVER_ALREADY_APPLIED: "SERVER_ALREADY_APPLIED",
+    CANONICAL_MASTER_MIGRATION_REQUIRED: "CANONICAL_MASTER_MIGRATION_REQUIRED"
   });
   const registry = () => BlessERP.syncEntityRegistry;
   const store = () => BlessERP.syncIndexedDb;
@@ -410,6 +411,53 @@
     return { quarantined, byReason };
   }
 
+  async function quarantineLegacyCanonicalMasterOperations(syncContext = context()) {
+    const operations = await store().listOperations({
+      companyId: syncContext.companyId || undefined,
+      statuses: PENDING_STATUSES
+    });
+    let quarantined = 0;
+    for (const operation of operations) {
+      const descriptor = registry().descriptor?.(operation.entity);
+      if (descriptor?.canonicalMasterContract?.legacyPendingRequiresReview !== true) continue;
+      await quarantineOperation(operation, QUARANTINE_REASONS.CANONICAL_MASTER_MIGRATION_REQUIRED);
+      quarantined += 1;
+    }
+    return { quarantined };
+  }
+
+  function legacyMigrationMetaKey(syncContext = context()) {
+    return `canonical_master_migration_candidates:${syncContext.projectRef || "unknown"}:${syncContext.companyId || "unknown"}`;
+  }
+
+  async function preserveLegacyMigrationCandidates(candidates, syncContext = context()) {
+    if (!Array.isArray(candidates) || !candidates.length) return [];
+    const key = legacyMigrationMetaKey(syncContext);
+    const current = await store().getMeta(key, []);
+    const byRecord = new Map((Array.isArray(current) ? current : []).map(candidate => [
+      recordGuardKey(candidate.entity, candidate.record_id),
+      candidate
+    ]));
+    candidates.forEach(candidate => byRecord.set(recordGuardKey(candidate.entity, candidate.record_id), candidate));
+    const preserved = [...byRecord.values()];
+    await store().setMeta(key, preserved);
+    return preserved;
+  }
+
+  async function legacyCanonicalMasterMigrationAudit(syncContext = context()) {
+    const candidates = await store().getMeta(legacyMigrationMetaKey(syncContext), []);
+    const quarantined = (await store().listOperations({
+      companyId: syncContext.companyId || undefined,
+      statuses: ["quarantined"]
+    })).filter(operation => (
+      operation.quarantine_reason === QUARANTINE_REASONS.CANONICAL_MASTER_MIGRATION_REQUIRED
+    ));
+    return {
+      candidates: Array.isArray(candidates) ? candidates.map(candidate => clone(candidate)) : [],
+      quarantinedOperations: quarantined.map(operation => clone(operation))
+    };
+  }
+
   async function refreshCounts(extra = {}) {
     const syncContext = context();
     const operations = await store().listOperations({ companyId: syncContext.companyId || undefined });
@@ -719,6 +767,7 @@
     const syncContext = context();
     let discarded = 0;
     let preservedPending = 0;
+    const migrationCandidates = [];
     const discardedRecords = [];
     const allowed = allowedEntities instanceof Set ? allowedEntities : null;
     const observedRemoteEntities = new Set();
@@ -753,6 +802,21 @@
           preservedPending += 1;
           continue;
         }
+        if (
+          descriptor.canonicalMasterContract?.legacyPendingRequiresReview === true
+          && registry().isCanonicalBootstrapRecord?.(descriptor, row) !== true
+          && Number(row?.__syncVersion || 0) < 1
+        ) {
+          migrationCandidates.push({
+            entity: descriptor.entity,
+            record_id: recordId,
+            payload: registry().sanitizePayload?.(descriptor, row) || clone(row),
+            company_id: syncContext.companyId,
+            project_ref: syncContext.projectRef,
+            detected_at: nowIso(),
+            reason: QUARANTINE_REASONS.CANONICAL_MASTER_MIGRATION_REQUIRED
+          });
+        }
         const result = registry().applyServerRecord(db, {
           company_id: syncContext.companyId,
           entity: descriptor.entity,
@@ -778,7 +842,8 @@
         captureSuppressed -= 1;
       }
     }
-    return { discarded, preservedPending };
+    await preserveLegacyMigrationCandidates(migrationCandidates, syncContext);
+    return { discarded, preservedPending, preservedMigrationCandidates: migrationCandidates.length };
   }
 
   async function evictNonBootstrapLocalRecords(db = BlessERP.state?.state?.db) {
@@ -1236,6 +1301,7 @@
     processingPromise = (async () => {
       if (!enabled()) return { ok: true, mode: "LOCAL" };
       await quarantineUnverifiedOperations(context());
+      await quarantineLegacyCanonicalMasterOperations(context());
       await refreshCounts();
       if (!currentStatus.serverReachable || backendReady !== true) {
         await healthCheck({ reconnecting: true });
@@ -1713,6 +1779,7 @@
     const syncContext = context();
     await initializeQueueMetadata(syncContext);
     await quarantineUnverifiedOperations(syncContext);
+    await quarantineLegacyCanonicalMasterOperations(syncContext);
     await reconcileLegacyConflicts();
     baseline = registry().snapshot(db || {});
     currentStatus.lastSyncAt = syncContext.companyId
@@ -1803,6 +1870,8 @@
     replayGate,
     quarantineOperation,
     quarantineUnverifiedOperations,
+    quarantineLegacyCanonicalMasterOperations,
+    legacyCanonicalMasterMigrationAudit,
     queuePolicy: Object.freeze({
       queueSchemaVersion: QUEUE_SCHEMA_VERSION,
       operationSchemaVersion: OPERATION_SCHEMA_VERSION,

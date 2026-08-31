@@ -262,6 +262,13 @@
   ]);
 
   const EMBEDDED_MASTER_DATA_KEYS = Object.freeze({
+    operations_suppliers: "suppliers",
+    operations_classifiers: "classifiers",
+    operations_bunchers: "bunchers",
+    operations_receptionists: "receptionists",
+    operations_digitizers: "digitizers",
+    operations_scanners: "scanners",
+    operations_responsibles: "responsibles",
     operations_varieties: "varieties",
     operations_lengths: "lengths",
     operations_stem_types: "stemTypes",
@@ -557,7 +564,11 @@
       receptionists: [],
       digitizers: [],
       scanners: [],
-      responsibles: []
+      responsibles: [],
+      varieties: [],
+      lengths: [],
+      stemTypes: [],
+      labelTypes: []
     };
     clean.masterData = {
       ...clean.masterData,
@@ -567,7 +578,11 @@
       receptionists: [],
       digitizers: [],
       scanners: [],
-      responsibles: []
+      responsibles: [],
+      varieties: [],
+      lengths: [],
+      stemTypes: [],
+      labelTypes: []
     };
     [
       "availabilityDemo",

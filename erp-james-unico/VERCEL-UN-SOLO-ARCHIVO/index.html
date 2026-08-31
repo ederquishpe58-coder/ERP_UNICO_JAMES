@@ -24487,7 +24487,16 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     "operations.dashboard": ["view"],
     "operations.parameters": ["view", "manage"],
     "operations.farms_blocks": ["manage"],
+    "operations.classifiers": ["manage"],
+    "operations.bunchers": ["manage"],
+    "operations.receptionists": ["manage"],
+    "operations.digitizers": ["manage"],
+    "operations.scanners": ["manage"],
+    "operations.responsibles": ["manage"],
     "operations.varieties": ["manage"],
+    "operations.lengths": ["manage"],
+    "operations.stem_types": ["manage"],
+    "operations.label_types": ["manage"],
     "operations.reception": ["view", "create", "edit", "cancel"],
     "operations.classification": ["view", "record", "edit"],
     "operations.labels": ["view", "create", "reprint"],
@@ -30106,12 +30115,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     throw new Error(`Entidad CONT-D sin decisión explícita: ${key}`);
   }
 
-  function canonicalMasterContract(localBootstrapWhenEmpty = false) {
+  function canonicalMasterContract(localBootstrapWhenEmpty = false, options = {}) {
     return Object.freeze({
       canonicalServerAuthority: true,
       fullSnapshotPrunesLocalLegacy: true,
-      localBootstrapWhenEmpty: localBootstrapWhenEmpty === true
+      localBootstrapWhenEmpty: localBootstrapWhenEmpty === true,
+      legacyPendingRequiresReview: options.legacyPendingRequiresReview === true
     });
+  }
+
+  function canonicalPostharvestMasterContract() {
+    return canonicalMasterContract(false, { legacyPendingRequiresReview: true });
   }
 
   // Lista positiva: solo estos maestros company-scoped permiten que un full
@@ -30128,11 +30142,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     commercial_airlines: canonicalMasterContract(true),
     commercial_countries: canonicalMasterContract(true),
     commercial_destinations: canonicalMasterContract(false),
-    operations_suppliers: canonicalMasterContract(false),
-    operations_varieties: canonicalMasterContract(true),
-    operations_lengths: canonicalMasterContract(true),
-    operations_stem_types: canonicalMasterContract(true),
-    operations_label_types: canonicalMasterContract(true),
+    operations_suppliers: canonicalPostharvestMasterContract(),
+    operations_classifiers: canonicalPostharvestMasterContract(),
+    operations_bunchers: canonicalPostharvestMasterContract(),
+    operations_receptionists: canonicalPostharvestMasterContract(),
+    operations_digitizers: canonicalPostharvestMasterContract(),
+    operations_scanners: canonicalPostharvestMasterContract(),
+    operations_responsibles: canonicalPostharvestMasterContract(),
+    operations_varieties: canonicalPostharvestMasterContract(),
+    operations_lengths: canonicalPostharvestMasterContract(),
+    operations_stem_types: canonicalPostharvestMasterContract(),
+    operations_label_types: canonicalPostharvestMasterContract(),
     operations_yield_settings: canonicalMasterContract(true),
     treasury_cash_accounts: canonicalMasterContract(false)
   });
@@ -30515,6 +30535,13 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       return BlessERP.comercialData?.isEmbeddedCountry?.(record) === true;
     }
     if ([
+      "operations_suppliers",
+      "operations_classifiers",
+      "operations_bunchers",
+      "operations_receptionists",
+      "operations_digitizers",
+      "operations_scanners",
+      "operations_responsibles",
       "operations_varieties",
       "operations_lengths",
       "operations_stem_types",
@@ -31192,7 +31219,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     STALE_OPERATION: "STALE_OPERATION",
     INVALID_OPERATION_ID: "INVALID_OPERATION_ID",
     DERIVED_FIELD_ONLY: "DERIVED_FIELD_ONLY",
-    SERVER_ALREADY_APPLIED: "SERVER_ALREADY_APPLIED"
+    SERVER_ALREADY_APPLIED: "SERVER_ALREADY_APPLIED",
+    CANONICAL_MASTER_MIGRATION_REQUIRED: "CANONICAL_MASTER_MIGRATION_REQUIRED"
   });
   const registry = () => BlessERP.syncEntityRegistry;
   const store = () => BlessERP.syncIndexedDb;
@@ -31581,6 +31609,53 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     return { quarantined, byReason };
   }
 
+  async function quarantineLegacyCanonicalMasterOperations(syncContext = context()) {
+    const operations = await store().listOperations({
+      companyId: syncContext.companyId || undefined,
+      statuses: PENDING_STATUSES
+    });
+    let quarantined = 0;
+    for (const operation of operations) {
+      const descriptor = registry().descriptor?.(operation.entity);
+      if (descriptor?.canonicalMasterContract?.legacyPendingRequiresReview !== true) continue;
+      await quarantineOperation(operation, QUARANTINE_REASONS.CANONICAL_MASTER_MIGRATION_REQUIRED);
+      quarantined += 1;
+    }
+    return { quarantined };
+  }
+
+  function legacyMigrationMetaKey(syncContext = context()) {
+    return `canonical_master_migration_candidates:${syncContext.projectRef || "unknown"}:${syncContext.companyId || "unknown"}`;
+  }
+
+  async function preserveLegacyMigrationCandidates(candidates, syncContext = context()) {
+    if (!Array.isArray(candidates) || !candidates.length) return [];
+    const key = legacyMigrationMetaKey(syncContext);
+    const current = await store().getMeta(key, []);
+    const byRecord = new Map((Array.isArray(current) ? current : []).map(candidate => [
+      recordGuardKey(candidate.entity, candidate.record_id),
+      candidate
+    ]));
+    candidates.forEach(candidate => byRecord.set(recordGuardKey(candidate.entity, candidate.record_id), candidate));
+    const preserved = [...byRecord.values()];
+    await store().setMeta(key, preserved);
+    return preserved;
+  }
+
+  async function legacyCanonicalMasterMigrationAudit(syncContext = context()) {
+    const candidates = await store().getMeta(legacyMigrationMetaKey(syncContext), []);
+    const quarantined = (await store().listOperations({
+      companyId: syncContext.companyId || undefined,
+      statuses: ["quarantined"]
+    })).filter(operation => (
+      operation.quarantine_reason === QUARANTINE_REASONS.CANONICAL_MASTER_MIGRATION_REQUIRED
+    ));
+    return {
+      candidates: Array.isArray(candidates) ? candidates.map(candidate => clone(candidate)) : [],
+      quarantinedOperations: quarantined.map(operation => clone(operation))
+    };
+  }
+
   async function refreshCounts(extra = {}) {
     const syncContext = context();
     const operations = await store().listOperations({ companyId: syncContext.companyId || undefined });
@@ -31890,6 +31965,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     const syncContext = context();
     let discarded = 0;
     let preservedPending = 0;
+    const migrationCandidates = [];
     const discardedRecords = [];
     const allowed = allowedEntities instanceof Set ? allowedEntities : null;
     const observedRemoteEntities = new Set();
@@ -31924,6 +32000,21 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
           preservedPending += 1;
           continue;
         }
+        if (
+          descriptor.canonicalMasterContract?.legacyPendingRequiresReview === true
+          && registry().isCanonicalBootstrapRecord?.(descriptor, row) !== true
+          && Number(row?.__syncVersion || 0) < 1
+        ) {
+          migrationCandidates.push({
+            entity: descriptor.entity,
+            record_id: recordId,
+            payload: registry().sanitizePayload?.(descriptor, row) || clone(row),
+            company_id: syncContext.companyId,
+            project_ref: syncContext.projectRef,
+            detected_at: nowIso(),
+            reason: QUARANTINE_REASONS.CANONICAL_MASTER_MIGRATION_REQUIRED
+          });
+        }
         const result = registry().applyServerRecord(db, {
           company_id: syncContext.companyId,
           entity: descriptor.entity,
@@ -31949,7 +32040,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         captureSuppressed -= 1;
       }
     }
-    return { discarded, preservedPending };
+    await preserveLegacyMigrationCandidates(migrationCandidates, syncContext);
+    return { discarded, preservedPending, preservedMigrationCandidates: migrationCandidates.length };
   }
 
   async function evictNonBootstrapLocalRecords(db = BlessERP.state?.state?.db) {
@@ -32407,6 +32499,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     processingPromise = (async () => {
       if (!enabled()) return { ok: true, mode: "LOCAL" };
       await quarantineUnverifiedOperations(context());
+      await quarantineLegacyCanonicalMasterOperations(context());
       await refreshCounts();
       if (!currentStatus.serverReachable || backendReady !== true) {
         await healthCheck({ reconnecting: true });
@@ -32884,6 +32977,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     const syncContext = context();
     await initializeQueueMetadata(syncContext);
     await quarantineUnverifiedOperations(syncContext);
+    await quarantineLegacyCanonicalMasterOperations(syncContext);
     await reconcileLegacyConflicts();
     baseline = registry().snapshot(db || {});
     currentStatus.lastSyncAt = syncContext.companyId
@@ -32974,6 +33068,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     replayGate,
     quarantineOperation,
     quarantineUnverifiedOperations,
+    quarantineLegacyCanonicalMasterOperations,
+    legacyCanonicalMasterMigrationAudit,
     queuePolicy: Object.freeze({
       queueSchemaVersion: QUEUE_SCHEMA_VERSION,
       operationSchemaVersion: OPERATION_SCHEMA_VERSION,
@@ -36598,20 +36694,20 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   const BlessERP = window.BlessERP = window.BlessERP || {};
 
   const TYPES = Object.freeze({
-    suppliers: Object.freeze({ entity: "operations_suppliers", label: "Fincas / Bloques" }),
-    classifiers: Object.freeze({ entity: "operations_classifiers", label: "Clasificadores" }),
-    bunchers: Object.freeze({ entity: "operations_bunchers", label: "Embonchadores" }),
-    receptionists: Object.freeze({ entity: "operations_receptionists", label: "Recepcionistas" }),
-    digitizers: Object.freeze({ entity: "operations_digitizers", label: "Digitadores" }),
-    scanners: Object.freeze({ entity: "operations_scanners", label: "Responsables de escaneo" }),
-    responsibles: Object.freeze({ entity: "operations_responsibles", label: "Responsables de despacho" }),
-    varieties: Object.freeze({ entity: "operations_varieties", label: "Variedades" }),
-    lengths: Object.freeze({ entity: "operations_lengths", label: "Medidas" }),
-    stemTypes: Object.freeze({ entity: "operations_stem_types", label: "Tipos de tallo" }),
-    labelTypes: Object.freeze({ entity: "operations_label_types", label: "Tipos de etiqueta" })
+    suppliers: Object.freeze({ entity: "operations_suppliers", label: "Fincas / Bloques", codePrefix: "FIN", recordPrefix: "FARM" }),
+    classifiers: Object.freeze({ entity: "operations_classifiers", label: "Clasificadores", codePrefix: "CLA", person: true }),
+    bunchers: Object.freeze({ entity: "operations_bunchers", label: "Embonchadores", codePrefix: "EMB", person: true }),
+    receptionists: Object.freeze({ entity: "operations_receptionists", label: "Recepcionistas", codePrefix: "REC", person: true }),
+    digitizers: Object.freeze({ entity: "operations_digitizers", label: "Digitadores", codePrefix: "DIG", person: true }),
+    scanners: Object.freeze({ entity: "operations_scanners", label: "Responsables de escaneo", codePrefix: "ESC", person: true }),
+    responsibles: Object.freeze({ entity: "operations_responsibles", label: "Responsables de despacho", codePrefix: "RSP", person: true }),
+    varieties: Object.freeze({ entity: "operations_varieties", label: "Variedades", codePrefix: "VAR", recordPrefix: "VAR" }),
+    lengths: Object.freeze({ entity: "operations_lengths", label: "Medidas", codePrefix: "LON", recordPrefix: "LENGTH" }),
+    stemTypes: Object.freeze({ entity: "operations_stem_types", label: "Tipos de tallo", codePrefix: "TAL", recordPrefix: "STEM" }),
+    labelTypes: Object.freeze({ entity: "operations_label_types", label: "Tipos de etiqueta", codePrefix: "ETQ", recordPrefix: "LABEL" })
   });
   const TYPE_BY_ENTITY = new Map(Object.entries(TYPES).map(([type, config]) => [config.entity, type]));
-  const CANONICAL_EDIT_TYPES = new Set(["suppliers", "varieties"]);
+  const CANONICAL_EDIT_TYPES = new Set(Object.keys(TYPES));
   const RECORD_SELECT = "id,company_id,entity,record_id,payload,version,created_at,updated_at,created_by,updated_by,device_id,last_operation_id,deleted_at";
 
   function activeCompanyId() {
@@ -36724,16 +36820,29 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
 
   function mutationPayload(type, draft, basePayload, recordId, operationId) {
+    const config = TYPES[type];
     const next = {
       ...basePayload,
       id: recordId,
       code: normalizeBusinessValue(draft.code || basePayload.code
-        || `${type === "suppliers" ? "FIN" : "VAR"}-${operationId.slice(0, 8).toUpperCase()}`),
+        || `${config.codePrefix}-${operationId.slice(0, 8).toUpperCase()}`),
       name: normalizeBusinessValue(draft.name),
       active: draft.active !== false,
       observation: normalizeBusinessValue(draft.observation)
     };
     if (type === "suppliers") next.assignedBlock = normalizeBusinessValue(draft.assignedBlock).toUpperCase();
+    if (type === "bunchers") next.labelColor = normalizeBusinessValue(draft.labelColor).toUpperCase();
+    if (config.person) {
+      const operationalWorkerId = normalizeBusinessValue(
+        basePayload.operational_worker_id || basePayload.operationalWorkerId
+        || basePayload.employee_id || basePayload.employeeId || recordId
+      );
+      next.employee_id = operationalWorkerId;
+      next.employeeId = operationalWorkerId;
+      next.operational_worker_id = operationalWorkerId;
+      next.operationalWorkerId = operationalWorkerId;
+      next.employeeLinkSource = basePayload.employeeLinkSource || "OPERATIONAL_CATALOG_ID";
+    }
     return next;
   }
 
@@ -36794,7 +36903,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     }
 
     const operationId = uuid();
-    const recordId = existingId || `${type === "suppliers" ? "FARM" : "VAR"}-${operationId}`;
+    const recordId = existingId || (config.person ? operationId : `${config.recordPrefix}-${operationId}`);
     const basePayload = current ? payloadOf(current) : {};
     const payload = mutationPayload(type, draft, basePayload, recordId, operationId);
     const deviceId = String(await BlessERP.offlineSync?.getDeviceId?.() || `WEB-PARAM-${operationId.slice(0, 12)}`);
@@ -101056,6 +101165,13 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   ]);
 
   const EMBEDDED_MASTER_DATA_KEYS = Object.freeze({
+    operations_suppliers: "suppliers",
+    operations_classifiers: "classifiers",
+    operations_bunchers: "bunchers",
+    operations_receptionists: "receptionists",
+    operations_digitizers: "digitizers",
+    operations_scanners: "scanners",
+    operations_responsibles: "responsibles",
     operations_varieties: "varieties",
     operations_lengths: "lengths",
     operations_stem_types: "stemTypes",
@@ -101351,7 +101467,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       receptionists: [],
       digitizers: [],
       scanners: [],
-      responsibles: []
+      responsibles: [],
+      varieties: [],
+      lengths: [],
+      stemTypes: [],
+      labelTypes: []
     };
     clean.masterData = {
       ...clean.masterData,
@@ -101361,7 +101481,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       receptionists: [],
       digitizers: [],
       scanners: [],
-      responsibles: []
+      responsibles: [],
+      varieties: [],
+      lengths: [],
+      stemTypes: [],
+      labelTypes: []
     };
     [
       "availabilityDemo",
@@ -104099,12 +104223,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     };
     Object.entries(map).forEach(([catalogKey, masterKey]) => {
       const values = activeMasterNames(store, masterKey);
-      // Fincas/bloques y variedades ya son catálogos canónicos de servidor.
-      // Incluso un conjunto activo vacío es autoritativo y debe retirar del
-      // selector operativo cualquier valor legacy previamente cacheado.
-      if (values.length || ["suppliers", "varieties"].includes(masterKey)) {
-        store.catalogs[catalogKey] = values;
-      }
+      // Todos los parámetros de Poscosecha son catálogos canónicos de servidor.
+      // Incluso un conjunto activo vacío es autoritativo y retira cualquier
+      // valor legacy previamente cacheado de los selectores operativos.
+      store.catalogs[catalogKey] = values;
     });
   }
 
@@ -110976,7 +111098,16 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   });
   const TYPE_MANAGE_CAPABILITIES = Object.freeze({
     suppliers: "operations.farms_blocks.manage",
-    varieties: "operations.varieties.manage"
+    classifiers: "operations.classifiers.manage",
+    bunchers: "operations.bunchers.manage",
+    receptionists: "operations.receptionists.manage",
+    digitizers: "operations.digitizers.manage",
+    scanners: "operations.scanners.manage",
+    responsibles: "operations.responsibles.manage",
+    varieties: "operations.varieties.manage",
+    lengths: "operations.lengths.manage",
+    stemTypes: "operations.stem_types.manage",
+    labelTypes: "operations.label_types.manage"
   });
   const PERSON_TYPES = new Set(["classifiers", "bunchers", "receptionists", "digitizers", "scanners", "responsibles"]);
   const PAYROLL_LINK_TYPES = Object.freeze({ classifiers: "CLASSIFIER", bunchers: "BUNCHER" });
@@ -111065,11 +111196,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
 
   function manageCapabilityForType(type) {
-    return TYPE_MANAGE_CAPABILITIES[String(type || "")] || "operations.parameters.manage";
+    return TYPE_MANAGE_CAPABILITIES[String(type || "")] || "";
   }
 
   function canManageType(type) {
-    return BlessERP.capabilityRuntime?.can?.(manageCapabilityForType(type)) === true;
+    const capability = manageCapabilityForType(type);
+    return Boolean(capability)
+      && BlessERP.capabilityRuntime?.can?.("operations.parameters.view") === true
+      && BlessERP.capabilityRuntime?.can?.(capability) === true;
   }
 
   function assertManageType(type) {
@@ -111702,18 +111836,25 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       if (!catalogUi.queried || type !== catalogUi.type) return;
       const recordId = String(event.detail?.recordId || "");
       const index = catalogUi.rows.findIndex(item => String(item.id) === recordId || String(item.__canonicalRecordId) === recordId);
-      if (index < 0) return;
       const serverRecord = event.detail?.serverRecord || {};
       if (serverRecord.deleted_at) {
+        if (index < 0) return;
         catalogUi.rows.splice(index, 1);
         catalogUi.total = Math.max(0, catalogUi.total - 1);
       } else {
         const next = repository.mapRecord?.(serverRecord, type);
         if (!matchesCatalogQuery(next, type)) {
+          if (index < 0) return;
           catalogUi.rows.splice(index, 1);
           catalogUi.total = Math.max(0, catalogUi.total - 1);
-        } else {
+        } else if (index >= 0) {
           catalogUi.rows[index] = next;
+        } else {
+          catalogUi.total += 1;
+          if (catalogUi.page === 1) {
+            catalogUi.rows.unshift(next);
+            catalogUi.rows = catalogUi.rows.slice(0, catalogUi.pageSize);
+          }
         }
       }
       BlessERP.layout?.renderPage?.();
@@ -121209,13 +121350,7 @@ ${barcodeGraphic.zpl}
               : (result?.message || "No se pudo confirmar el parámetro en Supabase."));
             return;
           }
-          const result = stateApi.saveParameter(appState);
-          if (result?.ok) {
-            BlessERP.operacionesParametros?.noteLocalMutation?.(appState, parameterType, result.entry?.id);
-            BlessERP.layout.toast(result.persisted === false
-              ? `Parametro guardado: ${result.entry.name}. Sincronizacion pendiente.`
-              : `Parametro guardado: ${result.entry.name}`);
-          }
+          throw new Error("El tipo seleccionado no tiene un contrato canónico explícito.");
         } catch (error) {
           console.error("Error al guardar el parametro de Poscosecha.", error);
           stateApi.setNotice(appState, `No se pudo guardar el parametro: ${error.message || "error inesperado"}.`, "warning");
@@ -121227,11 +121362,7 @@ ${barcodeGraphic.zpl}
       if (action.dataset.opsAction === "parameter-reset") {
         const parameterType = String(stateApi.getUi(appState).parameterDraft?.type || "");
         const canonicalRepository = BlessERP.getPostharvestParameterQueryRepository?.();
-        if (canonicalRepository?.isCanonicalEditableType?.(parameterType)) {
-          BlessERP.operacionesParametros?.resetCanonicalDraft?.(appState, parameterType);
-        } else {
-          stateApi.resetParameterDraft(appState);
-        }
+        BlessERP.operacionesParametros?.resetCanonicalDraft?.(appState, parameterType);
         rerender();
         return;
       }
@@ -121239,11 +121370,11 @@ ${barcodeGraphic.zpl}
         const parameterType = String(action.dataset.type || "");
         if (!BlessERP.operacionesParametros?.assertManageType?.(parameterType)) return;
         const canonicalRepository = BlessERP.getPostharvestParameterQueryRepository?.();
-        if (canonicalRepository?.isCanonicalEditableType?.(parameterType)) {
-          BlessERP.operacionesParametros?.editCanonicalParameter?.(appState, parameterType, action.dataset.id);
-        } else {
-          stateApi.editParameter(appState, parameterType, action.dataset.id);
+        if (!canonicalRepository?.isCanonicalEditableType?.(parameterType)) {
+          BlessERP.layout.toast("El tipo seleccionado no tiene un contrato canónico explícito.");
+          return;
         }
+        BlessERP.operacionesParametros?.editCanonicalParameter?.(appState, parameterType, action.dataset.id);
         rerender();
         return;
       }
@@ -121260,21 +121391,13 @@ ${barcodeGraphic.zpl}
           rerender();
           return;
         }
-        const changed = stateApi.toggleParameter(appState, parameterType, action.dataset.id);
-        if (changed) BlessERP.operacionesParametros?.noteLocalMutation?.(appState, action.dataset.type, action.dataset.id);
-        rerender();
+        BlessERP.layout.toast("El tipo seleccionado no tiene un contrato canónico explícito.");
         return;
       }
       if (action.dataset.opsAction === "parameter-delete") {
         const parameterType = String(action.dataset.type || "");
         if (!BlessERP.operacionesParametros?.assertManageType?.(parameterType)) return;
-        if (BlessERP.getPostharvestParameterQueryRepository?.()?.isCanonicalEditableType?.(parameterType)) {
-          BlessERP.layout.toast("Este catálogo conserva auditoría: use Activar o Desactivar.");
-          return;
-        }
-        const changed = stateApi.deleteParameter(appState, parameterType, action.dataset.id);
-        if (changed) BlessERP.operacionesParametros?.noteLocalMutation?.(appState, action.dataset.type, action.dataset.id);
-        rerender();
+        BlessERP.layout.toast("Este catálogo conserva auditoría: use Activar o Desactivar.");
         return;
       }
       if (action.dataset.opsAction === "classification-assignment-save") {

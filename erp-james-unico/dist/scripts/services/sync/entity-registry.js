@@ -211,12 +211,17 @@
     throw new Error(`Entidad CONT-D sin decisión explícita: ${key}`);
   }
 
-  function canonicalMasterContract(localBootstrapWhenEmpty = false) {
+  function canonicalMasterContract(localBootstrapWhenEmpty = false, options = {}) {
     return Object.freeze({
       canonicalServerAuthority: true,
       fullSnapshotPrunesLocalLegacy: true,
-      localBootstrapWhenEmpty: localBootstrapWhenEmpty === true
+      localBootstrapWhenEmpty: localBootstrapWhenEmpty === true,
+      legacyPendingRequiresReview: options.legacyPendingRequiresReview === true
     });
+  }
+
+  function canonicalPostharvestMasterContract() {
+    return canonicalMasterContract(false, { legacyPendingRequiresReview: true });
   }
 
   // Lista positiva: solo estos maestros company-scoped permiten que un full
@@ -233,11 +238,17 @@
     commercial_airlines: canonicalMasterContract(true),
     commercial_countries: canonicalMasterContract(true),
     commercial_destinations: canonicalMasterContract(false),
-    operations_suppliers: canonicalMasterContract(false),
-    operations_varieties: canonicalMasterContract(true),
-    operations_lengths: canonicalMasterContract(true),
-    operations_stem_types: canonicalMasterContract(true),
-    operations_label_types: canonicalMasterContract(true),
+    operations_suppliers: canonicalPostharvestMasterContract(),
+    operations_classifiers: canonicalPostharvestMasterContract(),
+    operations_bunchers: canonicalPostharvestMasterContract(),
+    operations_receptionists: canonicalPostharvestMasterContract(),
+    operations_digitizers: canonicalPostharvestMasterContract(),
+    operations_scanners: canonicalPostharvestMasterContract(),
+    operations_responsibles: canonicalPostharvestMasterContract(),
+    operations_varieties: canonicalPostharvestMasterContract(),
+    operations_lengths: canonicalPostharvestMasterContract(),
+    operations_stem_types: canonicalPostharvestMasterContract(),
+    operations_label_types: canonicalPostharvestMasterContract(),
     operations_yield_settings: canonicalMasterContract(true),
     treasury_cash_accounts: canonicalMasterContract(false)
   });
@@ -620,6 +631,13 @@
       return BlessERP.comercialData?.isEmbeddedCountry?.(record) === true;
     }
     if ([
+      "operations_suppliers",
+      "operations_classifiers",
+      "operations_bunchers",
+      "operations_receptionists",
+      "operations_digitizers",
+      "operations_scanners",
+      "operations_responsibles",
       "operations_varieties",
       "operations_lengths",
       "operations_stem_types",

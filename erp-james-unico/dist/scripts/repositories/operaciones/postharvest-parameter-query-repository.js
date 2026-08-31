@@ -2,20 +2,20 @@
   const BlessERP = window.BlessERP = window.BlessERP || {};
 
   const TYPES = Object.freeze({
-    suppliers: Object.freeze({ entity: "operations_suppliers", label: "Fincas / Bloques" }),
-    classifiers: Object.freeze({ entity: "operations_classifiers", label: "Clasificadores" }),
-    bunchers: Object.freeze({ entity: "operations_bunchers", label: "Embonchadores" }),
-    receptionists: Object.freeze({ entity: "operations_receptionists", label: "Recepcionistas" }),
-    digitizers: Object.freeze({ entity: "operations_digitizers", label: "Digitadores" }),
-    scanners: Object.freeze({ entity: "operations_scanners", label: "Responsables de escaneo" }),
-    responsibles: Object.freeze({ entity: "operations_responsibles", label: "Responsables de despacho" }),
-    varieties: Object.freeze({ entity: "operations_varieties", label: "Variedades" }),
-    lengths: Object.freeze({ entity: "operations_lengths", label: "Medidas" }),
-    stemTypes: Object.freeze({ entity: "operations_stem_types", label: "Tipos de tallo" }),
-    labelTypes: Object.freeze({ entity: "operations_label_types", label: "Tipos de etiqueta" })
+    suppliers: Object.freeze({ entity: "operations_suppliers", label: "Fincas / Bloques", codePrefix: "FIN", recordPrefix: "FARM" }),
+    classifiers: Object.freeze({ entity: "operations_classifiers", label: "Clasificadores", codePrefix: "CLA", person: true }),
+    bunchers: Object.freeze({ entity: "operations_bunchers", label: "Embonchadores", codePrefix: "EMB", person: true }),
+    receptionists: Object.freeze({ entity: "operations_receptionists", label: "Recepcionistas", codePrefix: "REC", person: true }),
+    digitizers: Object.freeze({ entity: "operations_digitizers", label: "Digitadores", codePrefix: "DIG", person: true }),
+    scanners: Object.freeze({ entity: "operations_scanners", label: "Responsables de escaneo", codePrefix: "ESC", person: true }),
+    responsibles: Object.freeze({ entity: "operations_responsibles", label: "Responsables de despacho", codePrefix: "RSP", person: true }),
+    varieties: Object.freeze({ entity: "operations_varieties", label: "Variedades", codePrefix: "VAR", recordPrefix: "VAR" }),
+    lengths: Object.freeze({ entity: "operations_lengths", label: "Medidas", codePrefix: "LON", recordPrefix: "LENGTH" }),
+    stemTypes: Object.freeze({ entity: "operations_stem_types", label: "Tipos de tallo", codePrefix: "TAL", recordPrefix: "STEM" }),
+    labelTypes: Object.freeze({ entity: "operations_label_types", label: "Tipos de etiqueta", codePrefix: "ETQ", recordPrefix: "LABEL" })
   });
   const TYPE_BY_ENTITY = new Map(Object.entries(TYPES).map(([type, config]) => [config.entity, type]));
-  const CANONICAL_EDIT_TYPES = new Set(["suppliers", "varieties"]);
+  const CANONICAL_EDIT_TYPES = new Set(Object.keys(TYPES));
   const RECORD_SELECT = "id,company_id,entity,record_id,payload,version,created_at,updated_at,created_by,updated_by,device_id,last_operation_id,deleted_at";
 
   function activeCompanyId() {
@@ -128,16 +128,29 @@
   }
 
   function mutationPayload(type, draft, basePayload, recordId, operationId) {
+    const config = TYPES[type];
     const next = {
       ...basePayload,
       id: recordId,
       code: normalizeBusinessValue(draft.code || basePayload.code
-        || `${type === "suppliers" ? "FIN" : "VAR"}-${operationId.slice(0, 8).toUpperCase()}`),
+        || `${config.codePrefix}-${operationId.slice(0, 8).toUpperCase()}`),
       name: normalizeBusinessValue(draft.name),
       active: draft.active !== false,
       observation: normalizeBusinessValue(draft.observation)
     };
     if (type === "suppliers") next.assignedBlock = normalizeBusinessValue(draft.assignedBlock).toUpperCase();
+    if (type === "bunchers") next.labelColor = normalizeBusinessValue(draft.labelColor).toUpperCase();
+    if (config.person) {
+      const operationalWorkerId = normalizeBusinessValue(
+        basePayload.operational_worker_id || basePayload.operationalWorkerId
+        || basePayload.employee_id || basePayload.employeeId || recordId
+      );
+      next.employee_id = operationalWorkerId;
+      next.employeeId = operationalWorkerId;
+      next.operational_worker_id = operationalWorkerId;
+      next.operationalWorkerId = operationalWorkerId;
+      next.employeeLinkSource = basePayload.employeeLinkSource || "OPERATIONAL_CATALOG_ID";
+    }
     return next;
   }
 
@@ -198,7 +211,7 @@
     }
 
     const operationId = uuid();
-    const recordId = existingId || `${type === "suppliers" ? "FARM" : "VAR"}-${operationId}`;
+    const recordId = existingId || (config.person ? operationId : `${config.recordPrefix}-${operationId}`);
     const basePayload = current ? payloadOf(current) : {};
     const payload = mutationPayload(type, draft, basePayload, recordId, operationId);
     const deviceId = String(await BlessERP.offlineSync?.getDeviceId?.() || `WEB-PARAM-${operationId.slice(0, 12)}`);

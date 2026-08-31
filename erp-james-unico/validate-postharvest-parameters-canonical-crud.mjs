@@ -168,13 +168,13 @@ assert.equal(disabled.record.id, variety.id);
 assert.equal(disabled.record.active, false);
 assert.equal(writes, 2);
 
-assert.match(entityRegistrySource, /operations_suppliers:\s*canonicalMasterContract\(false\)/);
-assert.match(entityRegistrySource, /operations_varieties:\s*canonicalMasterContract\(true\)/);
+assert.match(entityRegistrySource, /operations_suppliers:\s*canonicalPostharvestMasterContract\(\)/);
+assert.match(entityRegistrySource, /operations_varieties:\s*canonicalPostharvestMasterContract\(\)/);
 assert.match(entityRegistrySource, /\["operations_suppliers",\s*"operations\.masterData\.suppliers"\]/);
 assert.match(entityRegistrySource, /\["operations_varieties",\s*"operations\.masterData\.varieties"\]/);
 assert.match(operationsStateSource, /store\.masterData\?\.\[type\]/);
 assert.match(operationsStateSource, /activeMasterNames\(store, masterKey\)/);
-assert.match(operationsStateSource, /\["suppliers", "varieties"\]\.includes\(masterKey\)/);
+assert.match(operationsStateSource, /store\.catalogs\[catalogKey\] = values/);
 assert.match(operationsStateSource, /syncCatalogsFromMasterData,/);
 assert.match(operationsIndexSource, /getPostharvestParameterQueryRepository/);
 assert.match(operationsIndexSource, /saveCanonicalParameter/);

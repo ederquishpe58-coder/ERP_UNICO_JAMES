@@ -1542,13 +1542,7 @@
               : (result?.message || "No se pudo confirmar el parámetro en Supabase."));
             return;
           }
-          const result = stateApi.saveParameter(appState);
-          if (result?.ok) {
-            BlessERP.operacionesParametros?.noteLocalMutation?.(appState, parameterType, result.entry?.id);
-            BlessERP.layout.toast(result.persisted === false
-              ? `Parametro guardado: ${result.entry.name}. Sincronizacion pendiente.`
-              : `Parametro guardado: ${result.entry.name}`);
-          }
+          throw new Error("El tipo seleccionado no tiene un contrato canónico explícito.");
         } catch (error) {
           console.error("Error al guardar el parametro de Poscosecha.", error);
           stateApi.setNotice(appState, `No se pudo guardar el parametro: ${error.message || "error inesperado"}.`, "warning");
@@ -1560,11 +1554,7 @@
       if (action.dataset.opsAction === "parameter-reset") {
         const parameterType = String(stateApi.getUi(appState).parameterDraft?.type || "");
         const canonicalRepository = BlessERP.getPostharvestParameterQueryRepository?.();
-        if (canonicalRepository?.isCanonicalEditableType?.(parameterType)) {
-          BlessERP.operacionesParametros?.resetCanonicalDraft?.(appState, parameterType);
-        } else {
-          stateApi.resetParameterDraft(appState);
-        }
+        BlessERP.operacionesParametros?.resetCanonicalDraft?.(appState, parameterType);
         rerender();
         return;
       }
@@ -1572,11 +1562,11 @@
         const parameterType = String(action.dataset.type || "");
         if (!BlessERP.operacionesParametros?.assertManageType?.(parameterType)) return;
         const canonicalRepository = BlessERP.getPostharvestParameterQueryRepository?.();
-        if (canonicalRepository?.isCanonicalEditableType?.(parameterType)) {
-          BlessERP.operacionesParametros?.editCanonicalParameter?.(appState, parameterType, action.dataset.id);
-        } else {
-          stateApi.editParameter(appState, parameterType, action.dataset.id);
+        if (!canonicalRepository?.isCanonicalEditableType?.(parameterType)) {
+          BlessERP.layout.toast("El tipo seleccionado no tiene un contrato canónico explícito.");
+          return;
         }
+        BlessERP.operacionesParametros?.editCanonicalParameter?.(appState, parameterType, action.dataset.id);
         rerender();
         return;
       }
@@ -1593,21 +1583,13 @@
           rerender();
           return;
         }
-        const changed = stateApi.toggleParameter(appState, parameterType, action.dataset.id);
-        if (changed) BlessERP.operacionesParametros?.noteLocalMutation?.(appState, action.dataset.type, action.dataset.id);
-        rerender();
+        BlessERP.layout.toast("El tipo seleccionado no tiene un contrato canónico explícito.");
         return;
       }
       if (action.dataset.opsAction === "parameter-delete") {
         const parameterType = String(action.dataset.type || "");
         if (!BlessERP.operacionesParametros?.assertManageType?.(parameterType)) return;
-        if (BlessERP.getPostharvestParameterQueryRepository?.()?.isCanonicalEditableType?.(parameterType)) {
-          BlessERP.layout.toast("Este catálogo conserva auditoría: use Activar o Desactivar.");
-          return;
-        }
-        const changed = stateApi.deleteParameter(appState, parameterType, action.dataset.id);
-        if (changed) BlessERP.operacionesParametros?.noteLocalMutation?.(appState, action.dataset.type, action.dataset.id);
-        rerender();
+        BlessERP.layout.toast("Este catálogo conserva auditoría: use Activar o Desactivar.");
         return;
       }
       if (action.dataset.opsAction === "classification-assignment-save") {

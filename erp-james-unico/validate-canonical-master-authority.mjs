@@ -71,8 +71,14 @@ const expectedCanonicalEntities = [
   "commercial_customers",
   "commercial_destinations",
   "company_settings",
+  "operations_bunchers",
+  "operations_classifiers",
+  "operations_digitizers",
   "operations_label_types",
   "operations_lengths",
+  "operations_receptionists",
+  "operations_responsibles",
+  "operations_scanners",
   "operations_stem_types",
   "operations_suppliers",
   "operations_varieties",
@@ -188,6 +194,12 @@ const expectedCounts = Object.freeze({
   commercial_countries: 21,
   commercial_destinations: 21,
   operations_suppliers: 34,
+  operations_classifiers: 0,
+  operations_bunchers: 0,
+  operations_receptionists: 0,
+  operations_digitizers: 0,
+  operations_scanners: 0,
+  operations_responsibles: 0,
   operations_varieties: 35,
   operations_lengths: 10,
   operations_stem_types: 2,
@@ -209,10 +221,17 @@ assert.equal(emptyBootstrap.accounting_chart_accounts, 172);
 assert.equal(emptyBootstrap.accounting_cost_centers, 9);
 assert.equal(emptyBootstrap.commercial_airlines, 1);
 assert.equal(emptyBootstrap.commercial_countries, 6);
-assert.equal(emptyBootstrap.operations_varieties, 6);
-assert.equal(emptyBootstrap.operations_lengths, 4);
-assert.equal(emptyBootstrap.operations_stem_types, 2);
-assert.equal(emptyBootstrap.operations_label_types, 2);
+assert.equal(emptyBootstrap.operations_suppliers, 0);
+assert.equal(emptyBootstrap.operations_classifiers, 0);
+assert.equal(emptyBootstrap.operations_bunchers, 0);
+assert.equal(emptyBootstrap.operations_receptionists, 0);
+assert.equal(emptyBootstrap.operations_digitizers, 0);
+assert.equal(emptyBootstrap.operations_scanners, 0);
+assert.equal(emptyBootstrap.operations_responsibles, 0);
+assert.equal(emptyBootstrap.operations_varieties, 0);
+assert.equal(emptyBootstrap.operations_lengths, 0);
+assert.equal(emptyBootstrap.operations_stem_types, 0);
+assert.equal(emptyBootstrap.operations_label_types, 0);
 
 const canonical = emptyCompanyDb();
 const expectedIds = new Map();
@@ -260,6 +279,12 @@ assert.equal(commercialReload.airlineCatalog.length, 14);
 assert.equal(commercialReload.countryCatalog.length, 21);
 assert.equal(commercialReload.destinationCatalog.length, 21);
 assert.equal(operationsReload.masterData.suppliers.length, 34);
+assert.equal(operationsReload.masterData.classifiers.length, 0);
+assert.equal(operationsReload.masterData.bunchers.length, 0);
+assert.equal(operationsReload.masterData.receptionists.length, 0);
+assert.equal(operationsReload.masterData.digitizers.length, 0);
+assert.equal(operationsReload.masterData.scanners.length, 0);
+assert.equal(operationsReload.masterData.responsibles.length, 0);
 assert.equal(operationsReload.masterData.varieties.length, 35);
 assert.equal(operationsReload.masterData.lengths.length, 10);
 assert.equal(operationsReload.masterData.stemTypes.length, 2);
@@ -275,6 +300,12 @@ const customEntities = [
   "commercial_countries",
   "commercial_destinations",
   "operations_suppliers",
+  "operations_classifiers",
+  "operations_bunchers",
+  "operations_receptionists",
+  "operations_digitizers",
+  "operations_scanners",
+  "operations_responsibles",
   "operations_varieties",
   "operations_lengths",
   "operations_stem_types",

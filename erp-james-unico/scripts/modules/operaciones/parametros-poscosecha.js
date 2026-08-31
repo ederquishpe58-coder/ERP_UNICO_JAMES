@@ -21,7 +21,16 @@
   });
   const TYPE_MANAGE_CAPABILITIES = Object.freeze({
     suppliers: "operations.farms_blocks.manage",
-    varieties: "operations.varieties.manage"
+    classifiers: "operations.classifiers.manage",
+    bunchers: "operations.bunchers.manage",
+    receptionists: "operations.receptionists.manage",
+    digitizers: "operations.digitizers.manage",
+    scanners: "operations.scanners.manage",
+    responsibles: "operations.responsibles.manage",
+    varieties: "operations.varieties.manage",
+    lengths: "operations.lengths.manage",
+    stemTypes: "operations.stem_types.manage",
+    labelTypes: "operations.label_types.manage"
   });
   const PERSON_TYPES = new Set(["classifiers", "bunchers", "receptionists", "digitizers", "scanners", "responsibles"]);
   const PAYROLL_LINK_TYPES = Object.freeze({ classifiers: "CLASSIFIER", bunchers: "BUNCHER" });
@@ -110,11 +119,14 @@
   }
 
   function manageCapabilityForType(type) {
-    return TYPE_MANAGE_CAPABILITIES[String(type || "")] || "operations.parameters.manage";
+    return TYPE_MANAGE_CAPABILITIES[String(type || "")] || "";
   }
 
   function canManageType(type) {
-    return BlessERP.capabilityRuntime?.can?.(manageCapabilityForType(type)) === true;
+    const capability = manageCapabilityForType(type);
+    return Boolean(capability)
+      && BlessERP.capabilityRuntime?.can?.("operations.parameters.view") === true
+      && BlessERP.capabilityRuntime?.can?.(capability) === true;
   }
 
   function assertManageType(type) {
@@ -747,18 +759,25 @@
       if (!catalogUi.queried || type !== catalogUi.type) return;
       const recordId = String(event.detail?.recordId || "");
       const index = catalogUi.rows.findIndex(item => String(item.id) === recordId || String(item.__canonicalRecordId) === recordId);
-      if (index < 0) return;
       const serverRecord = event.detail?.serverRecord || {};
       if (serverRecord.deleted_at) {
+        if (index < 0) return;
         catalogUi.rows.splice(index, 1);
         catalogUi.total = Math.max(0, catalogUi.total - 1);
       } else {
         const next = repository.mapRecord?.(serverRecord, type);
         if (!matchesCatalogQuery(next, type)) {
+          if (index < 0) return;
           catalogUi.rows.splice(index, 1);
           catalogUi.total = Math.max(0, catalogUi.total - 1);
-        } else {
+        } else if (index >= 0) {
           catalogUi.rows[index] = next;
+        } else {
+          catalogUi.total += 1;
+          if (catalogUi.page === 1) {
+            catalogUi.rows.unshift(next);
+            catalogUi.rows = catalogUi.rows.slice(0, catalogUi.pageSize);
+          }
         }
       }
       BlessERP.layout?.renderPage?.();

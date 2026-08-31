@@ -625,12 +625,10 @@
     };
     Object.entries(map).forEach(([catalogKey, masterKey]) => {
       const values = activeMasterNames(store, masterKey);
-      // Fincas/bloques y variedades ya son catálogos canónicos de servidor.
-      // Incluso un conjunto activo vacío es autoritativo y debe retirar del
-      // selector operativo cualquier valor legacy previamente cacheado.
-      if (values.length || ["suppliers", "varieties"].includes(masterKey)) {
-        store.catalogs[catalogKey] = values;
-      }
+      // Todos los parámetros de Poscosecha son catálogos canónicos de servidor.
+      // Incluso un conjunto activo vacío es autoritativo y retira cualquier
+      // valor legacy previamente cacheado de los selectores operativos.
+      store.catalogs[catalogKey] = values;
     });
   }
 
