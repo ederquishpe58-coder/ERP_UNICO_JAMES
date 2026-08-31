@@ -14951,42 +14951,66 @@ body[data-print-preview="true"]{
   const BlessERP = root.BlessERP = root.BlessERP || {};
   BlessERP.softwareProvider = provider;
 })(typeof globalThis !== "undefined" ? globalThis : this, function(){
+  const configuration = Object.freeze({
+    billingSystemProviderEnabled: false,
+    mode: "OWN_INTERNAL",
+    providerRuc: "1754767067001",
+    providerName: "LANCHIMBA TIPANLUISA JAMES SANTIAGO",
+    providerPhone: "0983072006",
+    providerEmail: "jameslanchimba14@gmail.com"
+  });
+
   const profile = Object.freeze({
     productName: "JAEDER SYSTEMS",
-    ruc: "1754767067001",
-    legalName: "LANCHIMBA TIPANLUISA JAMES SANTIAGO",
-    phone: "0983072006",
-    email: "jameslanchimba14@gmail.com"
+    ruc: configuration.providerRuc,
+    legalName: configuration.providerName,
+    phone: configuration.providerPhone,
+    email: configuration.providerEmail
   });
 
-  const publicAdditionalInformation = Object.freeze({
-    "RUC Proveedor": profile.ruc
-  });
+  const providerFieldNames = Object.freeze([
+    "RUC Proveedor",
+    "Proveedor del sistema",
+    "RUC proveedor del sistema"
+  ]);
+  const normalizedProviderFieldNames = new Set(providerFieldNames.map(value => value.toLocaleUpperCase("es")));
+  const publicAdditionalInformation = Object.freeze(configuration.billingSystemProviderEnabled
+    ? { "RUC Proveedor": configuration.providerRuc }
+    : {});
+
+  function isProviderField(name) {
+    return normalizedProviderFieldNames.has(String(name || "").trim().toLocaleUpperCase("es"));
+  }
 
   function mergeAdditionalInformation(values = {}) {
-    const providerKeys = new Set(Object.keys(publicAdditionalInformation));
     const businessRows = Object.entries(values || {})
       .filter(([key, value]) => String(key || "").trim() && String(value ?? "").trim())
-      .filter(([key]) => !providerKeys.has(String(key).trim()))
-      .slice(0, Math.max(15 - providerKeys.size, 0));
+      .filter(([key]) => !isProviderField(key))
+      .slice(0, Math.max(15 - Object.keys(publicAdditionalInformation).length, 0));
     return Object.fromEntries([
       ...businessRows,
       ...Object.entries(publicAdditionalInformation)
     ]);
   }
 
-  function hasRequiredRucField(xmlText) {
+  function hasExpectedProviderField(xmlText) {
     const xml = String(xmlText || "");
-    return xml.includes('nombre="RUC Proveedor"')
-      && xml.includes(profile.ruc);
+    const hasProviderField = xml.includes('nombre="RUC Proveedor"');
+    if (!configuration.billingSystemProviderEnabled) return !hasProviderField;
+    return hasProviderField && xml.includes(configuration.providerRuc);
   }
 
   return Object.freeze({
+    ...configuration,
     ...profile,
+    configuration,
     profile,
+    providerFieldNames,
     publicAdditionalInformation,
+    isProviderField,
     mergeAdditionalInformation,
-    hasRequiredRucField
+    hasExpectedProviderField,
+    hasRequiredRucField: hasExpectedProviderField
   });
 });
 
@@ -48023,8 +48047,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (!authorizedXml) errors.push("Debe pegar o cargar el XML autorizado devuelto por el SRI.");
     if (authorizedXml && !authorizedXml.includes(accessKey)) errors.push("El XML autorizado no contiene la clave de acceso preparada.");
     if (authorizedXml && !authorizedXml.includes(authorizationNumber)) errors.push("El XML autorizado no contiene el numero de autorizacion registrado.");
-    if (authorizedXml && BlessERP.softwareProvider && !BlessERP.softwareProvider.hasRequiredRucField(authorizedXml)) {
-      errors.push(`El XML autorizado no contiene el campo adicional obligatorio RUC Proveedor ${BlessERP.softwareProvider.ruc}.`);
+    if (authorizedXml
+      && BlessERP.softwareProvider?.billingSystemProviderEnabled
+      && !BlessERP.softwareProvider.hasExpectedProviderField(authorizedXml)) {
+      errors.push(`El XML autorizado no contiene el campo adicional obligatorio RUC Proveedor ${BlessERP.softwareProvider.providerRuc}.`);
     }
     return { errors: [...new Set(errors)], accessKey, authorizationNumber, authorizedAt, authorizedXml };
   }
@@ -63036,6 +63062,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     push("Email", subject.email || purchase?.provider?.email);
     push("Teléfono", subject.phone || purchase?.provider?.phone);
     Object.entries(extra).forEach(([label, value]) => {
+      if (BlessERP.softwareProvider?.isProviderField?.(label)) return;
       if (["string", "number", "boolean"].includes(typeof value)) push(label, value);
     });
     return rows;
@@ -95327,7 +95354,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   function renderRide(context) {
     const { company, customer, brand, metrics, order } = context;
-    const provider = BlessERP.softwareProvider?.profile || BlessERP.softwareProvider || {};
+    const softwareProvider = BlessERP.softwareProvider || {};
+    const providerRuc = softwareProvider.billingSystemProviderEnabled
+      ? String(softwareProvider.providerRuc || softwareProvider.profile?.ruc || "").trim()
+      : "";
     const review = validateAuthorization(order);
     const logoUrl = printUtils.companyLogoUrl(company);
     const quantity = Number(metrics.totalStems || 0);
@@ -95375,7 +95405,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       <div><span>Direccion:</span><strong>${utils.esc(normalizeSriText(customer?.address || "-"))}</strong></div>
       <div><span>Telefono:</span><strong>${utils.esc(normalizeSriText(customer?.phone || order?.customerPhone || "-"))}</strong></div>
       <div><span>Email:</span><strong>${utils.esc(customerEmail || "-")}</strong></div>
-      <div><span>RUC Proveedor:</span><strong>${utils.esc(provider.ruc || "-")}</strong></div>
+      ${providerRuc ? `<div><span>RUC Proveedor:</span><strong>${utils.esc(providerRuc)}</strong></div>` : ""}
     `;
     const exportAdditionalRows = `
       <div><span>Correo cliente:</span><strong>${utils.esc(customerEmail || "-")}</strong></div>
@@ -95383,7 +95413,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       <div><span>Piezas:</span><strong>${utils.esc(String(metrics.totalBoxes || order.totalBoxes || "-"))}</strong></div>
       <div><span>Marca / cliente final:</span><strong>${utils.esc(normalizeSriText(brand?.name || brand?.finalClientName) || "-")}</strong></div>
       <div><span>DAE:</span><strong>${utils.esc(fiscalDae || "-")}</strong></div>
-      <div><span>RUC Proveedor:</span><strong>${utils.esc(provider.ruc || "-")}</strong></div>
+      ${providerRuc ? `<div><span>RUC Proveedor:</span><strong>${utils.esc(providerRuc)}</strong></div>` : ""}
     `;
 
     return `

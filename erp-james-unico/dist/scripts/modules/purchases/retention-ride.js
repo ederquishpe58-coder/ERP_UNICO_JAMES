@@ -145,6 +145,7 @@
     push("Email", subject.email || purchase?.provider?.email);
     push("Teléfono", subject.phone || purchase?.provider?.phone);
     Object.entries(extra).forEach(([label, value]) => {
+      if (BlessERP.softwareProvider?.isProviderField?.(label)) return;
       if (["string", "number", "boolean"].includes(typeof value)) push(label, value);
     });
     return rows;

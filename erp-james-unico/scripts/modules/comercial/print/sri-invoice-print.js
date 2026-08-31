@@ -131,7 +131,10 @@
 
   function renderRide(context) {
     const { company, customer, brand, metrics, order } = context;
-    const provider = BlessERP.softwareProvider?.profile || BlessERP.softwareProvider || {};
+    const softwareProvider = BlessERP.softwareProvider || {};
+    const providerRuc = softwareProvider.billingSystemProviderEnabled
+      ? String(softwareProvider.providerRuc || softwareProvider.profile?.ruc || "").trim()
+      : "";
     const review = validateAuthorization(order);
     const logoUrl = printUtils.companyLogoUrl(company);
     const quantity = Number(metrics.totalStems || 0);
@@ -179,7 +182,7 @@
       <div><span>Direccion:</span><strong>${utils.esc(normalizeSriText(customer?.address || "-"))}</strong></div>
       <div><span>Telefono:</span><strong>${utils.esc(normalizeSriText(customer?.phone || order?.customerPhone || "-"))}</strong></div>
       <div><span>Email:</span><strong>${utils.esc(customerEmail || "-")}</strong></div>
-      <div><span>RUC Proveedor:</span><strong>${utils.esc(provider.ruc || "-")}</strong></div>
+      ${providerRuc ? `<div><span>RUC Proveedor:</span><strong>${utils.esc(providerRuc)}</strong></div>` : ""}
     `;
     const exportAdditionalRows = `
       <div><span>Correo cliente:</span><strong>${utils.esc(customerEmail || "-")}</strong></div>
@@ -187,7 +190,7 @@
       <div><span>Piezas:</span><strong>${utils.esc(String(metrics.totalBoxes || order.totalBoxes || "-"))}</strong></div>
       <div><span>Marca / cliente final:</span><strong>${utils.esc(normalizeSriText(brand?.name || brand?.finalClientName) || "-")}</strong></div>
       <div><span>DAE:</span><strong>${utils.esc(fiscalDae || "-")}</strong></div>
-      <div><span>RUC Proveedor:</span><strong>${utils.esc(provider.ruc || "-")}</strong></div>
+      ${providerRuc ? `<div><span>RUC Proveedor:</span><strong>${utils.esc(providerRuc)}</strong></div>` : ""}
     `;
 
     return `
