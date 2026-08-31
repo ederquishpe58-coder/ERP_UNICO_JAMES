@@ -115105,7 +115105,7 @@ ${barcodeGraphic.zpl}
     BlessERP.state.saveDb();
   }
 
-  function importReceivable(record, fileName) {
+  async function importReceivable(record, fileName) {
     const service = BlessERP.services.receivables;
     let customer = service.findCustomerByTaxId(record.identity);
     if (!customer) {
@@ -115138,7 +115138,11 @@ ${barcodeGraphic.zpl}
     };
     const saved = service.saveReceivable(candidate);
     if (!saved.ok) throw new Error(saved.errors?.join(" ") || `No se pudo guardar la fila ${record.rowNumber}.`);
-    const posted = service.postReceivable(saved.receivable.id);
+    const posted = await service.postReceivableV2(saved.receivable.id, {
+      sourceType: "OPENING_BALANCE",
+      sourceId: saved.receivable.id,
+      eventType: "POST_OPENING_BALANCE"
+    });
     if (!posted.ok) throw new Error(posted.errors?.join(" ") || `No se pudo contabilizar la fila ${record.rowNumber}.`);
     return posted.receivable;
   }
@@ -115214,9 +115218,12 @@ ${barcodeGraphic.zpl}
       if (errors.length) return { ok: false, records: parsed.records, errors };
       const snapshot = snapshotKeys(["customers", "customerReceivables", "providers", "purchases", "purchasePayables", "journalEntries", "auditLogs"]);
       try {
-        const imported = parsed.records.map(record => kind === "CXC"
-          ? importReceivable(record, file.name || "plantilla.xlsx")
-          : importPayable(record, file.name || "plantilla.xlsx"));
+        const imported = [];
+        for (const record of parsed.records) {
+          imported.push(kind === "CXC"
+            ? await importReceivable(record, file.name || "plantilla.xlsx")
+            : importPayable(record, file.name || "plantilla.xlsx"));
+        }
         return { ok: true, kind, imported, count: imported.length, errors: [] };
       } catch (error) {
         restoreSnapshot(snapshot);
