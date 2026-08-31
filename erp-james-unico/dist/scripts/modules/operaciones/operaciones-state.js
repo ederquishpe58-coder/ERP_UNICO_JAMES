@@ -1555,23 +1555,11 @@
   }
 
   function syncYieldWorkday(appState, workday) {
-    const syncService = BlessERP.operationsWorkdayCloudSync;
-    workday.syncState = syncService?.isEnabled?.() ? "PENDIENTE" : "LOCAL";
-    if (!syncService?.isEnabled?.()) return;
-    syncService.sync(clone(workday)).then(result => {
-      const store = ensureStore(appState);
-      if (store.yieldWorkday?.id !== workday.id) return;
-      store.yieldWorkday.syncState = result.ok ? "SINCRONIZADA" : "PENDIENTE";
-      store.yieldWorkday.cloudId = result.cloudId || store.yieldWorkday.cloudId || "";
-      store.yieldWorkday.syncError = result.ok ? "" : result.error;
-      const history = store.yieldWorkdayHistory.find(item => item.id === workday.id);
-      if (history) Object.assign(history, {
-        syncState: store.yieldWorkday.syncState,
-        cloudId: store.yieldWorkday.cloudId,
-        syncError: store.yieldWorkday.syncError
-      });
-      saveDb();
-    });
+    // La cola incremental que procesa saveDb() es la única escritora remota.
+    // operationsWorkdayCloudSync queda como adaptador no escritor para evitar
+    // que operations_workdays compita con el singleton canónico.
+    workday.syncState = BlessERP.operationsWorkdayCloudSync?.isEnabled?.() ? "PENDIENTE" : "LOCAL";
+    workday.syncAuthority = "operations_yield_workday";
   }
 
   function getYieldWorkdaySummary(appState) {
@@ -1604,7 +1592,7 @@
         return { ok: false, workday: current, message };
       }
       workday = data.createYieldWorkday({
-        id: uid("JOR-OPS"),
+        id: uuid(),
         date: timestamp.slice(0, 10),
         status: "ACTIVA",
         startedAt: timestamp,
@@ -1673,8 +1661,8 @@
 
     store.yieldWorkday = workday;
     setNotice(appState, `Jornada laboral actualizada: ${workday.status}.`, workday.status === "FINALIZADA" ? "success" : "info", false);
-    saveDb();
     syncYieldWorkday(appState, workday);
+    saveDb();
     return { ok: true, workday, message: workday.observation };
   }
 
@@ -2198,6 +2186,7 @@
         stemsPerMesh: utils.parseNumber(receptionItem.stemsPerMesh),
         extraStems: part.extraStems,
         totalStems: part.allocatedStems,
+        workdayId: gate.workday.id,
         nationalStems: 0,
         exportableStems: part.allocatedStems,
         status: "ENTREGADO",
@@ -2313,6 +2302,11 @@
 
   function registerClassificationResultLegacy(appState) {
     const store = ensureStore(appState);
+    const gate = getYieldRegistrationGate(appState, store);
+    if (!gate.allowed) {
+      setNotice(appState, gate.message, "warning");
+      return null;
+    }
     const draft = clone(store.ui.classificationResultDraft);
     const assignment = findClassificationResultAssignment(store, draft);
     const generalNationalStems = utils.parseNumber(draft.nationalStems);
@@ -2369,6 +2363,7 @@
       accumulatedNationalBotrytisStems: accumulatedCauses.botrytis,
       accumulatedNationalMaltratoStems: accumulatedCauses.maltrato,
       exportableStems: Math.max(utils.parseNumber(assignment.totalStems) - accumulatedNationalStems, 0),
+      workdayId: gate.workday.id,
       observation
     };
     if (employeeIdOf(assignment)) setEmployeeId(result, employeeIdOf(assignment), { role: "classifier", source: "ASSIGNMENT_ID" });
@@ -2393,6 +2388,7 @@
         variety: assignment.variety,
         bunches: 0,
         stems: assignment.totalStems,
+        workdayId: gate.workday.id,
         observation: `${result.observation}. Nacional/rechazo: ${nationalStems} tallos. Exportable estimado: ${result.exportableStems}.`
       });
     }
@@ -3712,6 +3708,13 @@
 
   async function scanBunchLabelIntoInventoryConfirmed(appState, rawCode, options = {}) {
     const store = ensureStore(appState);
+    const gate = getYieldRegistrationGate(appState, store);
+    if (!gate.allowed) {
+      const response = { ok: false, result: "JORNADA_REQUERIDA", observation: gate.message };
+      store.ui.lastBunchIntakeResult = response;
+      setNotice(appState, gate.message, "warning", false, { toast: options.suppressToast !== true });
+      return response;
+    }
     const code = normalizeBunchLabelCode(rawCode);
     if (!/^\d{10}$/.test(code)) {
       const response = { ok: false, result: "FORMATO_INVALIDO", code, observation: "El código Zebra debe contener exactamente 10 dígitos." };
@@ -3723,7 +3726,8 @@
     const operationId = String(options.operationId || uuid());
     const persisted = await destinationV2Repository()?.receiveBunch?.(code, {
       responsible: options.responsible || store.ui.bunchIntakeDraft?.responsible || getDemoUser(appState),
-      observation: String(options.observation || "").trim()
+      observation: String(options.observation || "").trim(),
+      workdayId: gate.workday.id
     }, { operationId });
     if (!persisted?.ok) {
       const response = {

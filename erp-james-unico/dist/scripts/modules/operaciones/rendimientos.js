@@ -45,6 +45,7 @@
         ? { action: "yield-workday-resume", label: "Reanudar jornada" }
         : { action: "yield-workday-start", label: "Iniciar jornada" };
     const summary = workday.summary;
+    const canManageWorkday = BlessERP.capabilityRuntime?.can?.("operations.yield_workday.manage") === true;
     return `
       <section class="ops-workday-control" data-yield-workday-control aria-label="Control de jornada laboral">
         <div class="ops-workday-title">
@@ -57,8 +58,8 @@
           <small>Tiempo laborado <b data-yield-workday-time>${utils.esc(formatDuration(BlessERP.operacionesWorkdayCore.elapsedMs(workday)))}</b></small>
         </div>
         <div class="ops-workday-actions">
-          <button class="primary-button" type="button" data-ops-action="${utils.esc(primaryAction.action)}">${utils.esc(primaryAction.label)}</button>
-          ${isOpen ? `<button class="danger-button" type="button" data-ops-action="yield-workday-close">Finalizar</button>` : ""}
+          ${canManageWorkday ? `<button class="primary-button" type="button" data-ops-action="${utils.esc(primaryAction.action)}">${utils.esc(primaryAction.label)}</button>` : ""}
+          ${canManageWorkday && isOpen ? `<button class="danger-button" type="button" data-ops-action="yield-workday-close">Finalizar</button>` : ""}
           <button class="secondary-button" type="button" data-ops-action="yield-view-screen" title="Abrir presentacion de rendimientos">Pantalla completa</button>
         </div>
         ${summary ? `<div class="ops-workday-summary" aria-label="Resumen de la jornada finalizada"><span><b>${utils.esc(utils.number(summary.totalBunches))}</b> ramos</span><span><b>${utils.esc(utils.number(summary.totalMeshes))}</b> mallas</span><span><b>${utils.esc(formatDuration(summary.activeDurationMs))}</b> efectivos</span></div>` : ""}

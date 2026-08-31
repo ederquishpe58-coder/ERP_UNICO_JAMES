@@ -29,6 +29,7 @@
     "operations.inventory": ["view"],
     "operations.availability": ["view"],
     "operations.yields": ["view"],
+    "operations.yield_workday": ["manage"],
     "operations.cold_room": ["view", "prepare", "confirm_dispatch"],
     "commercial.dashboard": ["view"],
     "commercial.orders": ["view", "create", "edit", "cancel"],

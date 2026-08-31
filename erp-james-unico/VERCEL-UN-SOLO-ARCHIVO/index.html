@@ -24506,6 +24506,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     "operations.inventory": ["view"],
     "operations.availability": ["view"],
     "operations.yields": ["view"],
+    "operations.yield_workday": ["manage"],
     "operations.cold_room": ["view", "prepare", "confirm_dispatch"],
     "commercial.dashboard": ["view"],
     "commercial.orders": ["view", "create", "edit", "cancel"],
@@ -33639,89 +33640,22 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   <script data-source="scripts/services/supabase/operations-workday-sync.js">
 (function(){
   const BlessERP = window.BlessERP = window.BlessERP || {};
-  let membershipCache = null;
 
   function isEnabled() {
     return Boolean(BlessERP.canUseSupabaseModule?.("operations")?.enabled && BlessERP.getSupabaseClient?.());
   }
 
-  async function companyContext(client) {
-    if (membershipCache) return membershipCache;
-    const { data: userResult, error: userError } = await client.auth.getUser();
-    if (userError || !userResult?.user?.id) throw new Error("No existe una sesion Supabase autenticada para sincronizar la jornada.");
-    const { data, error } = await client
-      .from("sri_company_memberships")
-      .select("company_id")
-      .eq("auth_user_id", userResult.user.id)
-      .eq("active", true)
-      .limit(1)
-      .maybeSingle();
-    if (error) throw error;
-    if (!data?.company_id) throw new Error("El usuario no tiene una empresa habilitada en Supabase.");
-    membershipCache = { companyId: data.company_id, userId: userResult.user.id };
-    return membershipCache;
-  }
-
-  function toIso(value) {
-    const normalized = String(value || "").trim();
-    if (!normalized) return null;
-    const date = new Date(normalized.includes("T") ? normalized : normalized.replace(" ", "T"));
-    return Number.isNaN(date.getTime()) ? null : date.toISOString();
-  }
-
   async function sync(workday) {
-    if (!isEnabled()) return { ok: true, skipped: true, mode: "LOCAL" };
-    const client = BlessERP.getSupabaseClient();
-    try {
-      const context = await companyContext(client);
-      const summary = workday.summary || {};
-      const payload = {
-        company_id: context.companyId,
-        client_ref: workday.id,
-        work_date: workday.date,
-        status: workday.status,
-        started_at: toIso(workday.startedAt),
-        paused_at: toIso(workday.pausedAt),
-        resumed_at: toIso(workday.resumedAt),
-        ended_at: toIso(workday.endedAt),
-        total_paused_seconds: Math.round((summary.pausedDurationMs || workday.totalPausedMs || 0) / 1000),
-        active_seconds: Math.round((summary.activeDurationMs || 0) / 1000),
-        summary,
-        started_by: context.userId,
-        closed_by: workday.status === "FINALIZADA" ? context.userId : null
-      };
-      const { data, error } = await client
-        .from("operations_workdays")
-        .upsert(payload, { onConflict: "company_id,client_ref" })
-        .select("id")
-        .single();
-      if (error) throw error;
-
-      if (Array.isArray(workday.pauses)) {
-        const { error: deleteError } = await client
-          .from("operations_workday_pauses")
-          .delete()
-          .eq("company_id", context.companyId)
-          .eq("workday_id", data.id);
-        if (deleteError) throw deleteError;
-        if (workday.pauses.length) {
-          const pauses = workday.pauses.map((pause, index) => ({
-            company_id: context.companyId,
-            workday_id: data.id,
-            sequence_number: index + 1,
-            paused_at: toIso(pause.pausedAt),
-            resumed_at: toIso(pause.resumedAt),
-            duration_seconds: Math.round((pause.durationMs || 0) / 1000),
-            created_by: context.userId
-          }));
-          const { error: pauseError } = await client.from("operations_workday_pauses").insert(pauses);
-          if (pauseError) throw pauseError;
-        }
-      }
-      return { ok: true, skipped: false, cloudId: data.id };
-    } catch (error) {
-      return { ok: false, skipped: false, error: error?.message || String(error) };
-    }
+    // Adaptador de compatibilidad deliberadamente sin escritura. La autoridad
+    // única de jornada es operations_yield_workday en erp_entity_records y su
+    // persistencia ocurre por el pipeline incremental/offline canónico.
+    return {
+      ok: true,
+      skipped: true,
+      mode: isEnabled() ? "CANONICAL_INCREMENTAL" : "LOCAL_CACHE",
+      canonicalEntity: "operations_yield_workday",
+      workdayId: String(workday?.id || "")
+    };
   }
 
   BlessERP.operationsWorkdayCloudSync = { isEnabled, sync };
@@ -105153,23 +105087,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
 
   function syncYieldWorkday(appState, workday) {
-    const syncService = BlessERP.operationsWorkdayCloudSync;
-    workday.syncState = syncService?.isEnabled?.() ? "PENDIENTE" : "LOCAL";
-    if (!syncService?.isEnabled?.()) return;
-    syncService.sync(clone(workday)).then(result => {
-      const store = ensureStore(appState);
-      if (store.yieldWorkday?.id !== workday.id) return;
-      store.yieldWorkday.syncState = result.ok ? "SINCRONIZADA" : "PENDIENTE";
-      store.yieldWorkday.cloudId = result.cloudId || store.yieldWorkday.cloudId || "";
-      store.yieldWorkday.syncError = result.ok ? "" : result.error;
-      const history = store.yieldWorkdayHistory.find(item => item.id === workday.id);
-      if (history) Object.assign(history, {
-        syncState: store.yieldWorkday.syncState,
-        cloudId: store.yieldWorkday.cloudId,
-        syncError: store.yieldWorkday.syncError
-      });
-      saveDb();
-    });
+    // La cola incremental que procesa saveDb() es la única escritora remota.
+    // operationsWorkdayCloudSync queda como adaptador no escritor para evitar
+    // que operations_workdays compita con el singleton canónico.
+    workday.syncState = BlessERP.operationsWorkdayCloudSync?.isEnabled?.() ? "PENDIENTE" : "LOCAL";
+    workday.syncAuthority = "operations_yield_workday";
   }
 
   function getYieldWorkdaySummary(appState) {
@@ -105202,7 +105124,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         return { ok: false, workday: current, message };
       }
       workday = data.createYieldWorkday({
-        id: uid("JOR-OPS"),
+        id: uuid(),
         date: timestamp.slice(0, 10),
         status: "ACTIVA",
         startedAt: timestamp,
@@ -105271,8 +105193,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
     store.yieldWorkday = workday;
     setNotice(appState, `Jornada laboral actualizada: ${workday.status}.`, workday.status === "FINALIZADA" ? "success" : "info", false);
-    saveDb();
     syncYieldWorkday(appState, workday);
+    saveDb();
     return { ok: true, workday, message: workday.observation };
   }
 
@@ -105796,6 +105718,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         stemsPerMesh: utils.parseNumber(receptionItem.stemsPerMesh),
         extraStems: part.extraStems,
         totalStems: part.allocatedStems,
+        workdayId: gate.workday.id,
         nationalStems: 0,
         exportableStems: part.allocatedStems,
         status: "ENTREGADO",
@@ -105911,6 +105834,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   function registerClassificationResultLegacy(appState) {
     const store = ensureStore(appState);
+    const gate = getYieldRegistrationGate(appState, store);
+    if (!gate.allowed) {
+      setNotice(appState, gate.message, "warning");
+      return null;
+    }
     const draft = clone(store.ui.classificationResultDraft);
     const assignment = findClassificationResultAssignment(store, draft);
     const generalNationalStems = utils.parseNumber(draft.nationalStems);
@@ -105967,6 +105895,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       accumulatedNationalBotrytisStems: accumulatedCauses.botrytis,
       accumulatedNationalMaltratoStems: accumulatedCauses.maltrato,
       exportableStems: Math.max(utils.parseNumber(assignment.totalStems) - accumulatedNationalStems, 0),
+      workdayId: gate.workday.id,
       observation
     };
     if (employeeIdOf(assignment)) setEmployeeId(result, employeeIdOf(assignment), { role: "classifier", source: "ASSIGNMENT_ID" });
@@ -105991,6 +105920,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         variety: assignment.variety,
         bunches: 0,
         stems: assignment.totalStems,
+        workdayId: gate.workday.id,
         observation: `${result.observation}. Nacional/rechazo: ${nationalStems} tallos. Exportable estimado: ${result.exportableStems}.`
       });
     }
@@ -107310,6 +107240,13 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   async function scanBunchLabelIntoInventoryConfirmed(appState, rawCode, options = {}) {
     const store = ensureStore(appState);
+    const gate = getYieldRegistrationGate(appState, store);
+    if (!gate.allowed) {
+      const response = { ok: false, result: "JORNADA_REQUERIDA", observation: gate.message };
+      store.ui.lastBunchIntakeResult = response;
+      setNotice(appState, gate.message, "warning", false, { toast: options.suppressToast !== true });
+      return response;
+    }
     const code = normalizeBunchLabelCode(rawCode);
     if (!/^\d{10}$/.test(code)) {
       const response = { ok: false, result: "FORMATO_INVALIDO", code, observation: "El código Zebra debe contener exactamente 10 dígitos." };
@@ -107321,7 +107258,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     const operationId = String(options.operationId || uuid());
     const persisted = await destinationV2Repository()?.receiveBunch?.(code, {
       responsible: options.responsible || store.ui.bunchIntakeDraft?.responsible || getDemoUser(appState),
-      observation: String(options.observation || "").trim()
+      observation: String(options.observation || "").trim(),
+      workdayId: gate.workday.id
     }, { operationId });
     if (!persisted?.ok) {
       const response = {
@@ -118805,6 +118743,7 @@ ${barcodeGraphic.zpl}
         ? { action: "yield-workday-resume", label: "Reanudar jornada" }
         : { action: "yield-workday-start", label: "Iniciar jornada" };
     const summary = workday.summary;
+    const canManageWorkday = BlessERP.capabilityRuntime?.can?.("operations.yield_workday.manage") === true;
     return `
       <section class="ops-workday-control" data-yield-workday-control aria-label="Control de jornada laboral">
         <div class="ops-workday-title">
@@ -118817,8 +118756,8 @@ ${barcodeGraphic.zpl}
           <small>Tiempo laborado <b data-yield-workday-time>${utils.esc(formatDuration(BlessERP.operacionesWorkdayCore.elapsedMs(workday)))}</b></small>
         </div>
         <div class="ops-workday-actions">
-          <button class="primary-button" type="button" data-ops-action="${utils.esc(primaryAction.action)}">${utils.esc(primaryAction.label)}</button>
-          ${isOpen ? `<button class="danger-button" type="button" data-ops-action="yield-workday-close">Finalizar</button>` : ""}
+          ${canManageWorkday ? `<button class="primary-button" type="button" data-ops-action="${utils.esc(primaryAction.action)}">${utils.esc(primaryAction.label)}</button>` : ""}
+          ${canManageWorkday && isOpen ? `<button class="danger-button" type="button" data-ops-action="yield-workday-close">Finalizar</button>` : ""}
           <button class="secondary-button" type="button" data-ops-action="yield-view-screen" title="Abrir presentacion de rendimientos">Pantalla completa</button>
         </div>
         ${summary ? `<div class="ops-workday-summary" aria-label="Resumen de la jornada finalizada"><span><b>${utils.esc(utils.number(summary.totalBunches))}</b> ramos</span><span><b>${utils.esc(utils.number(summary.totalMeshes))}</b> mallas</span><span><b>${utils.esc(formatDuration(summary.activeDurationMs))}</b> efectivos</span></div>` : ""}
@@ -121691,24 +121630,44 @@ ${barcodeGraphic.zpl}
       }
 
       if (action.dataset.opsAction === "yield-workday-start") {
+        if (BlessERP.capabilityRuntime?.can?.("operations.yield_workday.manage") !== true) {
+          stateApi.setNotice(appState, "No tiene autorización para administrar la jornada laboral.", "warning");
+          rerender();
+          return;
+        }
         const result = stateApi.updateYieldWorkday(appState, "START");
         if (result.ok) BlessERP.layout.toast("Jornada laboral iniciada");
         rerender();
         return;
       }
       if (action.dataset.opsAction === "yield-workday-pause") {
+        if (BlessERP.capabilityRuntime?.can?.("operations.yield_workday.manage") !== true) {
+          stateApi.setNotice(appState, "No tiene autorización para administrar la jornada laboral.", "warning");
+          rerender();
+          return;
+        }
         const result = stateApi.updateYieldWorkday(appState, "PAUSE");
         if (result.ok) BlessERP.layout.toast("Jornada laboral pausada");
         rerender();
         return;
       }
       if (action.dataset.opsAction === "yield-workday-resume") {
+        if (BlessERP.capabilityRuntime?.can?.("operations.yield_workday.manage") !== true) {
+          stateApi.setNotice(appState, "No tiene autorización para administrar la jornada laboral.", "warning");
+          rerender();
+          return;
+        }
         const result = stateApi.updateYieldWorkday(appState, "RESUME");
         if (result.ok) BlessERP.layout.toast("Jornada laboral reanudada");
         rerender();
         return;
       }
       if (action.dataset.opsAction === "yield-workday-close") {
+        if (BlessERP.capabilityRuntime?.can?.("operations.yield_workday.manage") !== true) {
+          stateApi.setNotice(appState, "No tiene autorización para administrar la jornada laboral.", "warning");
+          rerender();
+          return;
+        }
         const summary = stateApi.getYieldWorkdaySummary(appState);
         const confirmed = window.confirm(`Se finalizara la jornada con ${utils.number(summary.totalBunches)} ramos y ${utils.number(summary.totalMeshes)} mallas. Esta accion cierra definitivamente la jornada. ¿Deseas continuar?`);
         if (!confirmed) return;

@@ -1877,24 +1877,44 @@
       }
 
       if (action.dataset.opsAction === "yield-workday-start") {
+        if (BlessERP.capabilityRuntime?.can?.("operations.yield_workday.manage") !== true) {
+          stateApi.setNotice(appState, "No tiene autorización para administrar la jornada laboral.", "warning");
+          rerender();
+          return;
+        }
         const result = stateApi.updateYieldWorkday(appState, "START");
         if (result.ok) BlessERP.layout.toast("Jornada laboral iniciada");
         rerender();
         return;
       }
       if (action.dataset.opsAction === "yield-workday-pause") {
+        if (BlessERP.capabilityRuntime?.can?.("operations.yield_workday.manage") !== true) {
+          stateApi.setNotice(appState, "No tiene autorización para administrar la jornada laboral.", "warning");
+          rerender();
+          return;
+        }
         const result = stateApi.updateYieldWorkday(appState, "PAUSE");
         if (result.ok) BlessERP.layout.toast("Jornada laboral pausada");
         rerender();
         return;
       }
       if (action.dataset.opsAction === "yield-workday-resume") {
+        if (BlessERP.capabilityRuntime?.can?.("operations.yield_workday.manage") !== true) {
+          stateApi.setNotice(appState, "No tiene autorización para administrar la jornada laboral.", "warning");
+          rerender();
+          return;
+        }
         const result = stateApi.updateYieldWorkday(appState, "RESUME");
         if (result.ok) BlessERP.layout.toast("Jornada laboral reanudada");
         rerender();
         return;
       }
       if (action.dataset.opsAction === "yield-workday-close") {
+        if (BlessERP.capabilityRuntime?.can?.("operations.yield_workday.manage") !== true) {
+          stateApi.setNotice(appState, "No tiene autorización para administrar la jornada laboral.", "warning");
+          rerender();
+          return;
+        }
         const summary = stateApi.getYieldWorkdaySummary(appState);
         const confirmed = window.confirm(`Se finalizara la jornada con ${utils.number(summary.totalBunches)} ramos y ${utils.number(summary.totalMeshes)} mallas. Esta accion cierra definitivamente la jornada. ¿Deseas continuar?`);
         if (!confirmed) return;
