@@ -78,11 +78,15 @@
     return { ok: true, staged: true, file };
   }
 
-  function isParameterRoute(routeId = BlessERP.state?.state?.route) {
+  function currentParameterRouteId() {
+    return BlessERP.state?.state?.currentRoute || BlessERP.state?.state?.route || "";
+  }
+
+  function isParameterRoute(routeId = currentParameterRouteId()) {
     return Object.prototype.hasOwnProperty.call(PARAMETER_ROUTE_TYPES, String(routeId || ""));
   }
 
-  function fixedTypeForRoute(routeId = BlessERP.state?.state?.route) {
+  function fixedTypeForRoute(routeId = currentParameterRouteId()) {
     return PARAMETER_ROUTE_TYPES[String(routeId || "")] || "";
   }
 
@@ -657,7 +661,9 @@
     mountController?.abort?.();
     mountController = new AbortController();
     const { signal } = mountController;
-    if (!fixedTypeForRoute() && !payrollUi.loaded && !payrollUi.loading) queueMicrotask(() => loadPayrollV2());
+    if (!fixedTypeForRoute() && !payrollUi.loaded && !payrollUi.loading && !payrollUi.error) {
+      queueMicrotask(() => loadPayrollV2());
+    }
     container.querySelectorAll("[data-ops-payroll-link]").forEach(button => button.addEventListener("click", async () => {
       if (button.disabled) return;
       const type = String(button.dataset.type || "");
