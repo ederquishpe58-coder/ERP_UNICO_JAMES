@@ -266,7 +266,7 @@ async function listCanonicalProfiles(client, actorUser, company) {
   await assertCanManage(client, actorUser, company.id, "VIEWER", "admin.users.view");
   const { data, error } = await client
     .from("erp_security_profiles")
-    .select("profile_id, display_name, description, active")
+    .select("profile_id, display_name, description, active, system_defined")
     .eq("active", true)
     .order("display_name");
   if (error) throw error;
@@ -280,6 +280,7 @@ async function listCanonicalProfiles(client, actorUser, company) {
     name: profile.display_name,
     description: profile.description,
     active: profile.active === true,
+    systemDefined: profile.system_defined === true,
     companyId: company.id
   }));
 }
