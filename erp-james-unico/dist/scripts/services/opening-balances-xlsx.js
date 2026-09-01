@@ -162,14 +162,14 @@
         rows: [
           ["TIPO", "Use CXC para cuentas por cobrar o CXP para cuentas por pagar."],
           ["IDENTIFICACION", "RUC, cedula o identificacion del cliente/proveedor. Evita duplicar auxiliares."],
-          ["NOMBRE", "Razon social o nombres completos. Si no existe, el sistema crea el cliente/proveedor."],
+          ["NOMBRE", "Razon social o nombres completos. Para CXC, el cliente debe existir previamente en el maestro canonico."],
           ["NUMERO_DOCUMENTO", "Obligatorio. Conserve prefijos, guiones y ceros; se valida por auxiliar."],
           ["FECHA_EMISION", "Obligatoria. Use AAAA-MM-DD o DD/MM/AAAA."],
           ["FECHA_VENCIMIENTO", "Opcional. Si queda vacia se usa la fecha de emision."],
           ["SALDO_INICIAL", "Obligatorio y mayor que cero. Use valor positivo con dos decimales."],
           ["CUENTA_CONTRAPARTIDA", "Cuenta de movimiento activa para el asiento de apertura. CXC/CXP usa la cuenta predeterminada de la empresa."],
           ["OBSERVACION", "Opcional. Nota de origen o corte del saldo."],
-          ["CONTABILIZACION", "La importacion valida todas las filas y contabiliza cada saldo. Si una fila falla, se revierte el lote local completo."],
+          ["CONTABILIZACION", "La importacion valida todas las filas antes de iniciar y cada saldo CXC se confirma en el servidor V2."],
           ["IMPORTANTE", "No repita el mismo numero de documento para la misma identificacion y tipo de cartera."]
         ]
       }
@@ -225,6 +225,7 @@
       if (accountError) errors.push(`Fila ${record.rowNumber}: ${accountError}`);
       if (kind === "CXC") {
         const customer = receivableService.findCustomerByTaxId(record.identity);
+        if (!customer) errors.push(`Fila ${record.rowNumber}: el cliente ${record.identity} no existe en el maestro canónico.`);
         if (customer?.status !== undefined && customer.status !== "activo") errors.push(`Fila ${record.rowNumber}: el cliente esta inactivo.`);
         if (receivableService.receivableDocuments().some(item =>
           normalizeIdentity(item.customerTaxId) === record.identity
@@ -261,24 +262,15 @@
     BlessERP.state.saveDb();
   }
 
-  function importReceivable(record, fileName) {
+  async function importReceivable(record, fileName) {
     const service = BlessERP.services.receivables;
-    let customer = service.findCustomerByTaxId(record.identity);
+    const customer = service.findCustomerByTaxId(record.identity);
     if (!customer) {
-      const created = service.saveCustomer({
-        taxId: record.identity,
-        name: record.name,
-        commercialName: record.name,
-        customerType: "otro",
-        country: "Ecuador",
-        status: "activo",
-        observation: `Creado desde plantilla de saldos iniciales ${fileName}.`
-      });
-      if (!created.ok) throw new Error(created.errors?.join(" ") || `No se pudo crear el cliente de la fila ${record.rowNumber}.`);
-      customer = created.customer;
+      throw new Error(`Fila ${record.rowNumber}: el cliente ${record.identity} no existe en el maestro canónico.`);
     }
     const candidate = {
       ...service.emptyReceivable(customer.id),
+      id: `OPENING-CXC-${record.identity}-${record.documentNumber}`,
       customerId: customer.id,
       customerName: customer.name,
       customerTaxId: customer.taxId,
@@ -292,10 +284,10 @@
       observation: [record.observation, `Importado desde ${fileName}.`].filter(Boolean).join(" "),
       source: "SALDO_INICIAL_XLSX"
     };
-    const saved = service.saveReceivable(candidate);
-    if (!saved.ok) throw new Error(saved.errors?.join(" ") || `No se pudo guardar la fila ${record.rowNumber}.`);
-    const posted = service.postReceivable(saved.receivable.id);
-    if (!posted.ok) throw new Error(posted.errors?.join(" ") || `No se pudo contabilizar la fila ${record.rowNumber}.`);
+    const posted = await service.postReceivableV2(candidate, { source: "OPENING_BALANCES_XLSX" });
+    if (!posted.ok || posted.confirmed !== true) {
+      throw new Error(posted.errors?.join(" ") || posted.message || `Supabase no confirmó la fila ${record.rowNumber}.`);
+    }
     return posted.receivable;
   }
 
@@ -361,6 +353,10 @@
   async function importFile(file, options = {}) {
     const kind = normalizeKind(options.kind);
     if (!kind) return { ok: false, errors: ["Debe indicar si la importacion corresponde a CXC o CXP."] };
+    const capabilityRuntime = BlessERP.capabilityRuntime;
+    if (kind === "CXC" && capabilityRuntime?.status?.().hardEnforcement === true && !capabilityRuntime.can?.("accounting.sales.post")) {
+      return { ok: false, records: [], errors: ["CAPABILITY_REQUIRED:accounting.sales.post"] };
+    }
     const reader = BlessERP.services.bankStatementXlsx?.readWorkbookTable;
     if (!reader) return { ok: false, errors: ["El lector XLSX compartido no esta disponible."] };
     try {
@@ -370,9 +366,15 @@
       if (errors.length) return { ok: false, records: parsed.records, errors };
       const snapshot = snapshotKeys(["customers", "customerReceivables", "providers", "purchases", "purchasePayables", "journalEntries", "auditLogs"]);
       try {
-        const imported = parsed.records.map(record => kind === "CXC"
-          ? importReceivable(record, file.name || "plantilla.xlsx")
-          : importPayable(record, file.name || "plantilla.xlsx"));
+        let imported;
+        if (kind === "CXC") {
+          imported = [];
+          for (const record of parsed.records) {
+            imported.push(await importReceivable(record, file.name || "plantilla.xlsx"));
+          }
+        } else {
+          imported = parsed.records.map(record => importPayable(record, file.name || "plantilla.xlsx"));
+        }
         return { ok: true, kind, imported, count: imported.length, errors: [] };
       } catch (error) {
         restoreSnapshot(snapshot);

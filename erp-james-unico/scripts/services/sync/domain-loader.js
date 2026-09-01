@@ -117,6 +117,7 @@
     resetForCompany();
     const capabilityDecision = BlessERP.capabilityRuntime?.evaluateDomain?.(domain, {
       routeId: options.routeId || activeRouteId,
+      authorizationContext: options.authorizationContext || "",
       source: options.source || "ENSURE_DOMAIN"
     });
     if (capabilityDecision?.enforced === true && capabilityDecision.allowed !== true) {

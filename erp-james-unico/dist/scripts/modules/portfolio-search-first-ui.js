@@ -176,13 +176,20 @@
       const file = event.target.files?.[0]; if (!file) return;
       const importKind = event.target.dataset.openingBalancesFile;
       try {
-        // La importación de saldos iniciales conserva por ahora la mutación
-        // legacy validada. Sus caches históricos se cargan únicamente cuando
-        // el operador elige el archivo, nunca al abrir CxP/CxC ni durante login.
-        const mutationDomains = importKind === "CXP"
-          ? ["purchases-workspace", "finance-workspace"]
-          : ["portfolio-workspace", "finance-workspace"];
-        for (const domain of mutationDomains) await BlessERP.domainDataLoader?.ensureDomain?.(domain);
+        // CxC solo hidrata el maestro de clientes al elegir el archivo. La
+        // cartera y el asiento se escriben por el RPC V2, sin cargar caches
+        // históricos ni ampliar el preload search-first de la ruta.
+        if (importKind === "CXC") {
+          await BlessERP.domainDataLoader?.ensureDomain?.("commercial-catalog", {
+            authorizationContext: "opening-balances-cxc",
+            source: "OPENING_BALANCES_IMPORT"
+          });
+        } else {
+          // CxP conserva exactamente su flujo y sus dominios vigentes.
+          for (const domain of ["purchases-workspace", "finance-workspace"]) {
+            await BlessERP.domainDataLoader?.ensureDomain?.(domain);
+          }
+        }
         const result = await BlessERP.services.openingBalancesXlsx?.importFile?.(file, { kind: importKind }); if (!result?.ok) throw new Error((result?.errors || ["No se pudo importar la plantilla."]).join(" ")); ui[kind].message = `${result.count} saldo(s) inicial(es) ${importKind} importado(s) y contabilizado(s).`; await read().refreshKind(kind);
       }
       catch (error) { ui[kind].message = error.message; }

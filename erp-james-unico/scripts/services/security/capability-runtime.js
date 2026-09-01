@@ -165,6 +165,25 @@
 
   function isDomainAllowedForCurrentContext(domain, options = {}) {
     const routeId = String(options.routeId || BlessERP.domainDataLoader?.status?.().activeRouteId || "");
+    const authorizationContextId = String(options.authorizationContext || "");
+    if (authorizationContextId) {
+      const authorizationContext = policy?.domainAuthorizationContext?.(authorizationContextId);
+      const belongsToContext = Boolean(authorizationContext?.domains?.includes(String(domain || "")));
+      const requiredCapability = String(authorizationContext?.capability || "");
+      return {
+        allowed: belongsToContext && Boolean(requiredCapability) && can(requiredCapability),
+        routeId,
+        authorizationContext: authorizationContextId,
+        requiredCapability,
+        reason: !authorizationContext
+          ? "DOMAIN_AUTHORIZATION_CONTEXT_UNKNOWN"
+          : !belongsToContext
+            ? "DOMAIN_NOT_REQUIRED_BY_AUTHORIZATION_CONTEXT"
+            : can(requiredCapability)
+              ? "DOMAIN_AUTHORIZATION_CAPABILITY_PRESENT"
+              : "DOMAIN_AUTHORIZATION_CAPABILITY_ABSENT"
+      };
+    }
     if (routeId) {
       const routeDecision = evaluateRoute(routeId, { source: options.source || "DOMAIN_ROUTE" });
       const belongsToRoute = routeDecision.requiredDomains.includes(String(domain || ""));
@@ -192,6 +211,7 @@
     recordDiagnostic("DOMAIN_SHADOW", {
       source: String(options.source || "ENSURE_DOMAIN"),
       routeId: decision.routeId,
+      authorizationContext: decision.authorizationContext || "",
       domain: String(domain || ""),
       requiredCapability: decision.requiredCapability,
       capabilityAllowed: decision.allowed,

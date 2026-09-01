@@ -175,6 +175,15 @@
     "settings-synchronization": "admin.synchronization.view"
   });
 
+  // Carga bajo demanda exclusiva del importador CxC. No amplía el preload de
+  // la ruta search-first ni autoriza dominios históricos de cartera.
+  const DOMAIN_AUTHORIZATION_CONTEXTS = Object.freeze({
+    "opening-balances-cxc": Object.freeze({
+      capability: "accounting.sales.post",
+      domains: Object.freeze(["commercial-catalog"])
+    })
+  });
+
   const knownCapabilities = Object.freeze(Object.entries(CAPABILITY_FAMILIES)
     .flatMap(([family, actions]) => actions.map(action => `${family}.${action}`))
     .sort());
@@ -197,6 +206,9 @@
     knownCapabilityCount: knownCapabilities.length,
     isKnownCapability(capabilityId) {
       return knownSet.has(String(capabilityId || ""));
+    },
+    domainAuthorizationContext(contextId) {
+      return DOMAIN_AUTHORIZATION_CONTEXTS[String(contextId || "")] || null;
     },
     requiredCapability,
     requiredDomains,
