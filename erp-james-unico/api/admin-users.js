@@ -270,6 +270,11 @@ async function listCanonicalProfiles(client, actorUser, company) {
     .eq("active", true)
     .order("display_name");
   if (error) throw error;
+  console.info("[admin-users] canonical_profiles_loaded", {
+    companyId: company.id,
+    companyKey: company.company_key,
+    count: Array.isArray(data) ? data.length : 0
+  });
   return (data || []).map(profile => ({
     id: profile.profile_id,
     name: profile.display_name,
