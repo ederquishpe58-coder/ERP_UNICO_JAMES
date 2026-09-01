@@ -17,6 +17,8 @@
     "validate:accounting-plan": "node validate-accounting-plan-bless-v1.mjs",
     "validate:companies": "node validate-company-capabilities.mjs",
     "validate:user-access": "node validate-user-access.mjs",
+    "validate:admin-users-canonical": "node validate-admin-users-canonical-profile.mjs",
+    "validate:admin-users-api": "node validate-admin-users-api-unit.mjs",
     "validate:session-sync": "node validate-session-cloud-resilience.mjs",
     "validate:production-sync": "node validate-production-multidevice-sync.mjs",
     "validate:supabase:new-realtime": "node validate-new-supabase-realtime.mjs",

@@ -64,6 +64,12 @@
       enabled: Boolean(enabled),
       status: enabled ? "activo" : "inactivo",
       roleCode: BlessERP.menuService?.normalizeRoleCode?.(roleValue) || "INVITADO",
+      membershipRole: "VIEWER",
+      profileId: "",
+      profileName: "PROFILE_MISSING",
+      profileState: "PROFILE_MISSING",
+      legacyRoutePermissionCount: 0,
+      legacyDependent: false,
       routeAccess: {}
     };
   }
@@ -84,6 +90,14 @@
         enabled,
         status: enabled && String(current.status || "activo").toLowerCase() !== "inactivo" ? "activo" : "inactivo",
         roleCode: BlessERP.menuService?.normalizeRoleCode?.(current.roleCode || roleValue) || "INVITADO",
+        membershipRole: ["OWNER", "ADMIN", "EDITOR", "VIEWER"].includes(String(current.membershipRole || "").toUpperCase())
+          ? String(current.membershipRole).toUpperCase()
+          : "VIEWER",
+        profileId: String(current.profileId || "").trim().toUpperCase(),
+        profileName: String(current.profileName || "PROFILE_MISSING"),
+        profileState: String(current.profileState || (current.profileId ? "CANONICAL" : "PROFILE_MISSING")),
+        legacyRoutePermissionCount: Math.max(0, Number(current.legacyRoutePermissionCount || 0)),
+        legacyDependent: current.legacyDependent === true,
         routeAccess: normalizeRouteAccess(current.routeAccess)
       };
     });
