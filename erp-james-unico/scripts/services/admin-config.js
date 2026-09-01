@@ -36,6 +36,40 @@
   }
 
   function companyProfiles() {
+    if (isOperationalDeployment()) {
+      const access = BlessERP.authAccess?.activeAccess?.() || {};
+      const allowedKeys = new Set(
+        (access.allowedCompanyKeys || []).map(value => String(value || "").trim()).filter(Boolean)
+      );
+      const authorized = (access.companies || [])
+        .filter(company => company?.is_active !== false)
+        .filter(company => allowedKeys.has(String(company?.company_key || "").trim()))
+        .map(company => ({
+          id: String(company.company_key || "").trim(),
+          uuid: String(company.id || "").trim(),
+          companyKey: String(company.company_key || "").trim(),
+          code: String(company.company_code || company.company_key || "").trim(),
+          commercialName: String(company.commercial_name || company.legal_name || company.company_key || "Empresa").trim(),
+          active: company.is_active !== false
+        }));
+      if (authorized.length) return authorized;
+
+      const cached = BlessERP.state?.state?.db?.authAccess || {};
+      const cachedKeys = new Set(
+        (cached.allowedCompanyKeys || []).map(value => String(value || "").trim()).filter(Boolean)
+      );
+      return (cached.companies || [])
+        .filter(company => company?.is_active !== false)
+        .filter(company => cachedKeys.has(String(company?.company_key || "").trim()))
+        .map(company => ({
+          id: String(company.company_key || "").trim(),
+          uuid: String(company.id || "").trim(),
+          companyKey: String(company.company_key || "").trim(),
+          code: String(company.company_code || company.company_key || "").trim(),
+          commercialName: String(company.commercial_name || company.legal_name || company.company_key || "Empresa").trim(),
+          active: company.is_active !== false
+        }));
+    }
     const rows = BlessERP.companyCapabilities?.listCompanies?.() || [];
     if (rows.length) return rows;
     return [
