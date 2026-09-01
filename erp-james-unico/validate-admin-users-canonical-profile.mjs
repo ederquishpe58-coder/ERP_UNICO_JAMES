@@ -34,6 +34,10 @@ assert.match(api, /No puede eliminar su propia cuenta administradora/);
 assert.match(api, /INDIVIDUAL_PERMISSIONS_NOT_ACCEPTED/);
 
 assert.match(remote, /profileId:\s*String\(access\.profileId/);
+assert.match(remote, /const successful = responses\.filter\(item => item\.users\.ok && item\.profiles\.ok\)/);
+assert.match(remote, /successful\.forEach\(\(\{ companyKey, users, profiles \}\) =>/);
+assert.match(remote, /skippedCompanyKeys:/);
+assert.doesNotMatch(remote, /const failed = responses\.find\(item => !item\.users\.ok \|\| !item\.profiles\.ok\);\s*if \(failed\) return/);
 assert.doesNotMatch(remote, /permissionsFor\(/);
 assert.doesNotMatch(remote, /permissions:\s*permissionsFor/);
 assert.match(settings, /Perfil canónico/);

@@ -191,12 +191,19 @@
       ]);
       return { companyKey, users, profiles };
     }));
-    const failed = responses.find(item => !item.users.ok || !item.profiles.ok);
-    if (failed) return !failed.users.ok ? failed.users : failed.profiles;
+    const successful = responses.filter(item => item.users.ok && item.profiles.ok);
+    if (!successful.length) {
+      const failed = responses.find(item => !item.users.ok || !item.profiles.ok);
+      return failed ? (!failed.users.ok ? failed.users : failed.profiles) : {
+        ok: false,
+        code: "CANONICAL_DIRECTORY_EMPTY",
+        errors: ["No existe una empresa administrable disponible para cargar usuarios y perfiles canónicos."]
+      };
+    }
     const usersById = new Map();
     const unlinkedById = new Map();
     const profilesByCompany = {};
-    responses.forEach(({ companyKey, users, profiles }) => {
+    successful.forEach(({ companyKey, users, profiles }) => {
       profilesByCompany[companyKey] = Array.isArray(profiles.data) ? profiles.data : [];
       (Array.isArray(users.data) ? users.data : []).forEach(row => {
         if (row.unlinked) {
@@ -243,7 +250,10 @@
       data: {
          users: [...usersById.values()],
          unlinked: [...unlinkedById.values()],
-         profilesByCompany
+         profilesByCompany,
+         skippedCompanyKeys: responses
+           .filter(item => !item.users.ok || !item.profiles.ok)
+           .map(item => item.companyKey)
       }
     };
   }
