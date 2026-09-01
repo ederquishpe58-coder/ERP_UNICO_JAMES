@@ -3,6 +3,16 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 
 const source = await readFile(new URL("./api/admin-users.js", import.meta.url), "utf8");
+assert.match(
+  source,
+  /\.from\("erp_security_profiles"\)[\s\S]*?\.select\("profile_id, display_name, description, active"\)[\s\S]*?\.eq\("active", true\)/,
+  "El catálogo debe consultar las columnas canónicas disponibles y solo perfiles activos."
+);
+assert.doesNotMatch(
+  source,
+  /\.select\("[^"]*system_defined[^"]*"\)/,
+  "Admin Users no debe depender de system_defined, ausente del contrato REST real de TEST."
+);
 let rpcFailure = null;
 let rpcCalls = 0;
 const rpcClient = {
