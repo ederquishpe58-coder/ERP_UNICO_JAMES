@@ -88,6 +88,7 @@
       category: seed.category || "EXPORTACION",
       related: Boolean(seed.related),
       flowerTypeB: Boolean(seed.flowerTypeB),
+      dedicatedInventoryEnabled: seed.dedicatedInventoryEnabled === true,
       legalName: seed.legalName || "",
       commercialName: seed.commercialName || "",
       status: seed.status || "ACTIVO",

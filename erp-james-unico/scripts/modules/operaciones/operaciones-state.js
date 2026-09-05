@@ -2983,6 +2983,11 @@
         receptionId: String(source.receptionId || source.reception_id || "").trim(),
         destinationMode: String(source.destinationMode || "BLESS_EXPORT").trim(),
         destinationType: String(source.destinationType || (source.localDestinationCustomerId ? "LOCAL" : "EXPORT")).trim().toUpperCase(),
+        destinationCustomerId: String(source.destinationCustomerId || source.localDestinationCustomerId || "").trim(),
+        destinationCustomerName: String(source.destinationCustomerName || source.localDestinationName || "").trim(),
+        destinationSellingCompanyId: String(source.destinationSellingCompanyId || "").trim(),
+        inventoryPoolCompanyId: String(source.inventoryPoolCompanyId || "").trim(),
+        logicalDestinationId: String(source.logicalDestinationId || "").trim(),
         localDestinationCustomerId: String(source.localDestinationCustomerId || "").trim(),
         localDestinationName: String(source.localDestinationName || "").trim(),
         destinationOrderId: String(source.destinationOrderId || source.orderId || "").trim(),
@@ -3008,7 +3013,8 @@
 
     const destination = {
       type: String(options.destinationType || labels[0]?.destinationType || "EXPORT").trim().toUpperCase(),
-      customerId: String(options.destinationCustomerId || labels[0]?.localDestinationCustomerId || "").trim(),
+      customerId: String(options.destinationCustomerId || labels[0]?.destinationCustomerId || labels[0]?.localDestinationCustomerId || "").trim(),
+      sellingCompanyId: String(options.destinationSellingCompanyId || labels[0]?.destinationSellingCompanyId || "").trim(),
       orderId: String(options.destinationOrderId || labels[0]?.destinationOrderId || "").trim()
     };
     const destinationRepository = destinationV2Repository();

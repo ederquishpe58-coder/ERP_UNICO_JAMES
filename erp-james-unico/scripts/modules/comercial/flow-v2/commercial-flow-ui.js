@@ -916,6 +916,9 @@
 
   function availabilityRowsMarkup(appState, rows, state, valueMarkup) {
     const remoteActive = Boolean(flow.warehouseRepository?.());
+    if (remoteActive && !state.destinationsLoaded) {
+      return `<tr><td colspan="11"><div class="empty-state compact">${state.destinationsError ? esc(state.destinationsError) : "Cargando destinos desde el catálogo comercial…"}</div></td></tr>`;
+    }
     if (remoteActive && (state.remoteLoading || (!state.remoteAttempted && !state.remoteLoaded))) {
       return `<tr><td colspan="11"><div class="empty-state compact">Consultando disponibilidad compartida en Supabase…</div></td></tr>`;
     }
@@ -950,19 +953,57 @@
 
   function renderAvailability(appState, options = {}) {
     const { lengths, rows, state, varieties } = getVisibleAvailabilityRows(appState);
+    const remoteActive = Boolean(flow.warehouseRepository?.());
+    const dedicatedCustomers = (remoteActive ? (state.destinations || []) : (flow.catalogs(appState).customers || []))
+      .filter(customer => customer.dedicatedInventoryEnabled === true && !["INACTIVO", "INACTIVE"].includes(String(customer.status || "ACTIVO").toUpperCase()))
+      .sort((left, right) => String(left.legalName || left.commercialName || "").localeCompare(String(right.legalName || right.commercialName || ""), "es"));
+    const selectedDestination = dedicatedCustomers.find(customer => String(customer.id) === String(state.customerId));
+    const destinationName = remoteActive && !state.destinationsLoaded ? "Cargando destino…"
+      : state.customerId ? (selectedDestination?.legalName || selectedDestination?.commercialName || "Destino no disponible") : "BLESS / GENERAL";
     const valueMarkup = (value, className = "") => `<span class="availability-v2-value ${Number(value) === 0 ? "is-zero" : ""} ${className}">${value}</span>`;
     return `<section class="page-header"><div><p class="section-kicker">DISPONIBILIDAD</p><h1>Inventario frente a pedidos guardados</h1><p>Guardar compromete la flor. Enviar a Cuarto Frío no descuenta una segunda vez.</p></div></section>
-      <section class="panel-card commercial-v2-section availability-v2-card"><div class="commercial-v2-filters availability-v2-filters"><label>Variedad<select data-availability-field="variety">${textOptions(["TODAS", ...varieties], state.variety, "Todas")}</select></label><label>Medida<select data-availability-field="length">${textOptions(["TODAS", ...lengths], state.length, "Todas")}</select></label>${options.enableAvailabilityCopy === true ? `<button type="button" class="secondary-button" data-availability-copy>Copiar disponibilidad</button>` : ""}</div>
+      <section class="panel-card commercial-v2-section availability-v2-card"><div class="commercial-v2-filters availability-v2-filters"><label>Destino<select data-availability-field="customerId" ${remoteActive && !state.destinationsLoaded ? "disabled" : ""}><option value="">BLESS / GENERAL</option>${dedicatedCustomers.map(customer => `<option value="${esc(customer.id)}" ${String(state.customerId) === String(customer.id) ? "selected" : ""}>${esc(customer.legalName || customer.commercialName || customer.id)}</option>`).join("")}</select></label><label>Variedad<select data-availability-field="variety">${textOptions(["TODAS", ...varieties], state.variety, "Todas")}</select></label><label>Medida<select data-availability-field="length">${textOptions(["TODAS", ...lengths], state.length, "Todas")}</select></label><button type="button" class="secondary-button" data-availability-refresh ${state.destinationsLoading ? "disabled" : ""}>Actualizar disponibilidad</button>${options.enableAvailabilityCopy === true ? `<button type="button" class="secondary-button" data-availability-copy ${remoteActive && (!state.destinationsLoaded || !state.remoteLoaded || state.remoteLoading) ? "disabled" : ""}>Copiar disponibilidad</button>` : ""}</div>
+      <div class="panel-card-head" aria-live="polite"><h2>Destino: ${esc(destinationName)}</h2></div>
       <div class="table-wrap erp-table-scroll availability-v2-table-wrap"><table class="erp-data-table availability-v2-table"><thead><tr><th>Variedad</th><th>Medida</th><th>Calidad</th><th>Físico</th><th>Reservado</th><th>Empacado</th><th>Bloqueado</th><th>En pedido</th><th>Faltante</th><th>Disponible</th><th>Tallos disponibles</th></tr></thead><tbody>${availabilityRowsMarkup(appState, rows, state, valueMarkup)}</tbody></table></div></section>`;
   }
 
   function bindAvailability(container, appState) {
     const state = flow.sessionFor(appState).availability;
-    if (flow.warehouseRepository?.() && !state.remoteLoaded && !state.remoteLoading && !state.remoteAttempted) {
+    if (flow.warehouseRepository?.() && !state.destinationsLoaded && !state.destinationsLoading && !state.destinationsAttempted) {
+      void flow.loadAvailabilityDestinations(appState).then(async result => {
+        if (result.ok) await flow.refreshAvailability(appState);
+        rerenderPage();
+      });
+    } else if (flow.warehouseRepository?.() && state.destinationsLoaded && !state.remoteLoaded && !state.remoteLoading && !state.remoteAttempted) {
       void flow.refreshAvailability(appState).then(() => rerenderPage());
     }
-    container.addEventListener("change", event => { const field = event.target.closest("[data-availability-field]"); if (!field) return; flow.sessionFor(appState).availability[field.dataset.availabilityField] = field.value; rerenderPage(); });
+    container.addEventListener("change", event => {
+      const field = event.target.closest("[data-availability-field]");
+      if (!field) return;
+      const availability = flow.sessionFor(appState).availability;
+      if (field.dataset.availabilityField === "customerId" && flow.warehouseRepository?.()
+        && (!availability.destinationsLoaded || (field.value && !availability.destinations.some(customer => String(customer.id) === field.value)))) return;
+      availability[field.dataset.availabilityField] = field.value;
+      if (field.dataset.availabilityField === "customerId") {
+        availability.variety = availability.length = "TODAS";
+        availability.remoteRows = [];
+        availability.remoteLoaded = false;
+        availability.remoteAttempted = false;
+        void flow.refreshAvailability(appState).then(() => rerenderPage());
+      }
+      rerenderPage();
+    });
     container.addEventListener("click", async event => {
+      const refresh = event.target.closest("[data-availability-refresh]");
+      if (refresh) {
+        refresh.disabled = true;
+        const loading = flow.warehouseRepository?.() ? flow.loadAvailabilityDestinations(appState) : Promise.resolve({ ok: true });
+        rerenderPage();
+        const result = await loading;
+        if (result.ok) await flow.refreshAvailability(appState);
+        rerenderPage();
+        return;
+      }
       const button = event.target.closest("[data-availability-copy]");
       if (!button) return;
       button.disabled = true;

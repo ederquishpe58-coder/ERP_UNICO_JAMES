@@ -257,6 +257,14 @@
     }, { ...options, source: "WAREHOUSE_V2_SCAN_PACK" });
   }
 
+  function autoassignDedicatedBox(orderId, boxNumber, options = {}) {
+    return command("erp_warehouse_v2_autoassign_dedicated_box", {
+      p_order_id: String(orderId || "").trim(),
+      p_box_number: Number(boxNumber || 0),
+      p_local_created_at: new Date().toISOString()
+    }, { ...options, source: "WAREHOUSE_V2_DEDICATED_AUTOASSIGN" });
+  }
+
   function unassignBunch(orderId, labelCode, reason, options = {}) {
     return command("erp_warehouse_v2_unassign_bunch", {
       p_order_id: String(orderId || "").trim(),
@@ -283,7 +291,7 @@
     }, { ...options, source: "WAREHOUSE_V2_REOPEN_BOX" });
   }
 
-  async function availability() {
+  async function availability(customerId = "") {
     const companyId = activeCompanyUuid();
     if (!configured() || !companyId) {
       return { ok: false, rows: [], mode: remoteRequired() ? "REMOTE_REQUIRED" : "LOCAL_ONLY" };
@@ -292,9 +300,11 @@
     if (!backend.ok || !canExecute()) {
       return { ok: false, rows: [], mode: backend.status || "BACKEND_UNAVAILABLE", error: backend.error, message: backend.message };
     }
-    const { data, error } = await BlessERP.getSupabaseClient().rpc("erp_warehouse_v2_availability", {
-      p_company_id: companyId
-    });
+    const normalizedCustomerId = String(customerId || "").trim();
+    const rpcName = normalizedCustomerId ? "erp_warehouse_v2_customer_availability" : "erp_warehouse_v2_availability";
+    const parameters = { p_company_id: companyId };
+    if (normalizedCustomerId) parameters.p_customer_id = normalizedCustomerId;
+    const { data, error } = await BlessERP.getSupabaseClient().rpc(rpcName, parameters);
     if (error) return { ok: false, rows: [], mode: "SUPABASE_ERROR", error, message: error.message };
     return { ok: true, rows: Array.isArray(data) ? data : [], mode: "SUPABASE_CONFIRMED" };
   }
@@ -324,9 +334,23 @@
     return { ok: true, row: Array.isArray(data) ? data[0] : data, mode: "SUPABASE_CONFIRMED" };
   }
 
+  async function orderLogisticsContext(sellingCompanyId, orderId) {
+    const poolCompanyId = activeCompanyUuid();
+    if (!configured() || !poolCompanyId) return { ok: false, mode: remoteRequired() ? "REMOTE_REQUIRED" : "LOCAL_ONLY" };
+    const backend = await probeBackend();
+    if (!backend.ok || !canExecute()) return { ok: false, mode: backend.status || "BACKEND_UNAVAILABLE", error: backend.error, message: backend.message };
+    const { data, error } = await BlessERP.getSupabaseClient().rpc("erp_warehouse_v2_order_logistics_context", {
+      p_selling_company_id: String(sellingCompanyId || "").trim(),
+      p_order_id: String(orderId || "").trim()
+    });
+    if (error) return { ok: false, mode: "SUPABASE_ERROR", error, message: error.message };
+    return { ok: true, context: Array.isArray(data) ? data[0] : data, mode: "SUPABASE_CONFIRMED" };
+  }
+
   const repository = Object.freeze({
     activeCompanyUuid,
     availability,
+    autoassignDedicatedBox,
     coldRoomOrders,
     canExecute,
     cancelOrder,
@@ -342,6 +366,7 @@
     uuid,
     healthStatus,
     labelContext,
+    orderLogisticsContext,
     probeBackend
   });
 

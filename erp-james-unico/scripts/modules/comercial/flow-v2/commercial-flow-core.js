@@ -142,6 +142,15 @@
         tracking: { date: today(), search: "", page: 1, pageSize: 20 },
         coordination: { date: today(), status: "TODOS", page: 1, pageSize: 30, routeSheetOpen: false, routeSheetSelectedIds: [] },
         availability: {
+          customerId: "",
+          destinations: [],
+          destinationsLoaded: false,
+          destinationsLoading: false,
+          destinationsAttempted: false,
+          destinationsError: "",
+          destinationsGeneration: 0,
+          requestGeneration: 0,
+          requestedCustomerId: "",
           variety: "TODAS",
           length: "TODAS",
           remoteRows: [],
@@ -151,7 +160,7 @@
           remoteError: "",
           remoteMode: ""
         },
-        coldRoom: { date: today(), status: "TODOS", page: 1, pageSize: 20, orderId: "", sellingCompanyId: "", boxNumber: 1, sharedOrders: [], sharedLoaded: false, sharedLoading: false },
+        coldRoom: { date: today(), status: "TODOS", page: 1, pageSize: 20, orderId: "", sellingCompanyId: "", boxNumber: 1, sharedOrders: [], sharedLoaded: false, sharedLoading: false, logisticsByOrder: {}, logisticsLoading: {}, autoassignOperationByBox: {} },
         exportShipment: { selectedId: "", selectedOrderId: "", status: "TODOS", message: "", tone: "info" },
         salesRepresentatives: [],
         salesRepresentativesLoaded: false,
@@ -1105,7 +1114,8 @@
   }
 
   async function sendToColdRoomConfirmed(appState) {
-    if (!remoteOrderRepository()) {
+    const orderRepository = remoteOrderRepository();
+    if (!orderRepository) {
       if (requiresConfirmedRemoteOrder()) {
         return { ok: false, error: "Supabase no está disponible para confirmar el envío a Cuarto Frío." };
       }
@@ -1113,8 +1123,15 @@
     }
     const session = sessionFor(appState);
     if (session.mode !== "EDIT" || !session.selectedOrderId) return { ok: false, error: "Guarde primero el pedido." };
-    const current = findOrder(appState, session.selectedOrderId);
-    if (!current) return { ok: false, error: "El pedido guardado no existe." };
+    if (typeof orderRepository.getFullOrder !== "function") {
+      return { ok: false, error: "Supabase no puede verificar el contenido canónico del pedido antes de enviarlo a Cuarto Frío." };
+    }
+    const canonical = await orderRepository.getFullOrder(session.selectedOrderId);
+    if (!canonical?.ok || !canonical.order) {
+      return { ok: false, error: canonical?.message || "No fue posible verificar el pedido canónico antes de enviarlo a Cuarto Frío." };
+    }
+    const current = data.createOrder(normalizeOrderTransportPayload(clone(canonical.order)));
+    replaceConfirmedOrder(appState, current);
     if (!orderUsesInventory(current)) return { ok: false, error: "La venta sin inventario no utiliza Cuarto Frío." };
     if (!current.lines?.length) return { ok: false, error: "El pedido no tiene cajas." };
     if (IMMUTABLE_SRI_STATES.has(upper(current.sriAuthorizationStatus))) return { ok: false, error: "El comprobante SRI ya no admite cambios." };
@@ -1591,9 +1608,67 @@
 
   function invalidateRemoteAvailability(appState) {
     const state = sessionFor(appState).availability;
+    state.requestGeneration = number(state.requestGeneration) + 1;
+    state.remoteLoading = false;
+    state.remoteRows = [];
     state.remoteLoaded = false;
     state.remoteAttempted = false;
     state.remoteError = "";
+  }
+
+  window.addEventListener?.("erp:company-changed", () => {
+    sessions.forEach(session => {
+      const state = session.availability;
+      state.requestGeneration = number(state.requestGeneration) + 1;
+      state.destinationsGeneration = number(state.destinationsGeneration) + 1;
+      state.remoteRows = [];
+      state.remoteLoaded = state.remoteLoading = state.remoteAttempted = false;
+      state.destinations = [];
+      state.destinationsLoaded = state.destinationsLoading = state.destinationsAttempted = false;
+      state.remoteError = state.destinationsError = "";
+    });
+  });
+
+  async function loadAvailabilityDestinations(appState) {
+    const state = sessionFor(appState).availability;
+    if (state.destinationsLoading) return { ok: false, mode: "LOADING" };
+    const companyId = activeCompanyId(appState);
+    const generation = number(state.destinationsGeneration) + 1;
+    state.destinationsGeneration = generation;
+    const current = () => state.destinationsGeneration === generation && activeCompanyId(appState) === companyId;
+    state.destinationsLoading = state.destinationsAttempted = true;
+    state.destinationsLoaded = false;
+    state.destinationsError = "";
+    state.destinations = [];
+    try {
+      const loader = BlessERP.domainDataLoader;
+      const repository = BlessERP.getCustomerRepository?.();
+      if (!loader?.ensureDomain || !repository?.list) throw new Error("El catálogo canónico de destinos no está disponible.");
+      const hydration = await loader.ensureDomain("commercial-catalog", { force: true, full: true });
+      if (!current()) return { ok: false, mode: "STALE_CONTEXT" };
+      if (!hydration?.ok) throw new Error(hydration?.message || "No se pudo hidratar el catálogo comercial.");
+      const response = await repository.list();
+      if (!current()) return { ok: false, mode: "STALE_CONTEXT" };
+      if (!response?.ok || !response.confirmed) throw new Error(response?.message || "Supabase no confirmó los clientes del destino.");
+      state.destinations = (response.rows || []).filter(customer => customer.dedicatedInventoryEnabled === true
+        && !["INACTIVO", "INACTIVE"].includes(upper(customer.status || "ACTIVO")))
+        .sort((left, right) => text(left.legalName || left.commercialName).localeCompare(text(right.legalName || right.commercialName), "es"));
+      if (state.customerId && !state.destinations.some(customer => String(customer.id) === state.customerId)) {
+        state.customerId = "";
+      }
+      invalidateRemoteAvailability(appState);
+      state.destinationsLoaded = true;
+      return { ok: true, rows: [...state.destinations] };
+    } catch (error) {
+      if (!current()) return { ok: false, mode: "STALE_CONTEXT" };
+      state.destinationsError = text(error?.message || "No se pudieron cargar los destinos.");
+      return { ok: false, message: state.destinationsError };
+    } finally {
+      if (state.destinationsGeneration === generation) {
+        state.destinationsLoading = false;
+        if (!current()) state.destinationsAttempted = false;
+      }
+    }
   }
 
   async function refreshAvailability(appState) {
@@ -1608,12 +1683,23 @@
       state.remoteMode = "LOCAL_ONLY";
       return { ok: true, rows: localAvailabilityRows(appState), mode: "LOCAL_ONLY" };
     }
-    if (state.remoteLoading) return { ok: false, rows: [], mode: "LOADING" };
+    const customerId = text(state.customerId);
+    const companyId = activeCompanyId(appState);
+    const companyUuid = repository.activeCompanyUuid?.();
+    if (state.remoteLoading && state.requestedCustomerId === customerId) return { ok: false, rows: [], mode: "LOADING" };
+    const generation = number(state.requestGeneration) + 1;
+    state.requestGeneration = generation;
+    state.requestedCustomerId = customerId;
+    const current = () => state.requestGeneration === generation && text(state.customerId) === customerId
+      && activeCompanyId(appState) === companyId && repository.activeCompanyUuid?.() === companyUuid;
+    state.remoteRows = [];
+    state.remoteLoaded = false;
     state.remoteLoading = true;
     state.remoteAttempted = true;
     state.remoteError = "";
     try {
-      const response = await repository.availability();
+      const response = await repository.availability(state.customerId || "");
+      if (!current()) return { ok: false, rows: [], mode: "STALE_CONTEXT" };
       state.remoteMode = text(response?.mode || "");
       if (!response?.ok) {
         state.remoteRows = [];
@@ -1625,18 +1711,26 @@
       state.remoteLoaded = true;
       return { ...response, ok: true, rows: [...state.remoteRows] };
     } catch (error) {
+      if (!current()) return { ok: false, rows: [], mode: "STALE_CONTEXT" };
       state.remoteRows = [];
       state.remoteLoaded = false;
       state.remoteMode = "SUPABASE_ERROR";
       state.remoteError = text(error?.message || "No se pudo consultar la disponibilidad compartida en Supabase.");
       return { ok: false, rows: [], mode: state.remoteMode, error, message: state.remoteError };
     } finally {
-      state.remoteLoading = false;
+      if (state.requestGeneration === generation) {
+        state.remoteLoading = false;
+        if (!current()) {
+          state.remoteRows = [];
+          state.remoteLoaded = state.remoteAttempted = false;
+        }
+      }
     }
   }
 
   function getAvailabilityRows(appState) {
     const state = sessionFor(appState).availability;
+    if (warehouseRepository() && state.requestedCustomerId !== text(state.customerId)) return [];
     if (warehouseRepository()) return [...state.remoteRows];
     return localAvailabilityRows(appState);
   }
@@ -1664,6 +1758,54 @@
     } finally {
       ui.sharedLoading = false;
     }
+  }
+
+  function coldRoomOrderKey(orderId, sellingCompanyId = "") {
+    return `${text(sellingCompanyId)}::${text(orderId)}`;
+  }
+
+  function getOrderLogisticsContext(appState, orderId, sellingCompanyId = "") {
+    const ui = sessionFor(appState).coldRoom;
+    return ui.logisticsByOrder?.[coldRoomOrderKey(orderId, sellingCompanyId)] || null;
+  }
+
+  async function loadOrderLogisticsContext(appState, orderId, sellingCompanyId = "") {
+    const repository = warehouseRepository();
+    const ui = sessionFor(appState).coldRoom;
+    const key = coldRoomOrderKey(orderId, sellingCompanyId);
+    if (!repository?.orderLogisticsContext) return { ok: false, error: "Supabase no confirmó el modo logístico del pedido." };
+    if (ui.logisticsLoading[key]) return ui.logisticsLoading[key];
+    const task = repository.orderLogisticsContext(sellingCompanyId, orderId).then(result => {
+      if (result.ok) ui.logisticsByOrder[key] = result.context || {};
+      return result.ok ? { ok: true, context: ui.logisticsByOrder[key] } : { ok: false, error: result.message || "No se pudo resolver el modo logístico." };
+    }).finally(() => { delete ui.logisticsLoading[key]; });
+    ui.logisticsLoading[key] = task;
+    return task;
+  }
+
+  async function autoassignDedicatedBox(appState, orderId, boxNumber, sellingCompanyId = "", options = {}) {
+    const repository = warehouseRepository();
+    if (!repository?.autoassignDedicatedBox) return { ok: false, error: "La autoasignación dedicada no está disponible." };
+    const ui = sessionFor(appState).coldRoom;
+    const key = `${coldRoomOrderKey(orderId, sellingCompanyId)}::${Number(boxNumber || 0)}`;
+    const operationId = String(options.operationId || ui.autoassignOperationByBox[key] || repository.uuid());
+    ui.autoassignOperationByBox[key] = operationId;
+    const response = await repository.autoassignDedicatedBox(orderId, boxNumber, {
+      sellingCompanyId,
+      operationId
+    });
+    if (!response.ok) return { ok: false, error: response.message || "Supabase no confirmó la autoasignación dedicada.", operationId };
+    const logisticsKey = coldRoomOrderKey(orderId, sellingCompanyId);
+    ui.logisticsByOrder[logisticsKey] = {
+      ...(ui.logisticsByOrder[logisticsKey] || {}),
+      mode: "DEDICATED",
+      logicalDestinationId: response.result?.logicalDestinationId || ui.logisticsByOrder[logisticsKey]?.logicalDestinationId || "",
+      customerId: response.result?.customerId || ui.logisticsByOrder[logisticsKey]?.customerId || "",
+      customerName: response.result?.destinationCustomerName || ui.logisticsByOrder[logisticsKey]?.customerName || "",
+      remainingAvailability: number(response.result?.remainingAvailability)
+    };
+    await refreshWarehouseOrders(appState, { force: true });
+    return { ok: true, assigned: number(response.result?.assignedBunches), remaining: number(response.result?.remainingAvailability), labels: response.result?.labels || [], operationId, result: response.result };
   }
 
   async function markShipment(appState, orderId) {
@@ -1988,6 +2130,7 @@
   const api = {
     ACTIVE_ORDER_STATES,
     activeCompanyId,
+    autoassignDedicatedBox,
     activeOrders,
     agencyFor,
     airlineForGuide,
@@ -2024,12 +2167,15 @@
     getDispatchRecord,
     getDraft,
     getOrderFulfillment,
+    getOrderLogisticsContext,
     getWarehouseOrders,
     refreshWarehouseOrders,
     groupOrderBoxes,
     isLocalOrder,
     keyOf,
     loadSalesRepresentatives,
+    loadAvailabilityDestinations,
+    loadOrderLogisticsContext,
     linesForBox,
     localPoolFor,
     localLotsFor,

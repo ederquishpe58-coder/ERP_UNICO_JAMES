@@ -772,7 +772,7 @@
     const draft = store.ui.customerDraft;
     if (!draft || !(field in draft)) return false;
     if (field === "code") return false;
-    if (["related", "flowerTypeB"].includes(field)) draft[field] = Boolean(value);
+    if (["related", "flowerTypeB", "dedicatedInventoryEnabled"].includes(field)) draft[field] = Boolean(value);
     else if (["creditDays", "creditAmount"].includes(field)) draft[field] = Math.max(0, utils.parseNumber(value));
     else draft[field] = String(value || "");
     return true;
@@ -781,6 +781,7 @@
   async function saveCustomer(appState) {
     const store = ensureStore(appState);
     const draft = bindCatalogCompany(data.createCustomer(store.ui.customerDraft || {}), appState);
+    const existing = store.customerCatalog.find(item => String(item.id) === String(draft.id));
     let automaticIdentification = false;
     const country = findCatalogCountry(store, draft.country);
     if (!country) {
@@ -812,6 +813,14 @@
       setNotice(appState, duplicateCode ? "Ya existe un cliente con ese codigo." : "Ya existe un cliente con esa identificacion.", "warning");
       return { ok: false };
     }
+    if (existing?.dedicatedInventoryEnabled === true && draft.dedicatedInventoryEnabled !== true) {
+      setNotice(
+        appState,
+        "No se puede desactivar la disponibilidad propia desde esta ficha: las etiquetas, destinos e historial existentes deben preservarse. Solicite una revisión operativa focalizada.",
+        "warning"
+      );
+      return { ok: false, reason: "DEDICATED_INVENTORY_DISABLE_REVIEW_REQUIRED" };
+    }
     const result = await persistCatalogRecord(appState, BlessERP.getCustomerRepository?.(), draft, "el cliente");
     if (!result.ok) return result;
     const canonical = data.createCustomer(result.record);
@@ -839,6 +848,14 @@
     const store = ensureStore(appState);
     const customer = store.customerCatalog.find(item => item.id === customerId);
     if (!customer) return { ok: false, reason: "NOT_FOUND" };
+    if (customer.dedicatedInventoryEnabled === true) {
+      setNotice(
+        appState,
+        `No se puede eliminar ${customer.legalName}: su destino dedicado e historial físico deben preservarse. Solicite una revisión operativa focalizada.`,
+        "warning"
+      );
+      return { ok: false, reason: "DEDICATED_INVENTORY_DELETE_REVIEW_REQUIRED" };
+    }
     const usedByBrand = store.brandCatalog.some(item => item.customerId === customerId);
     const usedByOrder = store.orders.some(item => item.customerId === customerId && String(item.status || "").toUpperCase() !== "ANULADO");
     const usedByDae = store.daeCatalog.some(item => (item.customerIds || []).includes(customerId));

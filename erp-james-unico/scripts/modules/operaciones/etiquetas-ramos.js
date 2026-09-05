@@ -12,6 +12,7 @@
   let rowSequence = 0;
   let repeatHeader = false;
   let destinationCustomerId = "";
+  let destinationSellingCompanyId = "";
   let destinationType = "EXPORT";
   let destinationOrderId = "";
   let activeContainer = null;
@@ -19,6 +20,7 @@
   let lifecycleController = null;
   let batchPrintInProgress = false;
   let connectPromise = null;
+  let dedicatedDestinationState = { companyId: "", rows: [], loaded: false, loading: false, error: "" };
   let printerState = { status: "CHECKING", message: "Comprobando Zebra Browser Print...", deviceName: "" };
   let suggestionState = { rowId: "", field: "", items: [], activeIndex: 0 };
 
@@ -97,14 +99,39 @@
     return String(customer?.record_id || customer?.recordId || customer?.id || "");
   }
 
+  function dedicatedCustomersFor() {
+    const companyId = String(BlessERP.getLocalDestinationV2Repository?.()?.activeCompanyUuid?.() || "");
+    return dedicatedDestinationState.loaded && dedicatedDestinationState.companyId === companyId
+      ? dedicatedDestinationState.rows
+      : [];
+  }
+
+  async function loadDedicatedCustomers() {
+    const repository = BlessERP.getLocalDestinationV2Repository?.();
+    const companyId = String(repository?.activeCompanyUuid?.() || "");
+    if (!repository?.dedicatedCustomers || !companyId || dedicatedDestinationState.loading
+      || (dedicatedDestinationState.loaded && dedicatedDestinationState.companyId === companyId)) return;
+    dedicatedDestinationState = { companyId, rows: [], loaded: false, loading: true, error: "" };
+    const result = await repository.dedicatedCustomers();
+    if (String(repository.activeCompanyUuid?.() || "") !== companyId) return;
+    dedicatedDestinationState = result.ok
+      ? { companyId, rows: result.rows || [], loaded: true, loading: false, error: "" }
+      : { companyId, rows: [], loaded: false, loading: false, error: result.message || "No se pudieron consultar los destinos dedicados." };
+    if (activeContainer && activeAppState) BlessERP.layout.renderPage();
+  }
+
   function destinationValue() {
-    return destinationType === "LOCAL" && destinationCustomerId
-      ? `LOCAL:${destinationCustomerId}`
+    return destinationType === "DEDICATED" && destinationCustomerId
+      ? `DEDICATED:${destinationSellingCompanyId}:${destinationCustomerId}`
       : "EXPORT";
   }
 
   function parseDestinationValue(value) {
     const raw = String(value || "").trim();
+    const dedicated = raw.match(/^DEDICATED:([0-9a-f-]{36}):(.+)$/i);
+    if (dedicated) {
+      return { type: "DEDICATED", sellingCompanyId: dedicated[1], customerId: dedicated[2], orderId: "", mode: "CUSTOMER_DEDICATED" };
+    }
     if (raw.startsWith("LOCAL:") && raw.slice(6)) {
       return { type: "LOCAL", customerId: raw.slice(6), orderId: "", mode: "LOCAL_COMPANY" };
     }
@@ -338,7 +365,7 @@
   function render(appState, route) {
     ensureRows();
     const pendingLabels = (storeOf(appState)?.labelBatches || []).filter(item => item.sourceType === "DIGITACION_ETIQUETA_ZEBRA" && item.state === "IMPRESA").length;
-    const localCustomers = localCustomersFor(appState);
+    const dedicatedCustomers = dedicatedCustomersFor();
     const companyId = activeCompanyId(appState);
     const localOrders = (appState?.db?.commercial?.orders || [])
       .filter(order => String(order.customerId || "") === destinationCustomerId
@@ -349,8 +376,11 @@
       .sort((a, b) => String(b.issuedAt || "").localeCompare(String(a.issuedAt || "")));
     const summary = batchSummary();
     const destinationLocked = batchPrintInProgress || rows.some(hasCanonicalLabels);
-    const selectedLocalCustomerAvailable = destinationType !== "LOCAL"
-      || localCustomers.some(customer => customerRecordId(customer) === String(destinationCustomerId));
+    const selectedDedicatedCustomer = destinationType === "DEDICATED"
+      ? dedicatedCustomers.find(customer => String(customer.customer_id || customer.customerId) === String(destinationCustomerId)
+        && String(customer.selling_company_id || customer.sellingCompanyId) === String(destinationSellingCompanyId))
+      : null;
+    const selectedDedicatedCustomerAvailable = destinationType !== "DEDICATED" || Boolean(selectedDedicatedCustomer);
     return `
       <section class="page-header">
         <div><h1>${esc(route.title)}</h1><p>La etiqueta se registra internamente al imprimir; el ramo entra al inventario únicamente cuando se escanea.</p></div>
@@ -370,17 +400,17 @@
         <div class="zebra-label-options">
           <label class="zebra-destination-option">Destino
             <select data-zebra-destination${destinationLocked ? " disabled" : ""}>
-              <option value="EXPORT" ${destinationValue() === "EXPORT" ? "selected" : ""}>BLESS / EXPORTACIÓN</option>
-              ${destinationType === "LOCAL" && !selectedLocalCustomerAvailable ? `<option value="${esc(destinationValue())}" selected disabled>CLIENTE LOCAL NO DISPONIBLE</option>` : ""}
-              ${localCustomers.map(customer => {
-                const id = customerRecordId(customer);
-                return `<option value="${esc(`LOCAL:${id}`)}" ${destinationValue() === `LOCAL:${id}` ? "selected" : ""}>${esc(customer.legalName || customer.commercialName || customer.name)}</option>`;
+              <option value="EXPORT" ${destinationValue() === "EXPORT" ? "selected" : ""}>BLESS / GENERAL</option>
+              ${destinationType === "DEDICATED" && !selectedDedicatedCustomerAvailable ? `<option value="${esc(destinationValue())}" selected disabled>DESTINO DEDICADO NO DISPONIBLE</option>` : ""}
+              ${dedicatedCustomers.map(customer => {
+                const id = String(customer.customer_id || customer.customerId || "");
+                const sellerId = String(customer.selling_company_id || customer.sellingCompanyId || "");
+                const value = `DEDICATED:${sellerId}:${id}`;
+                return `<option value="${esc(value)}" ${destinationValue() === value ? "selected" : ""}>${esc(customer.customer_name || customer.customerName || id)}</option>`;
               }).join("")}
             </select>
           </label>
-          ${destinationType === "LOCAL" ? `<label class="zebra-destination-option">Pedido local (opcional)
-            <select data-zebra-destination-order ${destinationCustomerId && !destinationLocked ? "" : "disabled"}><option value="">SIN PEDIDO</option>${localOrders.map(order => `<option value="${esc(order.id)}" ${String(order.id) === destinationOrderId ? "selected" : ""}>${esc(order.number || order.id)}</option>`).join("")}</select>
-          </label>` : ""}
+          ${dedicatedDestinationState.loading ? `<span class="zebra-autocomplete-help">Consultando destinos dedicados en Supabase…</span>` : dedicatedDestinationState.error ? `<span class="inline-feedback warning">${esc(dedicatedDestinationState.error)}</span>` : ""}
           <label class="zebra-repeat-option"><input type="checkbox" data-zebra-repeat ${repeatHeader ? "checked" : ""}> Repetir color, variedad y medida después de imprimir</label>
           <span class="zebra-autocomplete-help">Escriba para filtrar. Enter o Tab confirma. <strong>Ctrl + Shift + +</strong> aumenta copias. <strong>Ctrl + I</strong> imprime el lote.</span>
           <button type="button" class="secondary-button" data-zebra-add-row${destinationLocked ? " disabled" : ""}>+ Nueva fila</button>
@@ -582,8 +612,9 @@ ${barcodeGraphic.zpl}
   function pdfLabelsForRow(row, barcodes = barcodesForRow(row)) {
     const components = usedComponents(row);
     const labelType = components.length > 1 ? "MIXTA" : "NORMAL";
-    const localCustomer = destinationType === "LOCAL"
-      ? localCustomersFor(activeAppState).find(item => customerRecordId(item) === String(destinationCustomerId))
+    const dedicatedCustomer = destinationType === "DEDICATED"
+      ? dedicatedCustomersFor().find(item => String(item.customer_id || item.customerId) === String(destinationCustomerId)
+        && String(item.selling_company_id || item.sellingCompanyId) === String(destinationSellingCompanyId))
       : null;
     return barcodes.map(barcode => Object.freeze({
       block: components[0]?.block || "",
@@ -596,11 +627,16 @@ ${barcodeGraphic.zpl}
       components: components.map(item => ({ ...item })),
       labelType,
       length: Number(String(row.length).replace(/\D+/g, "")),
-      destinationType: localCustomer ? "LOCAL" : "EXPORT",
-      destinationMode: localCustomer ? "LOCAL_COMPANY" : "BLESS_EXPORT",
-      localDestinationCustomerId: customerRecordId(localCustomer),
-      localDestinationName: localCustomer?.legalName || localCustomer?.commercialName || localCustomer?.name || "",
-      destinationOrderId: localCustomer ? destinationOrderId : "",
+      destinationType: dedicatedCustomer ? "DEDICATED" : "EXPORT",
+      destinationMode: dedicatedCustomer ? "CUSTOMER_DEDICATED" : "BLESS_EXPORT",
+      destinationCustomerId: String(dedicatedCustomer?.customer_id || dedicatedCustomer?.customerId || ""),
+      destinationCustomerName: String(dedicatedCustomer?.customer_name || dedicatedCustomer?.customerName || ""),
+      destinationSellingCompanyId: String(dedicatedCustomer?.selling_company_id || dedicatedCustomer?.sellingCompanyId || ""),
+      inventoryPoolCompanyId: String(dedicatedCustomer?.inventory_pool_company_id || dedicatedCustomer?.inventoryPoolCompanyId || ""),
+      logicalDestinationId: String(dedicatedCustomer?.logical_destination_id || dedicatedCustomer?.logicalDestinationId || ""),
+      localDestinationCustomerId: "",
+      localDestinationName: "",
+      destinationOrderId: "",
       provider: components[0]?.provider || "",
       stemsPerBunch: row.target,
       type: labelType === "MIXTA" ? `MIXTO - ${components.length} COMPONENTES` : "INDIVIDUAL",
@@ -609,11 +645,12 @@ ${barcodeGraphic.zpl}
   }
 
   async function confirmedLabelsForOutput(row, drafts, outputType) {
-    const localCustomer = destinationType === "LOCAL"
-      ? localCustomersFor(activeAppState).find(item => customerRecordId(item) === String(destinationCustomerId))
+    const dedicatedCustomer = destinationType === "DEDICATED"
+      ? dedicatedCustomersFor().find(item => String(item.customer_id || item.customerId) === String(destinationCustomerId)
+        && String(item.selling_company_id || item.sellingCompanyId) === String(destinationSellingCompanyId))
       : null;
-    if (destinationType === "LOCAL" && !localCustomer) {
-      return { ok: false, error: "Seleccione un cliente local activo de la empresa antes de crear las etiquetas.", labels: [] };
+    if (destinationType === "DEDICATED" && !dedicatedCustomer) {
+      return { ok: false, error: "Seleccione un destino dedicado confirmado por Supabase antes de crear las etiquetas.", labels: [] };
     }
     const reusable = Array.isArray(row.confirmedLabels)
       && row.confirmedLabels.length === row.copies
@@ -658,6 +695,7 @@ ${barcodeGraphic.zpl}
         operationId: row.pendingOperationId || undefined,
         destinationType,
         destinationCustomerId,
+        destinationSellingCompanyId: String(dedicatedCustomer?.selling_company_id || dedicatedCustomer?.sellingCompanyId || ""),
         destinationOrderId
       }
     );
@@ -1044,6 +1082,11 @@ ${barcodeGraphic.zpl}
       ? localCustomersFor(activeAppState).find(item => customerRecordId(item) === String(destinationCustomerId))
       : null;
     if (destinationType === "LOCAL" && !localCustomer) issues.push("El destino local no corresponde a un cliente activo de la empresa.");
+    const dedicatedCustomer = destinationType === "DEDICATED"
+      ? dedicatedCustomersFor().find(item => String(item.customer_id || item.customerId) === String(destinationCustomerId)
+        && String(item.selling_company_id || item.sellingCompanyId) === String(destinationSellingCompanyId))
+      : null;
+    if (destinationType === "DEDICATED" && !dedicatedCustomer) issues.push("El destino dedicado no fue confirmado por Supabase.");
     targetRows.forEach((row, index) => {
       const validation = validate(row);
       if (!validation.ok) issues.push(`Fila ${index + 1}: ${validation.errors.join(", ")}`);
@@ -1138,6 +1181,7 @@ ${barcodeGraphic.zpl}
       const destination = parseDestinationValue(event.target.value);
       destinationType = destination.type;
       destinationCustomerId = destination.customerId;
+      destinationSellingCompanyId = destination.sellingCompanyId || "";
       destinationOrderId = destination.orderId;
       rows.forEach(resetPendingIdentity);
       rerender();
@@ -1206,6 +1250,7 @@ ${barcodeGraphic.zpl}
     window.document.addEventListener("keydown", onScreenShortcut, listenerOptions);
     setTimeout(() => container.querySelector("[data-zebra-field='color']")?.focus({ preventScroll: true }), 0);
     if (printerState.status !== "CONNECTED") connect();
+    void loadDedicatedCustomers();
   }
 
   function unmount(container) {
@@ -1227,6 +1272,7 @@ ${barcodeGraphic.zpl}
     destinationValue,
     hasCanonicalLabels,
     localCustomersFor,
+    dedicatedCustomersFor,
     mount,
     parseDestinationValue,
     pdfLabelsForRow,
@@ -1256,6 +1302,7 @@ ${barcodeGraphic.zpl}
         const parsed = parseDestinationValue(value);
         destinationType = parsed.type;
         destinationCustomerId = parsed.customerId;
+        destinationSellingCompanyId = parsed.sellingCompanyId || "";
         destinationOrderId = parsed.orderId;
       },
       setRows(nextRows) {

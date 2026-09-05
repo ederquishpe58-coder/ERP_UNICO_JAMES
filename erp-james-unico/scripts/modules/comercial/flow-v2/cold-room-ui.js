@@ -117,24 +117,22 @@
     const progress = flow.buildOrderFulfillment(order);
     const dispatch = flow.getDispatchRecord(appState, order.id, order.sellingCompanyId);
     const dispatchStatus = upper(dispatch?.status || order.dispatchStatus || "");
-    const local = flow.isLocalOrder(order, appState)
-      && (!order.sellingCompanyId || !order.inventoryPoolCompanyId || String(order.sellingCompanyId) === String(order.inventoryPoolCompanyId));
-    const pool = local ? flow.localPoolFor(appState, order.customerId) : [];
-    const lots = local ? flow.localLotsFor(appState, order.customerId) : [];
+    const logistics = flow.getOrderLogisticsContext(appState, order.id, order.sellingCompanyId);
+    const logisticsPending = !logistics;
+    const dedicated = String(logistics?.mode || "").toUpperCase() === "DEDICATED";
     const selectedActiveBox = progress.boxes.find(box => !box.automaticComplete && Number(box.boxNumber) === Number(ui.boxNumber));
     const activeBox = selectedActiveBox || progress.boxes.find(box => !box.automaticComplete) || null;
     const activeBoxNumber = activeBox?.boxNumber || 0;
     const completedBoxes = progress.boxes.filter(box => box.automaticComplete).length;
     const activeBoxLabel = activeBox ? `${activeBox.boxNumber}/${progress.boxes.length}` : `${progress.boxes.length}/${progress.boxes.length}`;
-    const scannerPanel = !local ? renderScannerPanel(progress) : "";
-    const visibleCustomer = order.customerDisplay || customerName(appState, order.customerId);
-    return `<section class="page-header"><div><p class="section-kicker">CUARTO FRÍO / PEDIDO</p><h1>${esc(order.number)}</h1><p>${esc(visibleCustomer)} · ${local ? "Asignación automática desde la bolsa local" : "Escaneo Zebra automático por caja compatible"}</p></div><div class="page-header-side"><button type="button" class="secondary-button" data-cold-back>Regresar a Cuarto Frío</button></div></section>
-      <section class="commercial-v2-cold-compact-summary">${[["Cajas completadas", `${completedBoxes}/${progress.boxes.length}`], ["Caja actual", activeBoxLabel], ["Requerido", progress.requiredBunches], [local ? "Ingresado / asignado" : "Leídos", progress.scannedBunches], ["Pendiente", progress.pendingBunches]].map(item => `<div><span>${item[0]}</span><strong>${item[1]}</strong></div>`).join("")}</section>
+    const scannerPanel = !dedicated && !logisticsPending ? renderScannerPanel(progress) : "";
+    const visibleCustomer = logistics?.customerName || order.customerDisplay || customerName(appState, order.customerId);
+    return `<section class="page-header"><div><p class="section-kicker">CUARTO FRÍO / PEDIDO</p><h1>${esc(order.number)}</h1><p>${esc(visibleCustomer)} · ${logisticsPending ? "Resolviendo modo logístico en Supabase" : dedicated ? "Asignación automática desde disponibilidad dedicada" : "Escaneo Zebra manual por caja compatible"}</p></div><div class="page-header-side"><button type="button" class="secondary-button" data-cold-back>Regresar a Cuarto Frío</button></div></section>
+      <section class="commercial-v2-cold-compact-summary">${[["Cajas completadas", `${completedBoxes}/${progress.boxes.length}`], ["Caja actual", activeBoxLabel], ["Requerido", progress.requiredBunches], [dedicated ? "Asignados" : "Leídos", progress.scannedBunches], ["Pendiente", progress.pendingBunches], ...(dedicated ? [["Disponibilidad restante", logistics?.remainingAvailability ?? "—"]] : [])].map(item => `<div><span>${item[0]}</span><strong>${item[1]}</strong></div>`).join("")}</section>
       <section class="panel-card commercial-v2-section commercial-v2-dispatch-final"><div class="panel-card-head"><div><p class="section-kicker">SALIDA FÍSICA</p><h3>Despacho del pedido</h3><p class="panel-note">Empacado no significa despachado. La salida física ocurre únicamente al confirmar esta acción en Supabase.</p></div><span class="status-badge ${dispatchStatus === "DISPATCHED" || progress.allBoxesComplete ? "authorized" : "pending"}">${dispatchStatus === "DISPATCHED" ? "DESPACHADO" : progress.allBoxesComplete ? "PEDIDO COMPLETO" : "PEDIDO INCOMPLETO"}</span></div>${dispatchStatus === "DISPATCHED" ? `<div class="inline-feedback success"><strong>${esc(dispatch?.dispatchCode || order.dispatchCode || "DESPACHO CONFIRMADO")}</strong> · ${esc(String(dispatch?.dispatchedAt || order.dispatchedAt || "").replace("T", " ").slice(0, 16))}</div>` : `<div class="table-actions-inline"><button type="button" class="primary-button" data-cold-dispatch-confirm ${progress.allBoxesComplete || dispatchStatus === "READY_FOR_DISPATCH" ? "" : "disabled"}>Despachar pedido</button></div>`}</section>
       <section class="panel-card commercial-v2-section commercial-v2-cold-detail">
-        <div class="panel-card-head"><div><p class="section-kicker">${local ? "VENTA LOCAL" : "ESCÁNER AUTOMÁTICO"}</p><h3>${local ? `Bolsa ${esc(visibleCustomer)}` : "Cajas y contenido del pedido"}</h3></div><span class="status-badge ${progress.allBoxesComplete ? "authorized" : "partial"}">${progress.allBoxesComplete ? "PEDIDO COMPLETADO" : "HID ACTIVO"}</span></div>
-        ${local ? `<div class="commercial-v2-local-confirm"><div><strong>${pool.length} ramo(s) preparados · ${lots.length} lote(s)</strong><span>Se asignan por variedad y medida, del más antiguo al más reciente. No se reescanea la etiqueta Bless.</span></div><button type="button" class="primary-button" data-cold-confirm-local ${progress.allBoxesComplete ? "disabled" : ""}>Confirmar pedido local</button></div>
-        <div class="table-wrap"><table><thead><tr><th>Lote</th><th>Etiqueta</th><th>Variedad</th><th>Medida</th><th>Calidad</th><th>Estado</th><th>Acción explícita</th></tr></thead><tbody>${pool.slice(0, 100).map(item => `<tr><td>${esc(item.lotCode || "SIN LOTE")}</td><td>${esc(item.labelCode)}</td><td>${esc(item.variety)}</td><td>${number(item.length)} CM</td><td>${esc(BlessERP.flowerQuality?.label?.(item.quality) || "SIN CALIDAD")}</td><td><span class="status-badge pending">DESTINADO</span></td><td><button type="button" class="secondary-button" data-cold-reassign-export="${esc(item.inventoryId)}">Mover a BLESS / Exportación</button></td></tr>`).join("") || `<tr><td colspan="7"><div class="empty-state compact">No hay ramos ingresados disponibles para este cliente.</div></td></tr>`}</tbody></table></div>` : `${scannerPanel}<input class="commercial-v2-scanner-capture" id="cold-room-zebra-input" inputmode="numeric" autocomplete="off" maxlength="32" tabindex="-1" readonly data-cold-scan aria-hidden="true" aria-label="Buffer Zebra automático" ${progress.allBoxesComplete ? "disabled" : ""}>`}
+        <div class="panel-card-head"><div><p class="section-kicker">${dedicated ? "DESTINO DEDICADO" : logisticsPending ? "AUTORIDAD SUPABASE" : "ESCÁNER MANUAL"}</p><h3>${dedicated ? esc(logistics?.customerName || visibleCustomer) : "Cajas y contenido del pedido"}</h3></div><span class="status-badge ${progress.allBoxesComplete ? "authorized" : "partial"}">${progress.allBoxesComplete ? "PEDIDO COMPLETADO" : dedicated ? "AUTOASIGNACIÓN" : logisticsPending ? "VALIDANDO" : "HID ACTIVO"}</span></div>
+        ${logisticsPending ? `<div class="inline-feedback warning">El escáner permanece bloqueado hasta que Supabase confirme el modo logístico.</div>` : dedicated ? `<div class="commercial-v2-local-confirm"><div><strong>${progress.pendingBunches} ramo(s) pendientes</strong><span>Supabase seleccionará etiquetas concretas por destino + variedad + medida + calidad, en orden FIFO determinístico.</span></div><button type="button" class="primary-button" data-cold-autoassign-dedicated="${activeBoxNumber}" ${progress.allBoxesComplete || !activeBoxNumber ? "disabled" : ""}>Asignar caja automáticamente</button></div>` : `${scannerPanel}<input class="commercial-v2-scanner-capture" id="cold-room-zebra-input" inputmode="numeric" autocomplete="off" maxlength="32" tabindex="-1" readonly data-cold-scan aria-hidden="true" aria-label="Buffer Zebra automático" ${progress.allBoxesComplete ? "disabled" : ""}>`}
         <div class="commercial-v2-cold-boxes">${progress.boxes.map(box => renderBox(box, activeBoxNumber, order)).join("")}</div>
       </section>`;
   }
@@ -469,7 +467,21 @@
       const button = event.target.closest("button");
       if (!button) return;
       const ui = flow.sessionFor(appState).coldRoom;
-      if (button.dataset.coldOpen) { ui.orderId = button.dataset.coldOpen; ui.sellingCompanyId = button.dataset.coldSeller || ""; BlessERP.layout.renderPage(); return; }
+      if (button.dataset.coldOpen) {
+        const orderId = button.dataset.coldOpen;
+        const sellingCompanyId = button.dataset.coldSeller || "";
+        button.disabled = true;
+        const result = await flow.loadOrderLogisticsContext(appState, orderId, sellingCompanyId);
+        if (!result.ok) {
+          BlessERP.layout.toast(result.error, { tone: "danger" });
+          if (button.isConnected) button.disabled = false;
+          return;
+        }
+        ui.orderId = orderId;
+        ui.sellingCompanyId = sellingCompanyId;
+        BlessERP.layout.renderPage();
+        return;
+      }
       if (button.hasAttribute("data-cold-back")) { ui.orderId = ""; ui.sellingCompanyId = ""; BlessERP.layout.renderPage(); return; }
       if (button.dataset.coldPage) { ui.page = Number(button.dataset.coldPage); BlessERP.layout.renderPage(); return; }
       if (button.hasAttribute("data-cold-all")) { ui.date = ""; ui.page = 1; BlessERP.layout.renderPage(); return; }
@@ -477,6 +489,19 @@
         button.disabled = true;
         const result = await flow.confirmLocalOrder(appState, ui.orderId);
         BlessERP.layout.toast(result.ok ? `${result.assigned} ramo(s) asignados.` : result.error, { tone: result.ok ? "success" : "warning" });
+        if (!result.ok && button.isConnected) button.disabled = false;
+        BlessERP.layout.renderPage();
+        return;
+      }
+      if (button.dataset.coldAutoassignDedicated) {
+        button.disabled = true;
+        const result = await flow.autoassignDedicatedBox(
+          appState, ui.orderId, Number(button.dataset.coldAutoassignDedicated), ui.sellingCompanyId
+        );
+        BlessERP.layout.toast(
+          result.ok ? `${result.assigned} ramo(s) dedicados asignados. Restan ${result.remaining}.` : result.error,
+          { tone: result.ok ? "success" : "danger" }
+        );
         if (!result.ok && button.isConnected) button.disabled = false;
         BlessERP.layout.renderPage();
         return;

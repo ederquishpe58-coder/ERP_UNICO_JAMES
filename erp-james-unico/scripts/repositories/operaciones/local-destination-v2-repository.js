@@ -114,9 +114,18 @@
   }
 
   function createLabels(labels, destination = {}, options = {}) {
+    const destinationType = String(destination.type || destination.destinationType || "EXPORT").trim().toUpperCase();
+    if (destinationType === "DEDICATED") {
+      return command("erp_destination_v2_create_dedicated_labels", {
+        p_selling_company_id: String(destination.sellingCompanyId || "").trim(),
+        p_destination_customer_id: String(destination.customerId || destination.destinationCustomerId || "").trim() || null,
+        p_labels: Array.isArray(labels) ? labels : [],
+        p_local_created_at: new Date().toISOString()
+      }, { ...options, source: "DESTINATION_V2_CREATE_DEDICATED_LABELS" });
+    }
     return command("erp_destination_v2_create_labels", {
       p_labels: Array.isArray(labels) ? labels : [],
-      p_destination_type: String(destination.type || destination.destinationType || "EXPORT").trim().toUpperCase(),
+      p_destination_type: destinationType,
       p_destination_customer_id: String(destination.customerId || destination.destinationCustomerId || "").trim() || null,
       p_destination_order_id: String(destination.orderId || destination.destinationOrderId || "").trim() || null,
       p_local_created_at: new Date().toISOString()
@@ -155,8 +164,18 @@
     return { ok: true, rows: Array.isArray(data) ? data : [], mode: "SUPABASE_CONFIRMED" };
   }
 
+  async function dedicatedCustomers() {
+    const companyId = activeCompanyUuid();
+    if (!configured() || !companyId) return { ok: false, rows: [], mode: remoteRequired() ? "REMOTE_REQUIRED" : "LOCAL_ONLY" };
+    const backend = await probeBackend();
+    if (!backend.ok || !canExecute()) return { ok: false, rows: [], mode: backend.status || "BACKEND_UNAVAILABLE", message: backend.message };
+    const { data, error } = await BlessERP.getSupabaseClient().rpc("erp_destination_v2_dedicated_customers", { p_company_id: companyId });
+    if (error) return { ok: false, rows: [], mode: "SUPABASE_ERROR", error, message: error.message };
+    return { ok: true, rows: Array.isArray(data) ? data : [], mode: "SUPABASE_CONFIRMED" };
+  }
+
   const repository = Object.freeze({
-    activeCompanyUuid, availability, canExecute, configured, confirmLocalOrder, createLabels,
+    activeCompanyUuid, availability, canExecute, configured, confirmLocalOrder, createLabels, dedicatedCustomers,
     healthStatus: () => ({ ...health, available: canExecute() }), probeBackend, reassignBunch,
     receiveBunch, remoteRequired, uuid
   });
