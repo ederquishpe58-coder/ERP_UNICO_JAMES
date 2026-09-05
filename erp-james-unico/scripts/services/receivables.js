@@ -221,7 +221,7 @@
     return { customer: candidate, errors };
   }
 
-  function saveCustomer(customer) {
+  function saveCustomer(customer, options = {}) {
     const { customer: candidate, errors } = validateCustomer(customer);
     if (errors.length) return { ok: false, errors };
     const rows = customerCatalog();
@@ -229,8 +229,9 @@
     const before = index >= 0 ? clone(rows[index]) : null;
     if (index >= 0) rows[index] = candidate;
     else rows.unshift(candidate);
-    saveList("customers", rows);
-    adminService?.addAuditLog?.({
+    stateApi.state.db.customers = rows;
+    if (options.prepareOnly !== true && stateApi.saveDb() === false) return { ok: false, confirmed: false, customer: clone(candidate), errors: ["No se pudo conservar el cliente en este dispositivo."] };
+    const audit = {
       module: "CARTERAS",
       action: index >= 0 ? "EDITAR_CLIENTE" : "CREAR_CLIENTE",
       entityType: "customer",
@@ -243,8 +244,21 @@
       before,
       after: candidate,
       result: "exitoso"
-    });
-    return { ok: true, customer: clone(candidate) };
+    };
+    return { ok: true, confirmed: false, audit, customer: clone(candidate) };
+  }
+
+  async function saveCustomerConfirmed(customer) {
+    const result = await BlessERP.services.confirmedFinanceRecord?.save("customers", () => saveCustomer(customer, { prepareOnly: true }));
+    if (!result?.confirmed) return result || { ok: false, errors: ["No está disponible la confirmación del cliente."] };
+    adminService?.addAuditLog?.({ ...result.audit, after: result.serverRecord.payload, result: "exitoso" });
+    return result;
+  }
+
+  async function toggleCustomerStatusConfirmed(customerId) {
+    const customer = customerCatalog().find(row => row.id === customerId);
+    if (!customer) return { ok: false, errors: ["Cliente no encontrado."] };
+    return saveCustomerConfirmed({ ...customer, status: customer.status === "activo" ? "inactivo" : "activo" });
   }
 
   function toggleCustomerStatus(customerId) {
@@ -1681,6 +1695,8 @@
     findCustomerByTaxId,
     resolveCanonicalCustomer,
     saveCustomer,
+    saveCustomerConfirmed,
+    toggleCustomerStatusConfirmed,
     toggleCustomerStatus,
     receivables,
     receivableDocuments,

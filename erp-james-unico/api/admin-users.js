@@ -1,13 +1,13 @@
-const { assertUserCapability, getSupabaseAdmin, bearerToken } = require("./sri/_lib/supabase-admin.cjs");
+const crypto = require("node:crypto");
+const {
+  assertUserCapability,
+  getSupabaseAdmin,
+  getSupabaseUserContext,
+  bearerToken
+} = require("./sri/_lib/supabase-admin.cjs");
 
 const COMPANY_KEY_PATTERN = /^COMP-[A-Z0-9]+(?:-[A-Z0-9]+)*$/;
-const ROUTE_PATTERN = /^(?:\*|[a-z0-9][a-z0-9._:-]{0,127})$/;
 const MEMBERSHIP_ROLES = new Set(["OWNER", "ADMIN", "EDITOR", "VIEWER"]);
-const AUTH_USERNAME_DOMAIN = "users.jaeder.systems";
-const PASSWORD_REQUIREMENTS = Object.freeze({
-  minimumLength: 12,
-  pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/
-});
 const EMAIL_RATE_LIMIT_RETRY_SECONDS = 60 * 60;
 
 function isEmailRateLimitError(error) {
@@ -60,10 +60,6 @@ function normalizedUsername(value) {
     throw new Error("El usuario de ingreso debe tener entre 3 y 64 caracteres válidos.");
   }
   return username;
-}
-
-function authEmailForUsername(value) {
-  return `${normalizedUsername(value).toLowerCase()}@${AUTH_USERNAME_DOMAIN}`;
 }
 
 function inviteRedirectUrl(request, requestedValue = "") {
@@ -164,19 +160,6 @@ async function authUsersById(client) {
   return map;
 }
 
-function validatedPassword(value, options = {}) {
-  const password = String(value || "");
-  if (!password && !options.required) return "";
-  if (!password) throw new Error("El administrador debe establecer la contraseña inicial.");
-  if (
-    password.length < PASSWORD_REQUIREMENTS.minimumLength
-    || !PASSWORD_REQUIREMENTS.pattern.test(password)
-  ) {
-    throw new Error("La contraseña debe tener al menos 12 caracteres, mayúscula, minúscula, número y símbolo.");
-  }
-  return password;
-}
-
 async function listUsers(client, actorUser, company) {
   const actorMembership = await assertCanManage(client, actorUser, company.id, "VIEWER", "admin.users.view");
   const { data: memberships, error: membershipError } = await client
@@ -186,19 +169,33 @@ async function listUsers(client, actorUser, company) {
     .order("created_at");
   if (membershipError) throw membershipError;
   const ids = [...new Set((memberships || []).map(row => row.user_id))];
-  const profiles = ids.length
+  const userProfiles = ids.length
     ? await client.from("user_profiles")
         .select("user_id, display_name, username, phone, default_company_id, is_active")
         .in("user_id", ids)
     : { data: [], error: null };
-  if (profiles.error) throw profiles.error;
-  const permissions = ids.length
-    ? await client.from("user_route_permissions")
-        .select("company_id, user_id, route_id, can_view, can_create, can_edit, can_delete, can_approve, can_print, can_export")
+  if (userProfiles.error) throw userProfiles.error;
+  const canonicalAssignments = ids.length
+    ? await client.from("erp_security_user_company_profiles")
+        .select("company_id, user_id, profile_id, assigned_at, updated_at")
         .eq("company_id", company.id)
         .in("user_id", ids)
     : { data: [], error: null };
-  if (permissions.error) throw permissions.error;
+  if (canonicalAssignments.error) throw canonicalAssignments.error;
+  const assignedProfileIds = [...new Set((canonicalAssignments.data || []).map(row => row.profile_id))];
+  const canonicalProfiles = assignedProfileIds.length
+    ? await client.from("erp_security_profiles")
+        .select("profile_id, display_name, description, active")
+        .in("profile_id", assignedProfileIds)
+    : { data: [], error: null };
+  if (canonicalProfiles.error) throw canonicalProfiles.error;
+  const legacyPermissions = ids.length
+    ? await client.from("user_route_permissions")
+        .select("company_id, user_id, route_id")
+        .eq("company_id", company.id)
+        .in("user_id", ids)
+    : { data: [], error: null };
+  if (legacyPermissions.error) throw legacyPermissions.error;
   const authUsers = await authUsersById(client);
   const allAuthIds = [...authUsers.keys()];
   const allMemberships = allAuthIds.length
@@ -206,9 +203,15 @@ async function listUsers(client, actorUser, company) {
     : { data: [], error: null };
   if (allMemberships.error) throw allMemberships.error;
   const linkedUserIds = new Set((allMemberships.data || []).map(row => row.user_id));
-  const profileById = new Map((profiles.data || []).map(profile => [profile.user_id, profile]));
+  const profileById = new Map((userProfiles.data || []).map(profile => [profile.user_id, profile]));
+  const canonicalAssignmentByUser = new Map((canonicalAssignments.data || []).map(row => [row.user_id, row]));
+  const canonicalProfileById = new Map((canonicalProfiles.data || []).map(row => [row.profile_id, row]));
   const linked = (memberships || []).map(membership => {
     const profile = profileById.get(membership.user_id) || {};
+    const canonicalAssignment = canonicalAssignmentByUser.get(membership.user_id) || null;
+    const canonicalProfile = canonicalAssignment ? canonicalProfileById.get(canonicalAssignment.profile_id) || null : null;
+    const legacyRoutePermissionCount = (legacyPermissions.data || [])
+      .filter(row => row.user_id === membership.user_id).length;
     const authUser = authUsers.get(membership.user_id);
     const contactEmail = String(authUser?.user_metadata?.contact_email || "").trim();
     const loginEmail = String(authUser?.email || "").trim();
@@ -223,7 +226,12 @@ async function listUsers(client, actorUser, company) {
       unlinked: false,
       profile,
       membership,
-      permissions: (permissions.data || []).filter(row => row.user_id === membership.user_id)
+      canonicalProfileId: canonicalAssignment?.profile_id || null,
+      canonicalProfileName: canonicalProfile?.display_name || "PROFILE_MISSING",
+      canonicalProfileActive: canonicalProfile?.active === true,
+      profileState: canonicalProfile?.active === true ? "CANONICAL" : "PROFILE_MISSING",
+      legacyRoutePermissionCount,
+      legacyDependent: legacyRoutePermissionCount > 0
     };
   });
   if (actorMembership.membership_role !== "OWNER") return linked;
@@ -243,10 +251,38 @@ async function listUsers(client, actorUser, company) {
         unlinked: true,
         profile: null,
         membership: null,
-        permissions: []
+        canonicalProfileId: null,
+        canonicalProfileName: "PROFILE_MISSING",
+        canonicalProfileActive: false,
+        profileState: "PROFILE_MISSING",
+        legacyRoutePermissionCount: 0,
+        legacyDependent: false
       };
     });
   return [...linked, ...unlinked];
+}
+
+async function listCanonicalProfiles(client, actorUser, company) {
+  await assertCanManage(client, actorUser, company.id, "VIEWER", "admin.users.view");
+  const { data, error } = await client
+    .from("erp_security_profiles")
+    .select("profile_id, display_name, description, active, system_defined")
+    .eq("active", true)
+    .order("display_name");
+  if (error) throw error;
+  console.info("[admin-users] canonical_profiles_loaded", {
+    companyId: company.id,
+    companyKey: company.company_key,
+    count: Array.isArray(data) ? data.length : 0
+  });
+  return (data || []).map(profile => ({
+    id: profile.profile_id,
+    name: profile.display_name,
+    description: profile.description,
+    active: profile.active === true,
+    systemDefined: profile.system_defined === true,
+    companyId: company.id
+  }));
 }
 
 async function existingTargetUser(client, input) {
@@ -268,37 +304,17 @@ async function existingTargetUser(client, input) {
 
 async function createTargetUser(client, input) {
   const username = normalizedUsername(input.username || input.code);
-  const authEmail = authEmailForUsername(username);
   const contactEmail = String(input.email || "").trim().toLowerCase();
-  const requestedPassword = validatedPassword(input.password, { required: false });
   if (uuidOrNull(input.id || input.userId)) throw new Error("CREATE_USER_NO_ADMITE_AUTH_UUID_EXISTENTE");
+  if (String(input.password || "").trim()) throw new Error("CREATE_USER_NO_ADMITE_PASSWORD_ADMINISTRATIVO");
+  if (!contactEmail) throw new Error("El correo es obligatorio para enviar la invitación.");
   const authUsers = await authUsersById(client);
   const existingUser = [...authUsers.values()].find(user =>
-    String(user.email || "").trim().toLowerCase() === authEmail
-    || (contactEmail && String(user.user_metadata?.contact_email || "").trim().toLowerCase() === contactEmail)
+    String(user.email || "").trim().toLowerCase() === contactEmail
+    || String(user.user_metadata?.contact_email || "").trim().toLowerCase() === contactEmail
+    || String(user.user_metadata?.username || "").trim().toLowerCase() === username.toLowerCase()
   );
-  if (existingUser) {
-    const updates = {
-      user_metadata: {
-        ...(existingUser.user_metadata || {}),
-        display_name: String(input.fullName || input.name || existingUser.email || username).trim(),
-        contact_email: contactEmail
-      }
-    };
-    if (requestedPassword) {
-      updates.password = requestedPassword;
-      updates.email_confirm = true;
-    }
-    const { data: updated, error } = await client.auth.admin.updateUserById(existingUser.id, updates);
-    if (error || !updated?.user) throw new Error(error?.message || "No se pudo habilitar la contraseña del usuario existente.");
-    return {
-      user: updated.user,
-      invited: false,
-      linkedExisting: true,
-      passwordUpdated: Boolean(requestedPassword)
-    };
-  }
-  if (!contactEmail) throw new Error("El correo es obligatorio para enviar la invitación.");
+  if (existingUser) throw new Error("AUTH_EMAIL_OR_USERNAME_ALREADY_EXISTS");
   const { data, error } = await client.auth.admin.inviteUserByEmail(contactEmail, {
     redirectTo: String(input.inviteRedirectTo || "").trim(),
     data: {
@@ -318,31 +334,37 @@ async function createTargetUser(client, input) {
   };
 }
 
-function normalizedPermission(permission) {
-  const routeId = String(permission?.route_id || permission?.routeId || "").trim();
-  if (!ROUTE_PATTERN.test(routeId)) throw new Error(`Ruta de permiso no válida: ${routeId || "(vacía)"}.`);
-  return {
-    route_id: routeId,
-    can_view: permission.can_view === true || permission.view === true,
-    can_create: permission.can_create === true || permission.create === true,
-    can_edit: permission.can_edit === true || permission.edit === true,
-    can_delete: permission.can_delete === true || permission.delete === true,
-    can_approve: permission.can_approve === true || permission.approve === true,
-    can_print: permission.can_print === true || permission.print === true,
-    can_export: permission.can_export === true || permission.export === true
-  };
-}
-
 async function saveUserAccess(client, actorUser, input, options = {}) {
+  if (uuidOrNull(input.id || input.userId) === actorUser.id) throw new Error("SECURITY_SELF_ELEVATION_DENIED");
+  const forbiddenKeys = ["permissions", "capabilities", "routePermissions", "route_permissions", "user_route_permissions"];
+  if (forbiddenKeys.some(key => Object.prototype.hasOwnProperty.call(input, key))) {
+    throw new Error("INDIVIDUAL_PERMISSIONS_NOT_ACCEPTED");
+  }
   const companyInputs = Array.isArray(input.companies) ? input.companies : [];
   if (!companyInputs.length) throw new Error("Debe indicar al menos una empresa para el usuario.");
   const resolvedCompanies = [];
+  const seenCompanies = new Set();
   for (const row of companyInputs) {
+    if (!row || typeof row !== "object" || forbiddenKeys.some(key => Object.prototype.hasOwnProperty.call(row, key))) {
+      throw new Error("INDIVIDUAL_PERMISSIONS_NOT_ACCEPTED");
+    }
     const company = await companyByKey(client, row.companyKey);
+    if (seenCompanies.has(company.id)) throw new Error("DUPLICATE_COMPANY_ACCESS");
+    seenCompanies.add(company.id);
     const role = String(row.membershipRole || "VIEWER").toUpperCase();
     if (!MEMBERSHIP_ROLES.has(role)) throw new Error("El rol de membresía no es válido.");
     await assertCanManage(client, actorUser, company.id, role);
-    resolvedCompanies.push({ ...row, company, role });
+    const profileId = String(row.profileId || row.profile_id || "").trim().toUpperCase();
+    if (!profileId) throw new Error("CANONICAL_PROFILE_REQUIRED");
+    const { data: canonicalProfile, error: canonicalProfileError } = await client
+      .from("erp_security_profiles")
+      .select("profile_id, display_name, active")
+      .eq("profile_id", profileId)
+      .eq("active", true)
+      .maybeSingle();
+    if (canonicalProfileError) throw canonicalProfileError;
+    if (!canonicalProfile) throw new Error("ACTIVE_CANONICAL_PROFILE_REQUIRED");
+    resolvedCompanies.push({ ...row, company, role, profileId, canonicalProfile });
   }
 
   const resolvedTarget = options.createIdentity === true
@@ -350,64 +372,69 @@ async function saveUserAccess(client, actorUser, input, options = {}) {
     : await existingTargetUser(client, input);
   const target = resolvedTarget.user;
   const displayName = String(input.fullName || input.name || target.email || "Usuario").trim();
-  const isActive = String(input.status || "activo").toLowerCase() === "activo";
-  const { error: profileError } = await client.from("user_profiles").upsert({
-    user_id: target.id,
-    display_name: displayName,
-    username: String(input.username || input.code || "").trim() || null,
-    is_active: isActive,
-    default_company_id: resolvedCompanies.find(row => row.isDefault)?.company.id || resolvedCompanies[0].company.id
-  }, { onConflict: "user_id" });
-  if (profileError) throw profileError;
-
-  for (const row of resolvedCompanies) {
-    await assertMembershipTransition(client, actorUser, row.company.id, target.id, row.role);
-    const active = isActive && row.enabled !== false && String(row.status || "activo").toLowerCase() === "activo";
-    const { error: membershipError } = await client.from("user_company_memberships").upsert({
-      company_id: row.company.id,
-      user_id: target.id,
-      membership_role: row.role,
-      membership_status: active ? "ACTIVE" : "SUSPENDED",
-      is_default: Boolean(row.isDefault),
-      display_name_override: displayName,
-      area: String(input.area || "").trim() || null,
-      job_title: String(input.cargo || input.role || "").trim() || null,
-      notes: String(input.observation || "").trim() || null
-    }, { onConflict: "company_id,user_id" });
-    if (membershipError) throw membershipError;
-
-    const { error: deleteError } = await client
-      .from("user_route_permissions")
-      .delete()
-      .eq("company_id", row.company.id)
-      .eq("user_id", target.id);
-    if (deleteError) throw deleteError;
-    const permissions = (Array.isArray(row.permissions) ? row.permissions : [])
-      .map(normalizedPermission);
-    if (active && !permissions.some(permission => permission.route_id === "erp-company-state")) {
-      permissions.push({
-        route_id: "erp-company-state",
-        can_view: true,
-        can_create: false,
-        can_edit: true,
-        can_delete: false,
-        can_approve: false,
-        can_print: false,
-        can_export: false
-      });
-    }
-    if (permissions.length) {
-      const { error: permissionsError } = await client.from("user_route_permissions").insert(
-        permissions.map(permission => ({
-          company_id: row.company.id,
-          user_id: target.id,
-          ...permission,
-          granted_by: actorUser.id
-        }))
-      );
-      if (permissionsError) throw permissionsError;
+  if (!displayName) throw new Error("DISPLAY_NAME_REQUIRED");
+  if (!resolvedTarget.created) {
+    for (const row of resolvedCompanies) {
+      await assertMembershipTransition(client, actorUser, row.company.id, target.id, row.role);
     }
   }
+  const operationId = crypto.randomUUID();
+  const userClient = getSupabaseUserContext(actorUser.accessToken);
+  const companyAccess = resolvedCompanies.map(row => {
+    const active = row.enabled !== false && String(row.status || "activo").toLowerCase() === "activo";
+    return {
+      company_id: row.company.id,
+      profile_id: row.profileId,
+      membership_role: row.role,
+      membership_status: active ? "ACTIVE" : "SUSPENDED",
+      is_default: Boolean(row.isDefault)
+    };
+  });
+  const { data: configured, error: configurationError } = await userClient.rpc("erp_admin_configure_user_access", {
+    p_target_user_id: target.id,
+    p_display_name: displayName,
+    p_username: String(input.username || input.code || "").trim() || null,
+    p_area: String(input.area || "").trim() || null,
+    p_job_title: String(input.cargo || input.role || "").trim() || null,
+    p_notes: String(input.observation || "").trim() || null,
+    p_company_access: companyAccess,
+    p_operation_id: operationId
+  });
+  if (configurationError) {
+    const state = [resolvedTarget.created ? "AUTH_CREATED" : "AUTH_PREEXISTING", "ERP_CONFIGURATION_FAILED"];
+    if (resolvedTarget.created === true) {
+      const { data: persistedMemberships, error: verificationError } = await client.from("user_company_memberships")
+        .select("company_id").eq("user_id", target.id);
+      if (verificationError || persistedMemberships?.length) {
+        throw new Error("ERP_CONFIGURATION_UNCONFIRMED: se conserva la identidad; compruebe el directorio antes de reintentar.");
+      }
+      const { error: compensationError } = await client.auth.admin.deleteUser(target.id);
+      if (compensationError) {
+        state.push("AUTH_COMPENSATION_FAILED");
+        console.error("[admin-users]", { operationId, targetUserId: target.id, state, error: compensationError.message });
+        const blocking = new Error("AUTH_COMPENSATION_FAILED: la configuración ERP falló y no se pudo revertir el Auth nuevo.");
+        blocking.code = "AUTH_COMPENSATION_FAILED";
+        blocking.statusCode = 500;
+        throw blocking;
+      }
+      state.push("AUTH_COMPENSATION_SUCCESS");
+    }
+    console.error("[admin-users]", { operationId, targetUserId: target.id, state, error: configurationError.message });
+    const failed = new Error(`ERP_CONFIGURATION_FAILED: ${configurationError.message}`);
+    failed.code = "ERP_CONFIGURATION_FAILED";
+    throw failed;
+  }
+  if (configured?.target_user_id !== target.id || configured?.legacy_route_permissions_written !== 0
+      || !companyAccess.every(expected => configured?.companies?.some(actual => actual.company_id === expected.company_id
+        && actual.canonical_profile_id === expected.profile_id && actual.membership_role === expected.membership_role
+        && actual.membership_status === expected.membership_status))) {
+    throw new Error("CANONICAL_ACCESS_NOT_CONFIRMED");
+  }
+  console.info("[admin-users]", {
+    operationId,
+    targetUserId: target.id,
+    state: [resolvedTarget.created ? "AUTH_CREATED" : "AUTH_PREEXISTING", "ERP_CONFIGURATION_SUCCESS"]
+  });
   return {
     id: target.id,
     email: target.user_metadata?.contact_email || String(input.email || "").trim(),
@@ -416,7 +443,10 @@ async function saveUserAccess(client, actorUser, input, options = {}) {
     linkedExisting: resolvedTarget.linkedExisting,
     emailConfirmed: Boolean(target.email_confirmed_at),
     passwordUpdated: Boolean(resolvedTarget.passwordUpdated),
-    created: Boolean(resolvedTarget.created)
+    created: Boolean(resolvedTarget.created),
+    canonicalAccess: configured,
+    confirmed: true,
+    operationId
   };
 }
 
@@ -425,6 +455,7 @@ async function revokeUser(client, actorUser, input) {
   if (!userId) throw new Error("El usuario no es válido.");
   const keys = Array.isArray(input.companyKeys) ? input.companyKeys : [];
   if (!keys.length) throw new Error("Debe indicar las empresas que se revocarán.");
+  const companyIds = [];
   for (const key of keys) {
     const company = await companyByKey(client, key);
     await assertCanManage(client, actorUser, company.id);
@@ -438,22 +469,19 @@ async function revokeUser(client, actorUser, input) {
     if (targetMembership?.membership_role === "OWNER") {
       throw new Error("Un propietario debe transferir su responsabilidad antes de ser revocado.");
     }
-    const { error } = await client.from("user_company_memberships")
-      .update({ membership_status: "REVOKED", is_default: false })
-      .eq("company_id", company.id)
-      .eq("user_id", userId);
-    if (error) throw error;
+    if (!targetMembership) throw new Error("La membresía que se intenta revocar no existe.");
+    companyIds.push(company.id);
   }
-  const { count, error: countError } = await client.from("user_company_memberships")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("membership_status", "ACTIVE");
-  if (countError) throw countError;
-  if (!count) {
-    const { error } = await client.from("user_profiles").update({ is_active: false }).eq("user_id", userId);
-    if (error) throw error;
-  }
-  return { id: userId, revoked: true };
+  const operationId = crypto.randomUUID();
+  const userClient = getSupabaseUserContext(actorUser.accessToken);
+  const { data, error } = await userClient.rpc("erp_admin_revoke_user_company_access", {
+    p_target_user_id: userId,
+    p_company_ids: companyIds,
+    p_operation_id: operationId
+  });
+  if (error) throw new Error(error.message || "No se pudo revocar el acceso de empresa.");
+  if (data?.target_user_id !== userId || data?.revoked !== true) throw new Error("CANONICAL_REVOCATION_NOT_CONFIRMED");
+  return { id: userId, revoked: true, confirmed: true, canonicalAccess: data, operationId };
 }
 
 async function deleteUser(client, actorUser, input) {
@@ -499,6 +527,11 @@ module.exports = async function handler(request, response) {
     const currentActor = await actor(client, request);
     if (request.method === "GET") {
       const company = await companyByKey(client, queryOf(request, "company"));
+      const resource = String(queryOf(request, "resource") || "users").trim().toLowerCase();
+      if (resource === "profiles") {
+        return send(response, 200, { ok: true, data: await listCanonicalProfiles(client, currentActor, company) });
+      }
+      if (resource !== "users") throw new Error("Recurso de administración de usuarios no válido.");
       return send(response, 200, { ok: true, data: await listUsers(client, currentActor, company) });
     }
     if (request.method !== "POST") return send(response, 405, { ok: false, error: "Método no permitido." });

@@ -9,40 +9,14 @@
   function enabled() {
     return Boolean(
       BlessERP.isCoreSupabaseEnabled?.()
-      && BlessERP.authAccess?.activeAccess?.()
+      || ["test", "production"].includes(String(BlessERP.getAppMode?.() || window.__ERP_ENV__?.VITE_APP_ENV || ""))
     );
   }
 
   function membershipRole(access = {}) {
     const preserved = String(access.membershipRole || "").toUpperCase();
     if (["OWNER", "ADMIN", "EDITOR", "VIEWER"].includes(preserved)) return preserved;
-    const roleCode = String(access.roleCode || "").toUpperCase();
-    if (["ADMIN", "SOPORTE"].includes(roleCode)) return "ADMIN";
-    if (roleCode === "INVITADO") return "VIEWER";
-    return "EDITOR";
-  }
-
-  function permissionsFor(user, companyKey, access) {
-    const pages = BlessERP.menuService?.getCompanyAvailablePages?.(companyKey) || [];
-    const memberRole = membershipRole(access);
-    return pages.map(page => {
-      const allowed = Boolean(
-        access.enabled !== false
-        && String(access.status || "activo").toLowerCase() === "activo"
-        && BlessERP.menuService?.canUserAccessRoute?.(user, companyKey, page.ruta)
-      );
-      const administrator = ["OWNER", "ADMIN"].includes(memberRole);
-      return {
-        route_id: page.ruta,
-        view: allowed,
-        create: allowed && administrator,
-        edit: allowed && administrator,
-        delete: allowed && administrator,
-        approve: allowed && administrator,
-        print: allowed,
-        export: allowed
-      };
-    });
+    return "VIEWER";
   }
 
   function payloadFor(user, options = {}) {
@@ -62,33 +36,40 @@
       preserveAuthEmail: user.preserveAuthEmail === true,
       password: String(options.password || ""),
       inviteRedirectTo: `${window.location.origin}/crear-contrasena`,
-      companies: Object.entries(companyAccess).map(([companyKey, access], index) => ({
+      companies: Object.entries(companyAccess)
+        .filter(([, access]) => access.enabled !== false || Boolean(String(access.profileId || "").trim()))
+        .map(([companyKey, access], index) => ({
         companyKey,
         membershipRole: membershipRole(access),
         enabled: access.enabled !== false,
         status: access.status || "activo",
-        isDefault: index === 0,
-        permissions: permissionsFor(user, companyKey, access)
+        isDefault: access.isDefault === true,
+        profileId: String(access.profileId || "").trim().toUpperCase()
       }))
     };
   }
 
   async function requestJson(url, options = {}, retried = false) {
-    const token = await BlessERP.authAccess?.getAccessToken?.(retried);
+    let token;
+    try { token = await BlessERP.authAccess?.getAccessToken?.(retried); }
+    catch { return { ok: false, confirmed: false, errors: ["No se pudo validar la sesión. Ingrese nuevamente."] }; }
     if (!token) {
       return {
         ok: false,
         errors: ["La sesión expiró. Cierre sesión e ingrese nuevamente con la contraseña actual."]
       };
     }
-    const response = await fetch(url, {
+    let response;
+    try { response = await fetch(url, {
       ...options,
       headers: {
         "authorization": `Bearer ${token}`,
         "content-type": "application/json",
         ...(options.headers || {})
       }
-    });
+    }); } catch (error) {
+      return { ok: false, confirmed: false, errors: [error?.message || "No se pudo confirmar el acceso con Supabase."] };
+    }
     const payload = await response.json().catch(() => ({}));
     const message = String(payload.error || "");
     if (
@@ -141,8 +122,10 @@
     const action = user.cloudManaged ? "update_access" : "create_user";
     const result = await request({ action, user: payloadFor(user, options) });
     if (!result.ok) return result;
+    if (result.data?.confirmed !== true) return { ok: false, confirmed: false, errors: ["Supabase no confirmó el perfil y la membresía."] };
     return {
       ok: true,
+      confirmed: true,
       user: {
         ...user,
         id: result.data.id,
@@ -159,25 +142,29 @@
 
   async function revoke(user) {
     if (!enabled()) return { ok: true };
-    return request({
+    const result = await request({
       action: "revoke",
       user: {
         id: user.id,
         companyKeys: Object.keys(user.companyAccess || {})
       }
     });
+    return result.ok && result.data?.confirmed === true ? { ...result, confirmed: true }
+      : { ...result, ok: false, errors: result.errors || ["No se confirmó la revocación."] };
   }
 
   async function remove(user) {
     if (!enabled()) return { ok: true };
     const companyKey = BlessERP.authAccess?.activeAccess?.()?.activeCompanyKey || "";
-    return request({
+    const result = await request({
       action: "delete",
       user: {
         id: user.id,
         companyKey
       }
     });
+    return result.ok && result.data?.deleted === true ? { ...result, confirmed: true }
+      : { ...result, ok: false, errors: result.errors || ["No se confirmó la eliminación."] };
   }
 
   async function listUnlinked() {
@@ -201,21 +188,33 @@
   }
 
   async function listDirectory() {
-    if (!enabled()) return { ok: true, data: { users: [], unlinked: [] } };
+    if (!enabled()) return { ok: true, data: { users: [], unlinked: [], profilesByCompany: {} } };
     const access = BlessERP.authAccess?.activeAccess?.() || {};
     const companyKeys = [...new Set(
       (access.allowedCompanyKeys || [access.activeCompanyKey]).filter(Boolean)
     )];
-    const responses = await Promise.all(companyKeys.map(async companyKey => ({
-      companyKey,
-      result: await requestJson(`/api/admin-users?company=${encodeURIComponent(companyKey)}`, { method: "GET" })
-    })));
-    const failed = responses.find(item => !item.result.ok);
-    if (failed) return failed.result;
+    const responses = await Promise.all(companyKeys.map(async companyKey => {
+      const [users, profiles] = await Promise.all([
+        requestJson(`/api/admin-users?company=${encodeURIComponent(companyKey)}`, { method: "GET" }),
+        requestJson(`/api/admin-users?company=${encodeURIComponent(companyKey)}&resource=profiles`, { method: "GET" })
+      ]);
+      return { companyKey, users, profiles };
+    }));
+    const successful = responses.filter(item => item.users.ok && item.profiles.ok);
+    if (!successful.length) {
+      const failed = responses.find(item => !item.users.ok || !item.profiles.ok);
+      return failed ? (!failed.users.ok ? failed.users : failed.profiles) : {
+        ok: false,
+        code: "CANONICAL_DIRECTORY_EMPTY",
+        errors: ["No existe una empresa administrable disponible para cargar usuarios y perfiles canónicos."]
+      };
+    }
     const usersById = new Map();
     const unlinkedById = new Map();
-    responses.forEach(({ companyKey, result }) => {
-      (Array.isArray(result.data) ? result.data : []).forEach(row => {
+    const profilesByCompany = {};
+    successful.forEach(({ companyKey, users, profiles }) => {
+      profilesByCompany[companyKey] = Array.isArray(profiles.data) ? profiles.data : [];
+      (Array.isArray(users.data) ? users.data : []).forEach(row => {
         if (row.unlinked) {
           unlinkedById.set(row.id, row);
           return;
@@ -242,10 +241,16 @@
           enabled: active,
           status: active ? "activo" : "inactivo",
           roleCode: roleCodeForMembership(membership.membership_role),
-          membershipRole: membership.membership_role,
-          membershipId: membership.id,
-          routeAccess: Object.fromEntries((row.permissions || []).map(permission => [permission.route_id, permission.can_view === true])),
-          permissions: row.permissions || []
+           membershipRole: membership.membership_role,
+           membershipId: membership.id,
+           membershipStatus: membership.membership_status,
+           isDefault: membership.is_default === true,
+           profileId: String(row.canonicalProfileId || "").trim(),
+           profileName: String(row.canonicalProfileName || "PROFILE_MISSING"),
+           profileState: String(row.profileState || "PROFILE_MISSING"),
+           legacyRoutePermissionCount: Number(row.legacyRoutePermissionCount || 0),
+           legacyDependent: row.legacyDependent === true,
+           routeAccess: {}
         };
         usersById.set(row.id, current);
       });
@@ -253,8 +258,12 @@
     return {
       ok: true,
       data: {
-        users: [...usersById.values()],
-        unlinked: [...unlinkedById.values()]
+         users: [...usersById.values()],
+         unlinked: [...unlinkedById.values()],
+         profilesByCompany,
+         skippedCompanyKeys: responses
+           .filter(item => !item.users.ok || !item.profiles.ok)
+           .map(item => item.companyKey)
       }
     };
   }

@@ -1107,11 +1107,14 @@
       uiState.customers.errors = [];
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-customer-save]")?.addEventListener("click", () => {
-      const result = receivableService.saveCustomer(collectCustomerDraft());
+    document.querySelector("[data-customer-save]")?.addEventListener("click", async event => {
+      event.currentTarget.disabled = true;
+      const result = await receivableService.saveCustomerConfirmed(collectCustomerDraft());
+      if (result.contextChanged) return;
+      if (result.customer) uiState.customers.draft = clone(result.customer);
       uiState.customers.errors = result.errors || [];
       uiState.customers.message = "";
-      if (!result.ok) {
+      if (!result.ok || !result.confirmed) {
         BlessERP.layout.renderPage();
         return;
       }
@@ -1125,10 +1128,12 @@
       ensureCustomerDraft(customer);
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-customer-toggle]").forEach(button => button.addEventListener("click", () => {
-      const result = receivableService.toggleCustomerStatus(button.dataset.customerToggle);
-      uiState.customers.message = result.ok ? "Estado del cliente actualizado." : (result.message || "");
-      uiState.customers.errors = [];
+    document.querySelectorAll("[data-customer-toggle]").forEach(button => button.addEventListener("click", async () => {
+      button.disabled = true;
+      const result = await receivableService.toggleCustomerStatusConfirmed(button.dataset.customerToggle);
+      if (result.contextChanged) return;
+      uiState.customers.message = result.ok && result.confirmed ? "Estado del cliente confirmado." : "";
+      uiState.customers.errors = result.errors || [];
       BlessERP.layout.renderPage();
     }));
     document.querySelectorAll("[data-customer-portfolio]").forEach(button => button.addEventListener("click", () => {

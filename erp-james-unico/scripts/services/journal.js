@@ -190,7 +190,7 @@
     return { entry: candidate, errors: [...new Set(errors)], totals: lineValidation.totals };
   }
 
-  function saveDraft(entry) {
+  function saveDraft(entry, options = {}) {
     const { entry: normalized, errors } = validateEntry(entry);
     const contentErrors = errors.filter(error => !/total debe.*total haber/i.test(error));
     if (!normalized.accountingDate) contentErrors.push("La fecha contable es obligatoria.");
@@ -207,8 +207,8 @@
     if (index >= 0) entries[index] = normalized;
     else entries.unshift(normalized);
     stateApi.state.db.journalEntries = sortEntries(entries);
-    stateApi.saveDb();
-    adminService?.addAuditLog?.({
+    if (options.prepareOnly !== true && stateApi.saveDb() === false) return { ok: false, confirmed: false, entry: clone(normalized), errors: ["No se pudo conservar el borrador en este dispositivo."] };
+    const audit = {
       module: "CONTABILIDAD",
       action: isNew ? "CREAR_ASIENTO" : "EDITAR_ASIENTO",
       entityType: "journal_entry",
@@ -220,8 +220,15 @@
       description: `${isNew ? "Se creo" : "Se actualizo"} el asiento ${normalized.entryNumber} en borrador.`,
       after: normalized,
       result: "exitoso"
-    });
-    return { ok: true, entry: clone(normalized) };
+    };
+    return { ok: true, confirmed: false, audit, entry: clone(normalized) };
+  }
+
+  async function saveDraftConfirmed(entry) {
+    const result = await BlessERP.services.confirmedFinanceRecord?.save("accounting_journal_entries", () => saveDraft(entry, { prepareOnly: true }));
+    if (!result?.confirmed) return result || { ok: false, errors: ["No está disponible la confirmación del borrador."] };
+    adminService?.addAuditLog?.({ ...result.audit, after: result.serverRecord.payload, result: "exitoso" });
+    return result;
   }
 
   function postEntry(entryId) {
@@ -554,6 +561,7 @@
     linesTotal,
     difference,
     saveDraft,
+    saveDraftConfirmed,
     postEntry,
     postEntryV2,
     cancelDraft,

@@ -16,6 +16,7 @@
       password: "",
       passwordConfirmation: "",
       unlinkedUsers: [],
+      profilesByCompany: {},
       unlinkedLoaded: false,
       unlinkedLoading: false
     },
@@ -114,6 +115,12 @@
         enabled: false,
         status: "inactivo",
         roleCode: "INVITADO",
+        membershipRole: "VIEWER",
+        profileId: "",
+        profileName: "PROFILE_MISSING",
+        profileState: "PROFILE_MISSING",
+        legacyRoutePermissionCount: 0,
+        legacyDependent: false,
         routeAccess: {}
       };
     }
@@ -123,6 +130,25 @@
 
   function userRoleLabel(roleCode) {
     return BlessERP.menuService?.ROLE_LABELS?.[roleCode] || roleCode || "Sin rol";
+  }
+
+  function membershipRoleLabel(roleCode) {
+    return ({ OWNER: "Propietario", ADMIN: "Administrador", EDITOR: "Editor", VIEWER: "Consulta" })[
+      String(roleCode || "VIEWER").toUpperCase()
+    ] || "Consulta";
+  }
+
+  function membershipRoleAsLegacyRole(roleCode) {
+    const role = String(roleCode || "VIEWER").toUpperCase();
+    if (["OWNER", "ADMIN"].includes(role)) return "ADMIN";
+    if (role === "EDITOR") return "SOPORTE";
+    return "INVITADO";
+  }
+
+  function canonicalProfilesFor(companyId) {
+    return Array.isArray(uiState.users.profilesByCompany?.[companyId])
+      ? uiState.users.profilesByCompany[companyId].filter(profile => profile.active !== false)
+      : [];
   }
 
   function userRouteMatrix(draft, companyId) {
@@ -216,6 +242,8 @@
     const membership = userAccessFor(draft, selectedCompanyId);
     const currentUserId = BlessERP.state.state.db.session?.activeUser?.id;
     const stored = draft.id ? adminService.findUser(draft.id) : null;
+    const remoteCanonical = BlessERP.remoteUserAccess?.enabled?.() === true;
+    const canonicalProfiles = canonicalProfilesFor(selectedCompanyId);
 
     return `
       <section class="panel-card user-access-editor">
@@ -223,13 +251,13 @@
           <div>
             <p class="section-kicker">USUARIO Y ACCESOS</p>
             <h3>${stored ? "Editar usuario" : "Nuevo usuario"}</h3>
-            <small>Los permisos individuales nunca pueden superar las funciones habilitadas para cada empresa.</small>
+            <small>${remoteCanonical ? "Los permisos efectivos se derivan exclusivamente del perfil canónico asignado por empresa." : "Los permisos individuales nunca pueden superar las funciones habilitadas para cada empresa."}</small>
           </div>
           <div class="editor-actions">
             <button class="secondary-button" type="button" data-user-cancel>Cancelar</button>
             ${stored ? `<button class="danger-button" type="button" data-user-delete ${draft.id === currentUserId ? "disabled" : ""}>Eliminar</button>` : ""}
-            <button class="primary-button" type="button" data-user-preview>Vista previa</button>
-            <button class="primary-button" type="button" data-user-save>Guardar</button>
+            ${remoteCanonical ? "" : `<button class="primary-button" type="button" data-user-preview>Vista previa</button>`}
+            <button class="primary-button" type="button" data-user-save>${stored ? "Guardar" : (remoteCanonical ? "Crear e invitar" : "Guardar")}</button>
           </div>
         </div>
         ${uiState.users.errors.length ? `<section class="inline-feedback danger">${uiState.users.errors.map(item => `<div>${esc(item)}</div>`).join("")}</section>` : ""}
@@ -253,8 +281,8 @@
           <label class="compact-field"><span>Cargo</span><input name="cargo" value="${esc(draft.cargo || "")}" required></label>
           <label class="compact-field"><span>Area</span><input name="area" value="${esc(draft.area || "")}"></label>
           <label class="compact-field">
-            <span>Estado general</span>
-            <select name="status">
+            <span>${remoteCanonical ? "Estado de identidad (informativo)" : "Estado general"}</span>
+            <select name="status" ${remoteCanonical ? "disabled" : ""}>
               ${adminService.userStates.map(item => `<option value="${esc(item)}" ${draft.status === item ? "selected" : ""}>${esc(item)}</option>`).join("")}
             </select>
           </label>
@@ -267,7 +295,7 @@
             const access = userAccessFor(draft, company.id);
             return `<button class="subnav-tab ${company.id === selectedCompanyId ? "active" : ""}" type="button" data-user-access-company="${esc(company.id)}">
               ${esc(company.commercialName)}
-              <small>${access.enabled && access.status === "activo" ? esc(userRoleLabel(access.roleCode)) : "Sin acceso"}</small>
+              <small>${access.enabled && access.status === "activo" ? esc(remoteCanonical ? (access.profileName || access.profileId || "PROFILE_MISSING") : userRoleLabel(access.roleCode)) : "Sin acceso"}</small>
             </button>`;
           }).join("")}
         </div>
@@ -280,19 +308,36 @@
           <label class="compact-field">
             <span>Rol en la empresa</span>
             <select data-user-company-role="${esc(selectedCompanyId)}" ${membership.enabled ? "" : "disabled"}>
-              ${adminService.roleOptions.map(item => `<option value="${esc(item.code)}" ${membership.roleCode === item.code ? "selected" : ""}>${esc(item.label)}</option>`).join("")}
+              ${remoteCanonical
+                ? ["OWNER", "ADMIN", "EDITOR", "VIEWER"].map(code => `<option value="${code}" ${String(membership.membershipRole || "VIEWER").toUpperCase() === code ? "selected" : ""}>${esc(membershipRoleLabel(code))}</option>`).join("")
+                : adminService.roleOptions.map(item => `<option value="${esc(item.code)}" ${membership.roleCode === item.code ? "selected" : ""}>${esc(item.label)}</option>`).join("")}
             </select>
           </label>
+          ${remoteCanonical ? `
+            <label class="compact-field">
+              <span>Perfil canónico</span>
+              <select data-user-company-profile="${esc(selectedCompanyId)}" ${membership.enabled ? "required" : "disabled"}>
+                <option value="">Seleccione un perfil</option>
+                ${canonicalProfiles.map(profile => `<option value="${esc(profile.id)}" ${membership.profileId === profile.id ? "selected" : ""}>${esc(profile.name)} (${esc(profile.id)})</option>`).join("")}
+              </select>
+            </label>
+          ` : ""}
           <label class="compact-field">
             <span>Estado de membresia</span>
             <select data-user-company-status="${esc(selectedCompanyId)}" ${membership.enabled ? "" : "disabled"}>
               ${adminService.userStates.map(item => `<option value="${esc(item)}" ${membership.status === item ? "selected" : ""}>${esc(item)}</option>`).join("")}
             </select>
           </label>
-          <button class="secondary-button" type="button" data-user-routes-reset="${esc(selectedCompanyId)}" ${membership.enabled ? "" : "disabled"}>Restaurar permisos del rol</button>
+          ${remoteCanonical ? "" : `<button class="secondary-button" type="button" data-user-routes-reset="${esc(selectedCompanyId)}" ${membership.enabled ? "" : "disabled"}>Restaurar permisos del rol</button>`}
         </section>
 
-        <div class="user-route-matrix">
+        ${remoteCanonical ? `
+          <section class="inline-feedback ${membership.profileState === "PROFILE_MISSING" ? "danger" : "success"}">
+            <strong>${membership.profileState === "PROFILE_MISSING" ? "PROFILE_MISSING" : `Perfil efectivo: ${esc(membership.profileName || membership.profileId)}`}</strong>
+            <div>Las capabilities se resuelven en servidor desde el perfil. Admin Users no crea permisos individuales.</div>
+            ${membership.legacyDependent ? `<div>LEGACY VISIBLE: existen ${esc(String(membership.legacyRoutePermissionCount || 0))} registro(s) históricos en user_route_permissions. No se editan ni se usan para construir este perfil.</div>` : ""}
+          </section>
+        ` : `<div class="user-route-matrix">
           <div class="user-route-matrix-head">
             <div>
               <p class="section-kicker">VISUALIZACIONES</p>
@@ -301,7 +346,7 @@
             <small>Por rol usa la configuracion base. Permitir u ocultar crea una excepcion individual.</small>
           </div>
           ${renderUserRouteGroups(draft, selectedCompanyId, membership)}
-        </div>
+        </div>`}
       </section>
     `;
   }
@@ -399,6 +444,7 @@
         uiState.users.unlinkedLoaded = true;
         if (result.ok) {
           uiState.users.unlinkedUsers = result.data?.unlinked || [];
+          uiState.users.profilesByCompany = result.data?.profilesByCompany || {};
           adminService.replaceCloudDirectory(result.data?.users || []);
         }
         else uiState.users.errors = result.errors || ["No se pudieron consultar las cuentas sin acceso a JAEDER SYSTEMS."];
@@ -467,6 +513,7 @@
                 <th>Usuario / correo</th>
                 <th>Cargo</th>
                 <th>Acceso por empresa</th>
+                <th>Perfil canónico</th>
                 <th>Estado</th>
                 <th>Accion</th>
               </tr>
@@ -487,16 +534,20 @@
                       }).join("")}
                     </div>
                   </td>
+                  <td>${adminService.companyProfiles().map(company => {
+                    const access = userAccessFor(user, company.id);
+                    return `<div><strong>${esc(company.code || company.commercialName)}:</strong> <span class="status-badge ${access.profileState === "CANONICAL" ? "authorized" : "cancelled"}">${esc(access.profileName || access.profileId || "PROFILE_MISSING")}</span></div>`;
+                  }).join("")}</td>
                   <td><span class="status-badge ${statusClass(user.status)}">${esc(user.status)}</span></td>
                   <td>
                     <div class="table-actions">
                       <button class="row-action-button" type="button" data-user-edit="${esc(user.id)}">Editar</button>
-                      <button class="row-action-button" type="button" data-user-preview-row="${esc(user.id)}">Vista previa</button>
+                      ${BlessERP.remoteUserAccess?.enabled?.() ? "" : `<button class="row-action-button" type="button" data-user-preview-row="${esc(user.id)}">Vista previa</button>`}
                       ${activeUser.id === user.id ? `<span class="status-badge authorized">Sesion local</span>` : ""}
                     </div>
                   </td>
                 </tr>
-              `).join("") || `<tr><td colspan="7"><div class="empty-inline">No hay usuarios para estos filtros.</div></td></tr>`}
+              `).join("") || `<tr><td colspan="8"><div class="empty-inline">No hay usuarios para estos filtros.</div></td></tr>`}
             </tbody>
           </table>
         </div>
@@ -564,6 +615,10 @@
           enabled: companyId === selectedCompanyId,
           status: companyId === selectedCompanyId ? "activo" : "inactivo",
           roleCode: "INVITADO",
+          membershipRole: "VIEWER",
+          profileId: "",
+          profileName: "PROFILE_MISSING",
+          profileState: "PROFILE_MISSING",
           routeAccess: {}
         };
       });
@@ -582,7 +637,7 @@
       uiState.users.accessCompanyId = selectedCompanyId;
       uiState.users.preview = null;
       uiState.users.errors = [];
-      uiState.users.message = "Complete el nombre, cargo, rol y permisos; luego pulse Guardar para habilitar esta cuenta.";
+      uiState.users.message = "Complete el nombre, cargo, rol y perfil canónico; luego pulse Guardar para habilitar esta cuenta.";
       BlessERP.layout.renderPage();
       requestAnimationFrame(() => document.querySelector("#user-access-form")?.scrollIntoView({ behavior: "smooth", block: "start" }));
     }));
@@ -629,7 +684,23 @@
     });
     document.querySelector("[data-user-company-role]")?.addEventListener("change", event => {
       syncUserDraftFromForm();
-      userAccessFor(uiState.users.draft, event.target.dataset.userCompanyRole).roleCode = event.target.value;
+      const access = userAccessFor(uiState.users.draft, event.target.dataset.userCompanyRole);
+      if (BlessERP.remoteUserAccess?.enabled?.()) {
+        access.membershipRole = event.target.value;
+        access.roleCode = membershipRoleAsLegacyRole(event.target.value);
+      } else {
+        access.roleCode = event.target.value;
+      }
+      BlessERP.layout.renderPage();
+    });
+    document.querySelector("[data-user-company-profile]")?.addEventListener("change", event => {
+      syncUserDraftFromForm();
+      const access = userAccessFor(uiState.users.draft, event.target.dataset.userCompanyProfile);
+      access.profileId = String(event.target.value || "").trim().toUpperCase();
+      const profile = canonicalProfilesFor(event.target.dataset.userCompanyProfile)
+        .find(item => item.id === access.profileId);
+      access.profileName = profile?.name || "PROFILE_MISSING";
+      access.profileState = profile ? "CANONICAL" : "PROFILE_MISSING";
       BlessERP.layout.renderPage();
     });
     document.querySelector("[data-user-company-status]")?.addEventListener("change", event => {
@@ -656,6 +727,7 @@
     });
     document.querySelector("[data-user-save]")?.addEventListener("click", async event => {
       syncUserDraftFromForm();
+      uiState.users.message = "";
       const button = event.currentTarget;
       button.disabled = true;
       let candidate = uiState.users.draft;
@@ -663,6 +735,17 @@
       if (BlessERP.remoteUserAccess?.enabled?.()) {
         if (!candidate.cloudManaged && !String(candidate.email || "").trim()) {
           uiState.users.errors = ["El correo es obligatorio para enviar la invitación."];
+          button.disabled = false;
+          BlessERP.layout.renderPage();
+          return;
+        }
+        const missingProfile = Object.entries(candidate.companyAccess || {}).find(([, access]) =>
+          access?.enabled !== false
+          && String(access?.status || "activo").toLowerCase() === "activo"
+          && !String(access?.profileId || "").trim()
+        );
+        if (missingProfile) {
+          uiState.users.errors = [`Seleccione el perfil canónico para ${missingProfile[0]}.`];
           button.disabled = false;
           BlessERP.layout.renderPage();
           return;
@@ -709,7 +792,9 @@
           candidate.localCredential = credentialResult.credential;
         }
       }
-      const result = adminService.saveUser(candidate, { reason: candidate.changeReason });
+      const result = BlessERP.remoteUserAccess?.enabled?.()
+        ? (remoteResult?.confirmed === true ? { ok: true, user: candidate } : { ok: false, errors: ["Supabase no confirmó el acceso."] })
+        : adminService.saveUser(candidate, { reason: candidate.changeReason });
       if (!result.ok) {
         uiState.users.errors = result.errors || ["No se pudo guardar el usuario."];
       } else {
@@ -742,6 +827,7 @@
     });
     document.querySelector("[data-user-delete]")?.addEventListener("click", async event => {
       syncUserDraftFromForm();
+      uiState.users.message = "";
       const button = event.currentTarget;
       button.disabled = true;
       if (BlessERP.remoteUserAccess?.enabled?.()) {
@@ -754,7 +840,7 @@
         }
       }
       const result = BlessERP.remoteUserAccess?.enabled?.()
-        ? adminService.removeCloudUser(uiState.users.draft.id, { reason: uiState.users.draft.changeReason })
+        ? adminService.removeCloudUser(uiState.users.draft.id, { reason: uiState.users.draft.changeReason, confirmed: true })
         : adminService.removeUser(uiState.users.draft.id, { reason: uiState.users.draft.changeReason });
       if (!result.ok) {
         uiState.users.errors = result.errors || ["No se pudo eliminar el usuario."];

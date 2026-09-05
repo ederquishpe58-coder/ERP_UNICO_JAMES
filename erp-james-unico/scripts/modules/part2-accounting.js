@@ -429,11 +429,14 @@
         || String(event.target.value || "").slice(0, 7)
         || periodInput.value;
     });
-    document.querySelector("[data-journal-save]")?.addEventListener("click", () => {
-      const result = journalService.saveDraft(collectJournalForm());
+    document.querySelector("[data-journal-save]")?.addEventListener("click", async event => {
+      event.currentTarget.disabled = true;
+      const result = await journalService.saveDraftConfirmed(collectJournalForm());
+      if (result.contextChanged) return;
+      if (result.entry) uiState.journal.draft = clone(result.entry);
       uiState.journal.errors = result.errors || [];
       uiState.journal.message = "";
-      if (!result.ok) {
+      if (!result.ok || !result.confirmed) {
         BlessERP.layout.renderPage();
         return;
       }
@@ -444,7 +447,8 @@
     });
     document.querySelector("[data-journal-post]")?.addEventListener("click", async event => {
       event.currentTarget.disabled = true;
-      const saved = journalService.saveDraft(collectJournalForm());
+      const saved = await journalService.saveDraftConfirmed(collectJournalForm());
+      if (saved.contextChanged) return;
       if (!saved.ok) {
         uiState.journal.errors = saved.errors || [];
         BlessERP.layout.renderPage();
