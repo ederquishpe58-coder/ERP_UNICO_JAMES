@@ -92,8 +92,7 @@
   }
 
   function firstActiveBankAccountId() {
-    const active = bankService.bankAccounts().filter(item => item.status === "activa");
-    return active.find(item => item.isCanonical)?.id || active[0]?.id || "";
+    return ""; // Bank selection is explicit; never choose the first catalog row.
   }
 
   function reconciliationAccountResolution(accountId = uiState.reconciliation.draft?.bankAccountId || "") {
@@ -582,7 +581,7 @@
                 <tr>
                   <td>${esc(item.movementDate)}</td>
                   <td><strong>${esc(item.movementNumber)}</strong></td>
-                  <td>${esc(item.bankAccountLabel || "Cuenta no catalogada")}</td>
+                  <td>${esc(BlessERP.services.bankAccountContract.label(item))}</td>
                   <td>${esc(item.movementType)}</td>
                   <td>${esc(item.medium)}</td>
                   <td>${esc(item.reference || "-")}</td>
@@ -894,7 +893,7 @@
                 return `
                   <tr>
                     <td><strong>${esc(item.period)}</strong><small>${esc(item.dateFrom)} a ${esc(item.dateTo)}</small></td>
-                    <td>${esc(itemContext.account ? `${itemContext.account.code} · ${itemContext.account.bankName}` : "Cuenta no catalogada")}</td>
+                    <td>${esc(item.bankAccount || (itemContext.account ? `${itemContext.account.code} · ${itemContext.account.bankName}` : `Banco sin identificar: ${item.bankAccountId || "sin identificador"}`))}</td>
                     <td>${money(item.closingBankBalance || 0)}</td>
                     <td>${money(itemContext.totals.auxiliaryBalance || 0)}</td>
                     <td>${money(itemContext.totals.difference || 0)}</td>
@@ -1102,8 +1101,9 @@
       ensureMovementDraft();
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-bank-movement-save]")?.addEventListener("click", () => {
-      const result = bankService.saveMovement(collectMovementDraft());
+    document.querySelector("[data-bank-movement-save]")?.addEventListener("click", async event => {
+      event.currentTarget.disabled = true;
+      const result = await bankService.saveMovementConfirmed(collectMovementDraft());
       uiState.movements.errors = result.errors || [];
       uiState.movements.message = "";
       if (!result.ok) {

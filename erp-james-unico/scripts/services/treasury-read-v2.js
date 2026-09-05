@@ -11,7 +11,17 @@
     workspace: { loading: false, loaded: false, filters: null, data: null },
     transfers: { loading: false, loaded: false, items: [], total: 0, page: 1, pageSize: 25, appliedFilters: null, detail: null }
   };
-  function snapshot() { return clone(runtime); }
+  let scopedCompany = "";
+  function snapshot() {
+    const company = String(BlessERP.authAccess?.activeAccess?.()?.activeCompany?.id || "");
+    if (company !== scopedCompany) {
+      scopedCompany = company;
+      for (const key of ["movements", "history", "transfers"]) Object.assign(runtime[key], { loaded:false,loading:false,items:[],total:0,summary:{},page:1,appliedFilters:null,detail:null });
+      runtime.workspace = { loading:false,loaded:false,filters:null,data:null };
+      runtime.started = false; runtime.transfersStarted = false; runtime.error = ""; runtime.transferError = "";
+    }
+    return clone(runtime);
+  }
   async function start(onChange) {
     runtime.onChange = onChange || runtime.onChange;
     if (!runtime.subscribed) { repo()?.subscribe?.(scheduleRefresh); runtime.subscribed = true; }

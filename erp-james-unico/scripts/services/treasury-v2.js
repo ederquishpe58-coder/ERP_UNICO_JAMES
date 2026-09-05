@@ -41,7 +41,7 @@
       .map(canonicalBankAccount)
       .filter(row => Boolean(companyId && row.companyId === companyId && String(row.status).toUpperCase() === "ACTIVE"));
   }
-  function cashAccounts() { return rows("cashAccounts"); }
+  function cashAccounts() { return rows("cashAccounts").filter(row => row.company_id === repository()?.activeCompanyUuid?.() && String(row.status).toUpperCase() === "ACTIVE"); }
   function bankTransactions() { return rows("bankTransactions"); }
   function cashTransactions() { return rows("cashTransactions"); }
   function transfers() { return rows("transfers"); }
@@ -60,6 +60,7 @@
     if (!result?.ok) {
       return { ...(result || {}), ok: false, fetchedRows: 0, mode: result?.mode || "TREASURY_CATALOG_READ_ERROR", message: result?.message || "No se pudo consultar el catálogo bancario Treasury." };
     }
+    if (companyId !== String(repository()?.activeCompanyUuid?.() || "")) return { ok:false, fetchedRows:0, message:"La empresa cambió durante la carga bancaria." };
     const canonical = new Map();
     (result.rows || []).forEach(source => {
       const row = canonicalBankAccount(source);
@@ -138,6 +139,7 @@
       sourceType: String(transaction.sourceType || transaction.sourceKind || "MANUAL").toUpperCase(), sourceId: String(transaction.sourceId || transaction.id || ""),
       journal: transaction.journal || null
     }, options);
+    if (result?.ok && (!(first(result,"treasury_bank_transactions") || first(result,"treasury_cash_transactions")) || (transaction.journal && !first(result,"financial_journal_entries")))) return failure(null,"Supabase no confirmó movimiento y asiento.");
     return result?.ok ? { ...result, transaction: first(result,"treasury_bank_transactions") || first(result,"treasury_cash_transactions") }
       : failure(result,"Movimiento no confirmado.");
   }
@@ -177,6 +179,7 @@
   }
   async function createTransfer(payload = {}, options = {}) {
     const result = await repository()?.transfer(payload,options);
+    if (result?.ok && (!first(result,"treasury_transfers") || !first(result,"financial_journal_entries"))) return failure(null,"Supabase no confirmó transferencia y asiento.");
     return result?.ok ? { ...result, transfer:first(result,"treasury_transfers"), entry:first(result,"financial_journal_entries") }
       : failure(result,"Transferencia no confirmada.");
   }

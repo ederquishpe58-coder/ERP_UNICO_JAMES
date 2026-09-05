@@ -74,17 +74,23 @@
     return { ok: true, status: transferHealth.status, data: result };
   }
   async function call(name, args = {}) {
+    const requestedCompany = companyId();
     const backend = await probeBackend();
     if (!backend.ok) return backend;
-    const { data, error } = await client().rpc(name, { p_company_id: companyId(), ...args });
+    if (requestedCompany !== companyId()) return { ok:false, message:"La empresa cambió durante la consulta bancaria." };
+    const { data, error } = await client().rpc(name, { p_company_id: requestedCompany, ...args });
+    if (requestedCompany !== companyId()) return { ok:false, message:"La empresa cambió durante la consulta bancaria." };
     if (error) return failure(error);
     const result = Array.isArray(data) ? data[0] : data;
     return result?.ok ? result : { ok: false, message: result?.message || "La consulta Treasury V2 no respondió correctamente." };
   }
   async function callTransfers(name, args = {}) {
+    const requestedCompany = companyId();
     const backend = await probeTransfersBackend();
     if (!backend.ok) return backend;
-    const { data, error } = await client().rpc(name, { p_company_id: companyId(), ...args });
+    if (requestedCompany !== companyId()) return { ok:false, message:"La empresa cambió durante la consulta bancaria." };
+    const { data, error } = await client().rpc(name, { p_company_id: requestedCompany, ...args });
+    if (requestedCompany !== companyId()) return { ok:false, message:"La empresa cambió durante la consulta bancaria." };
     if (error) return transferFailure(error);
     const result = Array.isArray(data) ? data[0] : data;
     return result?.ok ? result : { ok: false, message: result?.message || "La consulta de transferencias no respondió correctamente." };

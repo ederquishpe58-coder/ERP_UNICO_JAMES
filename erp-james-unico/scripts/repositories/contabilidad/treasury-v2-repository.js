@@ -41,8 +41,9 @@
     return String(await BlessERP.offlineSync?.getDeviceId?.() || `WEB-${operationId.slice(0, 12)}`);
   }
 
-  async function applyCanonical(records, source) {
+  async function applyCanonical(records, source, companyId) {
     for (const record of records) {
+      if (companyId !== activeCompanyUuid()) throw new Error("La empresa cambió durante la confirmación de Tesorería.");
       const applied = await BlessERP.offlineSync?.applyRemoteRecord?.(record, {
         source, force: true, forceServer: true, ignoreRecordHold: true, ignoreEditGuard: true
       });
@@ -65,18 +66,22 @@
     }
     const backend=await probeBackend();
     if(!backend.ok||!canExecute())return{ok:false,mode:backend.status||"BACKEND_UNAVAILABLE",operationId,error:backend.error,message:backend.message||"Tesorería V2 no está disponible en Supabase."};
+    const commandDeviceId = await deviceId(operationId);
+    if (companyId !== activeCompanyUuid()) return { ok:false, message:"La empresa cambió antes de enviar Tesorería." };
     console.info("[jaeder-v2-command]",{flow:"TREASURY_V2",rpc:rpcName,operationId,companyId});
     const { data, error } = await BlessERP.getSupabaseClient().rpc(rpcName, {
       p_operation_id: operationId,
       p_company_id: companyId,
-      p_device_id: await deviceId(operationId),
+      p_device_id: commandDeviceId,
       ...parameters
     });
+    if (companyId !== activeCompanyUuid()) return { ok:false, message:"La empresa cambió; consulte la operación en su empresa de origen." };
     if (error) return { ok: false, mode: "SUPABASE_ERROR", operationId, error, message: error.message || "Supabase rechazó la operación de Tesorería." };
     const result = Array.isArray(data) ? data[0] : data;
     const records = Array.isArray(result?.records) ? result.records : [];
     if (!result?.ok) return { ok: false, mode: "INVALID_RESPONSE", operationId, message: result?.message || "Supabase no confirmó Tesorería." };
-    try { await applyCanonical(records, options.source || "TREASURY_V2_COMMAND"); }
+    if (!records.length || records.some(r => r.company_id !== companyId || r.deleted_at || !r.payload || Number(r.version || 0) < 1)) return { ok:false, mode:"INVALID_CANONICAL_PROOF", message:"Supabase no devolvió registros canónicos válidos de esta empresa." };
+    try { await applyCanonical(records, options.source || "TREASURY_V2_COMMAND", companyId); }
     catch (error) { return { ok: false, mode: "CANONICAL_CACHE_ERROR", operationId, message: error.message }; }
     return { ok: true, confirmed: true, mode: "SUPABASE_TRANSACTION_CONFIRMED", operationId, records,
       serverTime: String(result.serverTime || ""), result: result.result || {} };
@@ -99,6 +104,7 @@
       if (value !== undefined && value !== null && value !== "") query = query.eq(column, value);
     });
     const { data, error } = await query;
+    if (companyId !== activeCompanyUuid()) return { ok:false, rows:[], message:"La empresa cambió durante la consulta bancaria." };
     return error ? { ok: false, rows: [], error, message: error.message } : { ok: true, rows: data || [] };
   }
 

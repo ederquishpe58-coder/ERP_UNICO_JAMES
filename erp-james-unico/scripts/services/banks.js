@@ -639,6 +639,13 @@
     if (candidate.derived) errors.push("Los movimientos derivados no se pueden editar manualmente.");
     if (forConfirm && (!account || account.status !== "activa")) errors.push("La cuenta bancaria debe estar activa para contabilizar.");
 
+    const contract = BlessERP.services.bankAccountContract;
+    if (contract?.required()) {
+      try { contract.bank(candidate.bankAccountId); } catch (error) { errors.push(error.message); }
+      if (forConfirm || candidate.counterAccountCode) {
+        try { contract.ledger(candidate.counterAccountCode, "Contrapartida"); } catch (error) { errors.push(error.message); }
+      }
+    }
     if (forConfirm) {
       if (!account) {
         errors.push("La cuenta bancaria seleccionada no existe.");
@@ -664,6 +671,8 @@
   }
 
   function buildMovementJournalEntry(movement) {
+    const errors = validateMovement(movement, { forConfirm: true }).errors;
+    if (errors.length) throw new Error(errors.join(" "));
     const bankAccount = findBankAccountById(movement.bankAccountId);
     const bankLedger = chartService.findByCode(bankAccount.linkedAccountCode);
     const counter = chartService.findByCode(movement.counterAccountCode);
@@ -733,7 +742,8 @@
     return entry;
   }
 
-  function saveMovement(movement) {
+  function saveMovement(movement, { prepareOnly = false } = {}) {
+    if (BlessERP.services.bankAccountContract?.required() && !prepareOnly) return { ok:false, errors:["Use el guardado bancario con confirmación canónica."] };
     const { movement: candidate, errors } = validateMovement(movement, { forConfirm: false });
     const contentErrors = errors.filter(error => !error.includes("cuenta contable contrapartida") && !error.includes("derivados"));
     if (contentErrors.length) return { ok: false, errors: contentErrors };
@@ -744,6 +754,7 @@
     const index = rows.findIndex(item => item.id === candidate.id);
     if (index >= 0) rows[index] = candidate;
     else rows.unshift(candidate);
+    if (prepareOnly) { stateApi.state.db.bankMovements = rows; return { ok:true, movement:clone(candidate) }; }
     saveList("bankMovements", rows);
     adminService?.addAuditLog?.({
       module: "BANCOS",
@@ -758,6 +769,10 @@
       result: "exitoso"
     });
     return { ok: true, movement: clone(candidate) };
+  }
+
+  async function saveMovementConfirmed(movement) {
+    return BlessERP.services.bankAccountContract.saveDraft(() => saveMovement(movement, { prepareOnly: true }));
   }
 
   async function confirmMovement(movementId, movementOverride = null) {
@@ -858,6 +873,7 @@
     emptyMovement,
     movements,
     saveMovement,
+    saveMovementConfirmed,
     confirmMovement,
     annulMovement,
     dashboardSummary
