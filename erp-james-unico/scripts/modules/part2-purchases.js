@@ -140,6 +140,7 @@
     uiState.manual.message = "";
     uiState.manual.transientXmlReview = options.transientXmlReview === true;
     uiState.manual.draft = purchase ? purchaseService.normalizePurchase(clone(purchase)) : purchaseService.emptyPurchase();
+    if (BlessERP.services.purchaseAccountContract?.enabled()) uiState.manual.draft = purchaseService.normalizePurchase(uiState.manual.draft);
   }
 
   function ensureRetentionDraft(purchaseId = "") {
@@ -338,6 +339,7 @@
           <span>Sustento tributario</span>
           <select name="taxSupportCode" ${readOnly ? "disabled" : ""}>
             <option value="">Seleccionar sustento</option>
+            ${BlessERP.services.purchaseAccountContract?.enabled() && !purchaseService.taxSupports().length ? [["01", "Bien/servicio con crédito"], ["02", "Bien/servicio sin crédito"], ["03", "Activo fijo con crédito"], ["04", "Activo fijo sin crédito"], ["06", "Inventario con crédito"], ["07", "Inventario sin crédito"]].map(([code,label]) => `<option value="${code}" ${draft.taxSupportCode === code ? "selected" : ""}>${code} - ${label}</option>`).join("") : ""}
             ${purchaseService.taxSupports().map(item => `<option value="${esc(item.code)}" ${draft.taxSupportCode === item.code ? "selected" : ""}>${esc(item.code)} - ${esc(item.description)}</option>`).join("")}
           </select>
         </label>
@@ -345,6 +347,7 @@
           <span>Tipo compra</span>
           <select name="purchaseType" ${readOnly ? "disabled" : ""}>
             <option value="">Seleccionar tipo</option>
+            ${BlessERP.services.purchaseAccountContract?.enabled() ? `<option value="MANUAL" ${draft.purchaseType === "MANUAL" ? "selected" : ""}>Cuenta económica explícita por línea</option>` : ""}
             ${purchaseService.purchaseTypes().map(item => `<option value="${esc(item.code)}" ${draft.purchaseType === item.code ? "selected" : ""}>${esc(item.label)}</option>`).join("")}
           </select>
         </label>
@@ -356,6 +359,7 @@
             ${purchaseService.paymentMethods.map(item => `<option value="${esc(item.code)}" ${draft.paymentMethod === item.code ? "selected" : ""}>${esc(item.code)} - ${esc(item.label)}</option>`).join("")}
           </select>
         </label>
+        ${renderPurchaseAccountContract(draft, readOnly)}
         <label class="compact-field">
           <span>Contrapartida contable</span>
           <select name="settlementMode" ${readOnly ? "disabled" : ""}>
@@ -387,6 +391,17 @@
             : "Antes de contabilizar debe decidir si aplica retencion o si corresponde el codigo 332."}
       </div>
     `;
+  }
+
+  function renderPurchaseAccountContract(draft, readOnly) {
+    const contract = BlessERP.services.purchaseAccountContract;
+    if (!contract?.enabled()) return "";
+    const selected = draft.payableAccountCode || contract.payable(draft);
+    const options = contract.payableCodes.map(code => `<option value="${code}" ${selected === code ? "selected" : ""}>${code} - ${esc(BlessERP.services.chartOfAccounts.findByCode(code)?.name || code)}</option>`).join("");
+    return `<label class="compact-field"><span>Cuenta CxP del proveedor</span><select name="payableAccountCode" ${readOnly ? "disabled" : ""}><option value="">Seleccionar relación / cuenta</option>${options}</select></label>
+      <label class="compact-field"><span>Tratamiento del IVA</span><select name="vatCreditTreatment" ${readOnly ? "disabled" : ""}>
+      <option value="PENDING">Confirmar tratamiento</option><option value="CREDIT" ${draft.vatCreditTreatment === "CREDIT" ? "selected" : ""}>Con derecho a crédito tributario</option>
+      <option value="NO_CREDIT" ${draft.vatCreditTreatment === "NO_CREDIT" ? "selected" : ""}>Sin crédito - tratamiento pendiente</option></select></label>`;
   }
 
   function lineModeBadge(line) {
@@ -1558,10 +1573,13 @@
     base.paymentMethod = form.elements.paymentMethod?.value || "";
     base.settlementMode = form.elements.settlementMode?.value || "CXP";
     base.paymentAccountCode = form.elements.paymentAccountCode?.value || "";
+    base.payableAccountCode = form.elements.payableAccountCode?.value || "";
+    base.vatCreditTreatment = form.elements.vatCreditTreatment?.value || base.vatCreditTreatment || "PENDING";
     base.retentionDecision = form.elements.retentionDecision?.value || "PENDIENTE";
     base.retentionDecisionReason = form.elements.retentionDecisionReason?.value || "";
     base.observation = form.elements.observation?.value || "";
     base.lines = Array.from(document.querySelectorAll(".compact-table-purchases-detail tbody tr[data-line-id]")).map(row => ({
+      ...(base.lines.find(line => line.id === row.dataset.lineId) || {}),
       id: row.dataset.lineId,
       inventoryItemId: row.querySelector('[name="inventoryItemId"]')?.value || "",
       inventoryCategory: row.querySelector('[name="inventoryCategory"]')?.value || "",
@@ -1698,8 +1716,9 @@
       BlessERP.layout.renderPage();
     }));
     document.querySelector("#purchase-manual-form")?.addEventListener("change", event => {
-      if (["supplierId", "voucherType", "purchaseType", "inventoryItemId", "retentionDecision", "settlementMode"].includes(event.target.name)) {
+      if (["supplierId", "voucherType", "purchaseType", "inventoryItemId", "retentionDecision", "settlementMode", "issueDate", "vatCreditTreatment", "payableAccountCode"].includes(event.target.name)) {
         uiState.manual.draft = collectManualDraft();
+        if (event.target.name === "supplierId" && BlessERP.services.purchaseAccountContract?.enabled()) uiState.manual.draft.payableAccountCode = "";
         if (event.target.name === "purchaseType") {
           const config = purchaseService.purchaseTypeByCode(uiState.manual.draft.purchaseType);
           if (config?.suggestedSupportCode) uiState.manual.draft.taxSupportCode = config.suggestedSupportCode;
@@ -1708,14 +1727,15 @@
         return;
       }
       uiState.manual.draft = collectManualDraft();
-      if (purchaseService.purchaseTypeUsesInventory(uiState.manual.draft.purchaseType) && ["quantity", "unitPrice", "discount", "vatRate"].includes(event.target.name)) {
+      if ((BlessERP.services.purchaseAccountContract?.enabled() || purchaseService.purchaseTypeUsesInventory(uiState.manual.draft.purchaseType)) && ["quantity", "unitPrice", "discount", "taxableBase", "vatRate"].includes(event.target.name)) {
         BlessERP.layout.renderPage();
         return;
       }
       refreshManualSummary();
     });
-    document.querySelector("[data-purchase-save]")?.addEventListener("click", () => {
-      const result = purchaseService.savePurchase(collectManualDraft());
+    document.querySelector("[data-purchase-save]")?.addEventListener("click", async event => {
+      event.currentTarget.disabled = true;
+      const result = await purchaseService.savePurchaseConfirmed(collectManualDraft());
       uiState.manual.errors = result.errors || [];
       uiState.manual.message = "";
       if (!result.ok) {

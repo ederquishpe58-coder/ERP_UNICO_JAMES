@@ -717,17 +717,21 @@
     entry.observation = payment.observation || "";
     entry.lines = payment.applications
       .filter(item => Number(item.amount || 0) > 0)
-      .map(application => ({
+      .map(application => {
+        const contract = BlessERP.services?.purchaseAccountContract;
+        const payableAccount = contract?.enabled() ? chartService.findByCode(contract.payableForDocument(application)) : accountsPayable;
+        if (!payableAccount) throw new Error("PURCHASE_AP_ACCOUNT_REQUIRED: la obligación debe tener una cuenta CxP canónica válida.");
+        return ({
         id: uid("JLN"),
-        accountCode: accountsPayable.code,
-        accountName: accountsPayable.name,
+        accountCode: payableAccount.code,
+        accountName: payableAccount.name,
         debit: round2(application.amount),
         credit: 0,
         costCenter: "",
         auxiliary: payment.providerRuc || application.supplierRuc,
         lineDescription: `Pago de ${application.documentNumber}`,
         documentReference: application.documentNumber
-      }));
+      }); });
     entry.lines.push({
       id: uid("JLN"),
       accountCode: paymentAccount.code,

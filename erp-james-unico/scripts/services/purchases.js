@@ -69,7 +69,10 @@
     return Math.round(Number(value || 0) * 100) / 100;
   }
 
+  function purchaseContract() { return BlessERP.services?.purchaseAccountContract; }
+
   function vatPurchaseAccountCode(rate, defaults = companyService.settings().defaultAccounts || {}) {
+    if (purchaseContract()?.enabled()) return "1.01.08";
     return BlessERP.accountingPlanBlessV1?.vatPurchaseAccountCode?.(rate, defaults)
       || defaults.vatPurchases
       || "";
@@ -326,7 +329,7 @@
       return line;
     }
 
-    const linkedAccountCode = String(item.inventoryAccountCode || typeConfig?.suggestedAccountCode || "").trim();
+    const linkedAccountCode = String(item.inventoryAccountCode || (purchaseContract()?.enabled() ? "" : typeConfig?.suggestedAccountCode) || "").trim();
     line.inventoryItemId = item.id;
     line.inventoryCategory = String(item.category || "").trim().toUpperCase();
     line.inventoryUnit = String(item.unit || "").trim().toLowerCase();
@@ -381,8 +384,8 @@
       unitPrice: 0,
       discount: 0,
       taxableBase: 0,
-      vatRate: 15,
-      vatCode: "4",
+      vatRate: purchaseContract()?.enabled() ? null : 15,
+      vatCode: purchaseContract()?.enabled() ? "" : "4",
       vatCategory: "TARIFA",
       vatValue: 0,
       totalLine: 0,
@@ -418,8 +421,10 @@
       sequential: nextSequential(settings.mainEstablishment || "001", settings.mainEmissionPoint || "001"),
       authorizationNumber: "",
       accessKey: "",
-      taxSupportCode: "02",
-      purchaseType: "GASTO",
+      taxSupportCode: purchaseContract()?.enabled() ? "" : "02",
+      purchaseType: purchaseContract()?.enabled() ? "" : "GASTO",
+      payableAccountCode: "",
+      vatCreditTreatment: "PENDING",
       paymentMethod: "",
       settlementMode: "CXP",
       paymentAccountCode: "",
@@ -534,7 +539,7 @@
     line.unitPrice = round2(line.unitPrice || 0);
     line.discount = round2(line.discount || 0);
     const computedBase = round2((line.quantity || 0) * (line.unitPrice || 0) - (line.discount || 0));
-    line.taxableBase = round2(line.taxableBase || computedBase);
+    line.taxableBase = round2(purchaseContract()?.enabled() ? (raw?.taxableBase ?? computedBase) : (line.taxableBase || computedBase));
     line.vatRate = round2(line.vatRate || 0);
     line.vatCode = String(line.vatCode || "").trim();
     line.vatCategory = ["TARIFA", "NO_OBJETO", "EXENTO"].includes(String(line.vatCategory || "").toUpperCase())
@@ -544,7 +549,7 @@
         : line.vatCode === "7"
           ? "EXENTO"
           : "TARIFA";
-    line.vatValue = round2(line.vatValue || (line.taxableBase * line.vatRate / 100));
+    line.vatValue = round2(purchaseContract()?.enabled() ? (raw?.vatValue ?? (line.taxableBase * line.vatRate / 100)) : (line.vatValue || (line.taxableBase * line.vatRate / 100)));
     line.totalLine = round2(line.totalLine || (line.taxableBase + line.vatValue));
     line.description = String(line.description || "").trim();
     line.productCode = String(line.productCode || "").trim();
@@ -576,7 +581,7 @@
     candidate.supplierEmail = String(candidate.supplierEmail || "").trim();
     candidate.supplierPhone = String(candidate.supplierPhone || "").trim();
     candidate.externalDocumentNumber = String(candidate.externalDocumentNumber || "").trim().toUpperCase();
-    candidate.issueDate = candidate.issueDate || today();
+    candidate.issueDate = purchaseContract()?.enabled() && candidate.source === "XML" ? (raw?.issueDate || "") : (candidate.issueDate || today());
     candidate.accountingDate = candidate.accountingDate || candidate.issueDate;
     candidate.estab = String(candidate.estab || "001").padStart(3, "0");
     candidate.ptoEmi = String(candidate.ptoEmi || "001").padStart(3, "0");
@@ -604,6 +609,7 @@
     candidate.retentionDecisionAt = String(candidate.retentionDecisionAt || "").trim();
     candidate.documentNumber = buildDocumentNumber(candidate);
     candidate.lines = (candidate.lines || []).map(line => applyInventoryDefaults(normalizeLine(line), candidate.purchaseType));
+    purchaseContract()?.normalize(candidate);
     candidate.totals = calculateTotals(candidate.lines, candidate.totals?.withholdingsTotal || 0);
     candidate.duplicateKey = duplicateKeyForPurchase(candidate);
     if (!candidate.status) candidate.status = candidate.source === "XML" ? "XML_LEIDO" : "BORRADOR";
@@ -628,6 +634,14 @@
   }
 
   function findMemorySuggestion(line, purchase) {
+    if (purchaseContract()?.enabled()) {
+      const type = purchaseTypeByCode(purchase.purchaseType);
+      if (type && Number(type.__syncVersion || 0) > 0 && !["GASTO", "OTROS"].includes(type.code)
+          && !["5.3", "5.5.04"].includes(type.suggestedAccountCode) && purchaseContract().account(type.suggestedAccountCode)) {
+        return { memory: { accountCode: type.suggestedAccountCode, expenseType: type.code }, mode: "Sugerido" };
+      }
+      return null;
+    }
     const memories = purchaseMemory();
     const supplierRuc = purchase.supplierRuc || "";
     const normalizedDescription = normalizeText(line.description);
@@ -786,12 +800,14 @@
     if (duplicate) errors.push(`El comprobante ya existe: ${duplicate.documentNumber || duplicate.authorizationNumber}.`);
 
     if (forPost) {
+      errors.push(...(purchaseContract()?.validate(candidate) || []));
       const defaults = companyService.settings().defaultAccounts || {};
       if (candidate.settlementMode !== "CONTADO") {
-        const payableAccount = chartService.findByCode(defaults.accountsPayableSuppliers);
-        if (!defaults.accountsPayableSuppliers) errors.push("No existe cuenta por pagar a proveedores predeterminada.");
+        const payableCode = purchaseContract()?.enabled() ? purchaseContract().payable(candidate) : defaults.accountsPayableSuppliers;
+        const payableAccount = chartService.findByCode(payableCode);
+        if (!payableCode) errors.push("No existe cuenta por pagar a proveedores predeterminada.");
         else if (!payableAccount || payableAccount.status !== "Activa" || !payableAccount.isMovement) {
-          errors.push(`La cuenta por pagar a proveedores ${defaults.accountsPayableSuppliers} debe ser de movimiento activa.`);
+          errors.push(`La cuenta por pagar a proveedores ${payableCode} debe ser de movimiento activa.`);
         }
       }
       if (candidate.settlementMode === "CONTADO") {
@@ -826,7 +842,8 @@
     return { purchase: candidate, errors };
   }
 
-  function savePurchase(purchase) {
+  function savePurchase(purchase, { prepareOnly = false } = {}) {
+    if (purchaseContract()?.enabled() && !prepareOnly) return { ok: false, errors: ["Use el guardado de Compras con confirmación canónica de Supabase."] };
     const { purchase: candidate, errors } = validatePurchase(purchase);
     if (errors.length) return { ok: false, errors };
 
@@ -853,6 +870,7 @@
     if (!candidate.status || !purchaseStatuses.includes(candidate.status)) candidate.status = candidate.source === "XML" ? "XML_LEIDO" : "BORRADOR";
     if (index >= 0) rows[index] = candidate;
     else rows.unshift(candidate);
+    if (prepareOnly) { stateApi.state.db.purchases = rows; return { ok: true, purchase: clone(candidate) }; }
     saveList("purchases", rows);
     adminService?.addAuditLog?.({
       module: "COMPRAS",
@@ -869,6 +887,12 @@
       result: "exitoso"
     });
     return { ok: true, purchase: clone(candidate) };
+  }
+
+  async function savePurchaseConfirmed(purchase) {
+    if (!purchaseContract()?.enabled()) return savePurchase(purchase);
+    return await BlessERP.services.confirmedFinanceRecord?.save("purchases", () => savePurchase(purchase, { prepareOnly: true }))
+      || { ok: false, errors: ["Supabase no está disponible para confirmar el borrador."] };
   }
 
   function updatePurchaseMemory(purchase) {
@@ -907,7 +931,9 @@
 
   function buildPurchaseJournalEntry(purchase) {
     const defaults = companyService.settings().defaultAccounts || {};
-    const accountsPayable = chartService.findByCode(defaults.accountsPayableSuppliers);
+    const contract = purchaseContract();
+    if (contract?.enabled()) { const errors = contract.validate(purchase); if (errors.length) throw new Error(errors.join(" ")); }
+    const accountsPayable = chartService.findByCode(contract?.enabled() ? contract.payable(purchase) : defaults.accountsPayableSuppliers);
     const entry = journalService.emptyEntry();
     entry.accountingDate = purchase.accountingDate;
     entry.accountingPeriod = journalService.accountingPeriodForDate?.(entry.accountingDate, entry.accountingPeriod)
@@ -986,6 +1012,7 @@
   }
 
   function postPurchase(purchaseId) {
+    if (purchaseContract()?.enabled()) return { ok: false, errors: ["La contabilización de BLESS requiere el RPC canónico de Compras V2; este flujo legacy no está habilitado."] };
     const rows = purchases();
     const index = rows.findIndex(item => item.id === purchaseId);
     if (index < 0) return { ok: false, errors: ["Compra no encontrada."] };
@@ -1060,7 +1087,8 @@
     }
     const { purchase:candidate,errors } = validatePurchase(current,{ forPost:true });
     if (errors.length) return { ok:false,errors };
-    const result = await supplierV2()?.postPurchase?.(candidate,options);
+    let result;
+    try { result = await supplierV2()?.postPurchase?.(candidate,options); } catch (error) { return { ok: false, errors: [error.message || "Compra no confirmada."] }; }
     return result || { ok:false,errors:["Servicio de compras V2 no disponible."] };
   }
 
@@ -1171,8 +1199,8 @@
         const discount = round2(pickText(node, ["descuento"]) || 0);
         const taxableBase = round2(pickText(node, ["precioTotalSinImpuesto"]) || (quantity * unitPrice - discount));
         const taxNodes = Array.from(node.querySelectorAll("impuestos > impuesto"));
-        const vatNode = taxNodes.find(tax => pickText(tax, ["codigo"]) === "2") || taxNodes[0] || null;
-        const vatCode = pickText(vatNode || node, ["codigoPorcentaje"]);
+        const vatNode = taxNodes.find(tax => pickText(tax, ["codigo"]) === "2") || (purchaseContract()?.enabled() ? null : taxNodes[0]) || null;
+        const vatCode = purchaseContract()?.enabled() && !vatNode ? "" : pickText(vatNode || node, ["codigoPorcentaje"]);
         const vatRate = round2(pickText(vatNode || node, ["tarifa"]) || 0);
         const vatValue = round2(pickText(vatNode || node, ["valor"]) || 0);
         return {
@@ -1233,9 +1261,9 @@
 
       const firstLine = rawPurchase.lines[0];
       const memorySuggestion = findMemorySuggestion(firstLine, rawPurchase);
-      const inferredType = memorySuggestion?.memory?.expenseType || "GASTO";
+      const inferredType = memorySuggestion?.memory?.expenseType || (purchaseContract()?.enabled() ? "" : "GASTO");
       rawPurchase.purchaseType = inferredType;
-      rawPurchase.taxSupportCode = purchaseTypeByCode(inferredType)?.suggestedSupportCode || "02";
+      rawPurchase.taxSupportCode = purchaseTypeByCode(inferredType)?.suggestedSupportCode || (purchaseContract()?.enabled() ? "" : "02");
       const next = normalizePurchase(rawPurchase);
       const duplicate = findDuplicate(next);
       next.importStatus = duplicate ? "DUPLICADO" : next.lines.some(line => !line.accountCode) ? "PENDIENTE_CUENTA" : "VALIDO";
@@ -1352,6 +1380,7 @@
   }
 
   function importXmlBatch(batch = []) {
+    if (purchaseContract()?.enabled()) return { ok: false, errors: ["Revise el XML y guarde o contabilice cada compra con confirmación canónica."] };
     const rows = purchases();
     const results = [];
     batch.forEach(item => {
@@ -1846,7 +1875,7 @@
   function buildIssuedWithholdingJournalEntry(retention, purchase) {
     const defaults = companyService.settings().defaultAccounts || {};
     const errors = [];
-    const payableValidation = validateWithholdingAccount(defaults.accountsPayableSuppliers, "Cuentas por pagar proveedores");
+    const payableValidation = validateWithholdingAccount(purchaseContract()?.enabled() ? purchaseContract().payableForDocument(purchase) : defaults.accountsPayableSuppliers, "Cuentas por pagar proveedores");
     errors.push(...payableValidation.errors);
     const selectedLines = retention.retentionLines.filter(line => line.code);
     const lineValidations = selectedLines.map((line, index) => {
@@ -2411,6 +2440,7 @@
     canEditPurchase,
     validatePurchase,
     savePurchase,
+    savePurchaseConfirmed,
     postPurchase,
     postPurchaseV2,
     deleteOrAnnulPurchase,

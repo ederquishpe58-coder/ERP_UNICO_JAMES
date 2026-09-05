@@ -306,7 +306,8 @@
 
   function journalPayload(purchase, draft, lines) {
     const defaults = BlessERP.services?.companySettings?.settings?.()?.defaultAccounts || {};
-    const debitAccount = String(defaults.accountsPayableSuppliers || "").trim();
+    const contract = BlessERP.services?.purchaseAccountContract;
+    const debitAccount = String(contract?.enabled() ? contract.payableForDocument(purchase) : (defaults.accountsPayableSuppliers || "")).trim();
     const accountingLines = [{
       accountCode: debitAccount,
       debit: round2(lines.reduce((sum, line) => sum + line.retainedAmount, 0)),

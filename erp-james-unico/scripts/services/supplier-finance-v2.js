@@ -184,17 +184,19 @@
       accountingDate:purchase.accountingDate || purchase.issueDate, dueDate:purchase.dueDate || purchase.issueDate,
       currencyCode:purchase.currencyCode || "USD", exchangeRate:Number(purchase.exchangeRate || 1),
       settlementMode:String(purchase.settlementMode || "CXP").toUpperCase() === "CONTADO" ? "CASH" : "CXP",
-      source:purchase.source || "MANUAL", sourcePayload:{ authorizationNumber:purchase.authorizationNumber || "",accessKey:purchase.accessKey || "" },
+      paymentAccountCode:String(purchase.paymentAccountCode || ""),
+      source:purchase.source || "MANUAL", sourcePayload:{ authorizationNumber:purchase.authorizationNumber || "",accessKey:purchase.accessKey || "",
+        ...(BlessERP.services?.purchaseAccountContract?.enabled() ? { purchaseAccountContract: "BLESS_PURCHASE_V1", vatCreditTreatment: purchase.vatCreditTreatment || "PENDING", taxSupportCode: purchase.taxSupportCode || "" } : {}) },
       retentionDecision:String(purchase.retentionDecision || "PENDIENTE").toUpperCase(),
       retentionDecisionCode:String(purchase.retentionDecisionCode || (purchase.retentionDecision === "NO_SUJETO_332" ? "332" : "")),
       retentionDecisionReason:String(purchase.retentionDecisionReason || ""),
-      legacyDraftId:String(purchase.id || ""), payableAccountCode:String(purchase.payableAccountCode || defaults.accountsPayableSuppliers || provider.payableAccountCode || ""),
+      legacyDraftId:String(purchase.id || ""), payableAccountCode:String(BlessERP.services?.purchaseAccountContract?.enabled() ? BlessERP.services.purchaseAccountContract.payable(purchase) : (purchase.payableAccountCode || defaults.accountsPayableSuppliers || provider.payableAccountCode || "")),
       totals:{ subtotal:Number(purchase.totals?.subtotal ?? purchase.totals?.base0 ?? 0)+Number(purchase.totals?.baseIva || 0),
         taxTotal:Number(purchase.totals?.iva || 0),discountTotal:Number(purchase.totals?.discount || 0),
         withholdingTotal:Number(purchase.totals?.withholdingsTotal || 0),total:Number(purchase.totals?.total || 0) },
       lines:(purchase.lines || []).map(line=>({ productCode:line.productCode || "",description:line.description || "Compra",quantity:Number(line.quantity || 0),
         unit:line.inventoryUnit || line.unit || "",unitPrice:Number(line.unitPrice || 0),taxableBase:Number(line.taxableBase || 0),vatRate:Number(line.vatRate || 0),
-        vatValue:Number(line.vatValue || 0),discount:Number(line.discount || 0),totalLine:Number(line.totalLine || 0),accountCode:line.accountCode || "",
+        vatValue:Number(line.vatValue || 0),vatCode:line.vatCode || "",vatParameterId:line.vatParameterId || "",vatRateAuthority:line.vatRateAuthority || "",discount:Number(line.discount || 0),totalLine:Number(line.totalLine || 0),accountCode:line.accountCode || "",
         costCenter:line.costCenter || "",lineType:line.lineType || "EXPENSE",receptionId:line.receptionId || "",receptionItemId:line.receptionItemId || "",
         quantityType:String(line.quantityType || "STEM").toUpperCase(),ruleSnapshot:clone(line.ruleSnapshot || {}) })),
       journal:{ accountingDate:journal.accountingDate,concept:journal.concept,originModule:journal.originModule,sourceDocument:journal.sourceDocument,
@@ -207,6 +209,7 @@
   async function postPurchase(purchase = {}, options = {}) {
     const provider = findProvider({ providerId:purchase.supplierId,taxId:purchase.supplierRuc }) || {};
     const result = await repository().postPurchase(purchasePayload(purchase,provider),options);
+    if (BlessERP.services?.purchaseAccountContract?.enabled() && result?.ok && (!first(result,"supplier_purchase_documents") || !first(result,"financial_journal_entries"))) return { ok:false,errors:["Supabase no confirmó compra y asiento; no se informó éxito."] };
     return result.ok ? { ...result,purchase:canonicalPurchase(first(result,"supplier_purchase_documents") || {}),payable:first(result,"supplier_payables"),
       entry:first(result,"financial_journal_entries") } : { ...result,errors:result.errors || [result.message || "Compra no confirmada."] };
   }

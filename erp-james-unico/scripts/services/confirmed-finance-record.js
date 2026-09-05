@@ -16,7 +16,7 @@
   async function save(entity, prepare) {
     const context = identity();
     const registry = erp.syncEntityRegistry;
-    if (!["customers", "accounting_journal_entries"].includes(entity)
+    if (!["customers", "accounting_journal_entries", "purchases"].includes(entity)
         || !context.userId || !context.companyId || !registry?.serializableRecord || !erp.state?.saveDbConfirmed) {
       return { ok: false, confirmed: false, errors: ["No está disponible la confirmación canónica de Supabase."] };
     }
@@ -27,7 +27,7 @@
     try {
       prepared = prepare();
       if (!prepared?.ok) return { ...prepared, ok: false, confirmed: false };
-      const record = prepared.customer || prepared.entry;
+      const record = prepared.customer || prepared.entry || prepared.purchase;
       const expected = registry.serializableRecord(record, entity);
       const result = await erp.state.saveDbConfirmed({ entity, recordId: record.id, skipCloudSnapshot: true });
       const current = identity();
