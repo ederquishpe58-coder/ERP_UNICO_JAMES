@@ -36,6 +36,7 @@
     const hasSeedComponents = Array.isArray(seed.components) && seed.components.some(item => item?.provider || item?.block || Number(item?.stems || 0) > 0);
     return {
       id: `zebra-row-${++rowSequence}`,
+      quality: BlessERP.flowerQuality?.preserve?.(seed.quality) || "PREMIUM",
       color: seed.color || "",
       variety: seed.variety || "",
       length: seed.length || "",
@@ -68,7 +69,8 @@
   }
 
   function storeOf(appState) {
-    return BlessERP.operacionesState.getStore(appState);
+    const resolvedState = appState || activeAppState || BlessERP.state?.state || null;
+    return resolvedState ? BlessERP.operacionesState.getStore(resolvedState) : null;
   }
 
   function activeCompanyId(appState = activeAppState) {
@@ -209,8 +211,9 @@
     return usedComponents(row).length <= 1 ? "INDIVIDUAL" : "MIXTO";
   }
 
-  function validate(row) {
+  function validate(row, appState = activeAppState) {
     const errors = [];
+    if (!BlessERP.flowerQuality?.isValid?.(row.quality)) errors.push("calidad canónica");
     if (!String(row.color || "").trim()) errors.push("color");
     if (!String(row.variety || "").trim()) errors.push("variedad");
     if (!Number(String(row.length || "").replace(/\D+/g, ""))) errors.push("medida");
@@ -270,11 +273,11 @@
     return "is-pending";
   }
 
-  function rowMarkup(row) {
+  function rowMarkup(row, appState = activeAppState) {
     const total = totalOf(row);
     const status = statusOf(row);
     const type = typeOf(row);
-    const validation = validate(row);
+    const validation = validate(row, appState);
     const valid = validation.ok;
     const canonical = hasCanonicalLabels(row);
     const busy = row.outputLocked || [OUTPUT_STATES.CREATING, OUTPUT_STATES.READY_TO_SEND, OUTPUT_STATES.SENDING].includes(row.outputState);
@@ -294,7 +297,7 @@
         <button type="button" data-zebra-copy-change="-1" data-zebra-copy-row="${esc(row.id)}" aria-label="Reducir etiquetas"${canonical || busy ? " disabled" : ""}>−</button>
         <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" value="${row.copies}" data-zebra-copy-input data-zebra-copy-count data-zebra-copy-row="${esc(row.id)}" aria-label="Cantidad manual de etiquetas"${canonical || busy ? " disabled" : ""}>
         <button type="button" data-zebra-copy-change="1" data-zebra-copy-row="${esc(row.id)}" aria-label="Aumentar etiquetas"${canonical || busy ? " disabled" : ""}>+</button>
-      </div><div class="zebra-output-actions">
+      </div><label class="compact-check-field zebra-quality-checkbox"><span>TIPO B</span><input type="checkbox" data-zebra-quality-tipo-b="${esc(row.id)}" ${BlessERP.flowerQuality.isTipoB(row.quality) ? "checked" : ""} ${canonical || busy ? "disabled" : ""}></label><div class="zebra-output-actions">
         <button type="button" class="primary-button zebra-print-row" data-zebra-print="${esc(row.id)}"${busy || batchPrintInProgress ? " disabled" : ""}>${canonical ? "REIMPRIMIR ZEBRA" : "IMPRIMIR ZEBRA"} · ${row.copies}</button>
         <button type="button" class="secondary-button zebra-print-row" data-zebra-pdf="${esc(row.id)}"${busy || batchPrintInProgress ? " disabled" : ""}>${canonical ? "DESCARGAR PDF DE NUEVO" : "DESCARGAR PDF"} · ${row.copies}</button>
         <small class="zebra-output-validation ${valid ? "is-ready" : "is-pending"}" data-zebra-validation>${valid ? "LISTO" : esc(validation.errors.join(" · "))}</small>
@@ -390,7 +393,7 @@
               <tr><th rowspan="2">Color embonchador</th><th rowspan="2">Variedad</th><th rowspan="2">Medida</th><th rowspan="2">Tallos objetivo</th><th colspan="2">Componente 1</th><th colspan="2">Componente 2</th><th colspan="2">Componente 3</th><th colspan="2">Componente 4</th><th rowspan="2">Total</th><th rowspan="2">Tipo</th><th rowspan="2">Acción</th></tr>
               <tr>${Array.from({ length: 4 }, () => "<th>Bloque</th><th>Tallos</th>").join("")}</tr>
             </thead>
-            <tbody data-zebra-rows>${rows.map(rowMarkup).join("")}</tbody>
+            <tbody data-zebra-rows>${rows.map(row => rowMarkup(row, appState)).join("")}</tbody>
           </table>
         </div>
         ${summary.waiting ? `<div class="inline-feedback ${summary.errors || !batchCanBeConfirmed() ? "warning" : "success"}" data-zebra-batch-confirmation>
@@ -511,6 +514,9 @@
     const buncherCode = buncherCodeFor(row);
     const providerBlock = zplSafe(providerBlockFor(row)).slice(0, 16);
     const barcodeGraphic = zplBarcodeGraphic(barcode);
+    const typeBMarker = BlessERP.flowerQuality?.isTipoB?.(row.quality)
+      ? "\n^FO18,175^FB573,1,0,R^A0N,26,24^FDTIPO B^FS"
+      : "";
     return `^XA
 ^CI28
 ^PW609
@@ -526,7 +532,7 @@
 ${barcodeGraphic.zpl}
 ^FO30,149^A0N,14,13^FD${providerBlock}^FS
 ^FO150,149^A0N,14,13^FD${barcode}^FS
-^FO270,149^A0N,14,13^FDPRODUCT GROWN IN ECUADOR^FS
+^FO270,149^A0N,14,13^FDPRODUCT GROWN IN ECUADOR^FS${typeBMarker}
 ^PQ1,0,1,N
 ^XZ`;
   }
@@ -538,7 +544,7 @@ ${barcodeGraphic.zpl}
   function freshRowAfterBatch(previousRows = rows) {
     const last = previousRows.at(-1);
     const seed = repeatHeader && last
-      ? { color: last.color, variety: last.variety, length: last.length, target: last.target }
+      ? { quality: last.quality, color: last.color, variety: last.variety, length: last.length, target: last.target }
       : { target: last?.target || 25 };
     return createRow(seed);
   }
@@ -585,6 +591,7 @@ ${barcodeGraphic.zpl}
       compactZebra: true,
       color: row.color,
       colorDay: row.color,
+      quality: BlessERP.flowerQuality.normalize(row.quality),
       componentCount: components.length,
       components: components.map(item => ({ ...item })),
       labelType,
@@ -882,6 +889,10 @@ ${barcodeGraphic.zpl}
     }
     view.querySelectorAll("[data-zebra-copy-change]").forEach(button => { button.disabled = canonical || busy; });
     view.querySelectorAll("[data-zebra-field]").forEach(input => { input.disabled = canonical || busy; });
+    view.querySelectorAll("[data-zebra-quality-tipo-b]").forEach(input => {
+      input.checked = BlessERP.flowerQuality.isTipoB(row.quality);
+      input.disabled = canonical || busy;
+    });
     const outputNode = view.querySelector("[data-zebra-output-status]");
     if (outputNode) {
       const label = outputStatusLabel(row);
@@ -1108,6 +1119,15 @@ ${barcodeGraphic.zpl}
   }
 
   function onChange(event) {
+    const qualityCheckbox = event.target.closest("[data-zebra-quality-tipo-b]");
+    if (qualityCheckbox) {
+      const row = rows.find(item => item.id === qualityCheckbox.dataset.zebraQualityTipoB);
+      if (!row || hasCanonicalLabels(row) || row.outputLocked) return;
+      row.quality = BlessERP.flowerQuality.fromTipoB(qualityCheckbox.checked);
+      resetPendingIdentity(row);
+      refreshRowDom(row);
+      return;
+    }
     if (event.target.matches("[data-zebra-repeat]")) repeatHeader = event.target.checked;
     if (event.target.matches("[data-zebra-destination]")) {
       if (rows.some(hasCanonicalLabels)) {

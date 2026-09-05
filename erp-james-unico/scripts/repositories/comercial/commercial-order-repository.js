@@ -91,7 +91,7 @@
       company_id: String(row?.company_id || companyId || ""),
       entity: "commercial_orders",
       record_id: String(row?.record_id || payload.id || ""),
-      payload: normalizeOrderTransportPayload(payload, { ensureMaritimePrefix: true }),
+      payload: normalizeOrderTransportPayload(payload),
       version: Number(row?.version || 1),
       created_at: String(row?.created_at || ""),
       updated_at: String(row?.updated_at || ""),
@@ -244,7 +244,7 @@
     if (error) return { ok: false, mode: "SUPABASE_ERROR", error, message: error.message || "No se pudo consultar el pedido." };
     if (!data) return { ok: false, mode: "NOT_FOUND", message: "El pedido ya no existe en Supabase." };
     const payload = data.payload && typeof data.payload === "object" ? data.payload : {};
-    const effectivePayload = normalizeOrderTransportPayload(payload, { ensureMaritimePrefix: true });
+    const effectivePayload = normalizeOrderTransportPayload(payload);
     return {
       ok: true,
       mode: "SUPABASE_ENTITY_RECORDS",
@@ -323,7 +323,7 @@
   }
 
   async function saveConfirmedOrder(order = {}, series = {}, options = {}) {
-    order = normalizeOrderTransportPayload(order, { ensureMaritimePrefix: true });
+    order = normalizeOrderTransportPayload(order);
     const companyId = activeCompanyUuid();
     const recordId = String(order.id || "").trim();
     const issuedAt = String(order.issuedAt || order.createdAt || "").slice(0, 10);

@@ -29,6 +29,7 @@
     return {
       id: seed.id || BlessERP.utils.uid("COM-MIX-ITEM"),
       variety: seed.variety || (index === 0 ? "EXPLORER" : "MONDIAL"),
+      quality: BlessERP.flowerQuality?.preserve?.(seed.quality) || "PREMIUM",
       length: Math.max(30, number(seed.length, 70)),
       anyLength: seed.anyLength === true || isAnyLengthValue(seed.lengthSelection),
       bunches: Math.max(1, number(seed.bunches, 1)),
@@ -51,8 +52,9 @@
       mode,
       firstBox: Math.max(1, Math.floor(number(seed.firstBox, nextBoxNumber(order)))),
       quantity: Math.max(1, Math.min(200, Math.floor(number(seed.quantity, 1)))),
-      boxType: seed.boxType || "QB",
+      boxType: seed.boxType || "HB",
       variety: seed.variety || "EXPLORER",
+      quality: BlessERP.flowerQuality?.preserve?.(seed.quality) || "PREMIUM",
       length: Math.max(30, number(seed.length, 70)),
       anyLength,
       bunches: Math.max(1, number(seed.bunches, 1)),
@@ -136,6 +138,7 @@
 
     if (draft.mode === MODES.RANGE) {
       if (!text(draft.variety)) errors.push("Seleccione la variedad.");
+      if (!BlessERP.flowerQuality?.isValid?.(draft.quality)) errors.push("Seleccione la calidad PREMIUM o TIPO B.");
       if ((!draft.anyLength && draft.length <= 0) || draft.bunches <= 0 || draft.stemsPerBunch <= 0) errors.push("Complete medida, ramos y tallos por ramo.");
       if (draft.unitPrice <= 0) errors.push("Ingrese el precio manual por tallo.");
     }
@@ -144,12 +147,14 @@
       if (!Array.isArray(draft.manualItems) || draft.manualItems.length < 2) errors.push("El mixto manual necesita al menos dos items.");
       (draft.manualItems || []).forEach((item, index) => {
         if (!text(item.variety)) errors.push(`Item ${index + 1}: seleccione variedad.`);
+        if (!BlessERP.flowerQuality?.isValid?.(item.quality)) errors.push(`Item ${index + 1}: seleccione calidad PREMIUM o TIPO B.`);
         if ((!item.anyLength && item.length <= 0) || item.bunches <= 0 || item.stemsPerBunch <= 0) errors.push(`Item ${index + 1}: complete medida, ramos y tallos.`);
         if (item.unitPrice <= 0) errors.push(`Item ${index + 1}: ingrese precio por tallo.`);
       });
     }
 
     if (draft.mode === MODES.OPEN_MIX) {
+      if (!BlessERP.flowerQuality?.isValid?.(draft.quality)) errors.push("Seleccione la calidad PREMIUM o TIPO B del mixto abierto.");
       if (!draft.anyLength && draft.length <= 0) errors.push("Seleccione la medida del mixto abierto.");
       if (draft.bunches <= 0 || draft.stemsPerBunch <= 0) errors.push("Complete ramos por caja y tallos por ramo.");
       if (draft.unitPrice <= 0) errors.push("Ingrese el precio comun por tallo del mixto abierto.");
@@ -190,6 +195,7 @@
           ...common,
           boxBuildMode: MODES.RANGE,
           variety: draft.variety,
+          quality: BlessERP.flowerQuality.normalize(draft.quality),
           length: draft.length,
           anyLength: Boolean(draft.anyLength),
           bunches: draft.bunches,
@@ -203,6 +209,7 @@
           ...common,
           boxBuildMode: MODES.MANUAL_MIX,
           variety: item.variety,
+          quality: BlessERP.flowerQuality.normalize(item.quality),
           length: item.length,
           anyLength: Boolean(item.anyLength),
           bunches: item.bunches,
@@ -216,6 +223,7 @@
           ...common,
           boxBuildMode: MODES.OPEN_MIX,
           variety: "MIXTO ABIERTO",
+          quality: BlessERP.flowerQuality.normalize(draft.quality),
           length: draft.length,
           anyLength: Boolean(draft.anyLength),
           bunches: draft.bunches,

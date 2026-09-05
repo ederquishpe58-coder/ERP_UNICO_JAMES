@@ -60,12 +60,13 @@
   }
 
   function renderReceptionItems(items, itemDraft) {
-    if (!items.length) return `<tr class="ops-reception-empty-row"><td colspan="8">Agregue una o varias variedades antes de registrar la recepcion.</td></tr>`;
+    if (!items.length) return `<tr class="ops-reception-empty-row"><td colspan="9">Agregue una o varias variedades antes de registrar la recepcion.</td></tr>`;
     return items.map((item, index) => `
       <tr class="${item.id === itemDraft.id ? "is-editing" : ""}">
         <td>${index + 1}</td>
         <td><strong>${utils.esc(item.variety)}</strong></td>
         <td>${utils.esc(item.stemType)}</td>
+        <td>${utils.esc(BlessERP.flowerQuality.label(item.quality))}</td>
         <td>${utils.number(item.meshCount)}</td>
         <td>${utils.number(item.stemsPerMesh)}</td>
         <td>${utils.number(item.extraStems)}</td>
@@ -334,12 +335,13 @@
         </div>
 
         <div class="compact-table-wrap ops-reception-items-wrap"><table class="compact-table ops-reception-items-table">
-          <thead><tr><th>#</th><th>Variedad</th><th>Tipo tallo</th><th>Numero mallas</th><th>Tallos/malla</th><th>Tallos extras</th><th>Total</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>#</th><th>Variedad</th><th>Tipo tallo</th><th>Calidad</th><th>Numero mallas</th><th>Tallos/malla</th><th>Tallos extras</th><th>Total</th><th>Acciones</th></tr></thead>
           <tbody>
             <tr class="ops-reception-editor-row">
               <td>${itemDraft.id ? itemIndex + 1 : (draft.items || []).length + 1}</td>
               <td><select aria-label="Variedad" data-ops-bind="receptionItemDraft" data-field="variety"><option value="" ${itemDraft.variety ? "" : "selected"} disabled>VARIEDAD</option>${optionList(store.catalogs.varieties, itemDraft.variety)}</select></td>
               <td><select data-ops-bind="receptionItemDraft" data-field="stemType">${optionList(store.catalogs.stemTypes, itemDraft.stemType)}</select></td>
+              <td><label class="ops-quality-inline"><span>${utils.esc(BlessERP.flowerQuality.label(itemDraft.quality))}</span><span class="ops-quality-checkbox-control"><input type="checkbox" data-ops-reception-tipo-b ${BlessERP.flowerQuality.isTipoB(itemDraft.quality) ? "checked" : ""}> TIPO B</span></label></td>
               <td><input type="number" min="1" value="${utils.esc(itemDraft.meshCount)}" data-ops-bind="receptionItemDraft" data-field="meshCount"></td>
               <td><input type="number" min="1" value="${utils.esc(itemDraft.stemsPerMesh)}" data-ops-bind="receptionItemDraft" data-field="stemsPerMesh"></td>
               <td><input type="number" min="0" value="${utils.esc(itemDraft.extraStems)}" data-ops-bind="receptionItemDraft" data-field="extraStems"></td>
@@ -348,7 +350,7 @@
             </tr>
             ${renderReceptionItems(draft.items || [], itemDraft)}
           </tbody>
-          <tfoot><tr><td colspan="6"><strong>Total de la recepcion</strong></td><td><strong data-ops-reception-total>${utils.number(draft.totalDeclared)}</strong></td><td>${(draft.items || []).length} item(s)</td></tr></tfoot>
+          <tfoot><tr><td colspan="7"><strong>Total de la recepcion</strong></td><td><strong data-ops-reception-total>${utils.number(draft.totalDeclared)}</strong></td><td>${(draft.items || []).length} item(s)</td></tr></tfoot>
         </table></div>
         <div class="ops-reception-sheet-footer">
           <p class="panel-note">Registrar la recepcion solo crea el saldo pendiente. La flor pasa a EN CLASIFICACION unicamente cuando se registra su entrega al clasificador.</p>

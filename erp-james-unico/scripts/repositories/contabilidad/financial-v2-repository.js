@@ -104,6 +104,15 @@
       && window.location?.protocol !== "file:");
   }
 
+  function commercialProfitabilityReadConfigured() {
+    const config = BlessERP.getEnvConfig?.() || {};
+    return Boolean(config.supabaseEnabled
+      && typeof BlessERP.getSupabaseClient === "function"
+      && BlessERP.getSupabaseClient()?.rpc
+      && activeCompanyUuid()
+      && window.location?.protocol !== "file:");
+  }
+
   function canExecute() {
     const companyId = activeCompanyUuid();
     return Boolean(configured() && health.status === "VERIFIED" && health.companyId === companyId
@@ -299,12 +308,8 @@
     if (dateFrom > dateTo) {
       return { ok: false, rows: [], orders: [], message: "La fecha Desde no puede ser posterior a Hasta." };
     }
-    if (!configured() || !companyId) {
+    if (!commercialProfitabilityReadConfigured() || !companyId) {
       return { ok: false, rows: [], orders: [], message: "Supabase financiero no disponible." };
-    }
-    const backend = await probeBackend();
-    if (!backend.ok || !canExecute()) {
-      return { ok: false, rows: [], orders: [], message: backend.message || "Backend financiero no disponible." };
     }
 
     const rows = [];

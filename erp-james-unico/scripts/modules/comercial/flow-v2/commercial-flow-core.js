@@ -68,10 +68,14 @@
     db.commercial.exportShipmentFlights = Array.isArray(db.commercial.exportShipmentFlights) ? db.commercial.exportShipmentFlights : [];
     db.commercial.exportShipmentEvents = Array.isArray(db.commercial.exportShipmentEvents) ? db.commercial.exportShipmentEvents : [];
     db.commercial.airlineCatalog = Array.isArray(db.commercial.airlineCatalog) ? db.commercial.airlineCatalog : [];
-    REQUIRED_AIRLINES.forEach(required => {
-      const exists = db.commercial.airlineCatalog.some(row => String(row.awbPrefix || "").padStart(3, "0") === required.awbPrefix);
-      if (!exists) db.commercial.airlineCatalog.push(clone(required));
-    });
+    const airlinesHaveCanonicalEvidence = BlessERP.syncEntityRegistry
+      ?.hasCanonicalServerEvidence?.(db, "commercial_airlines") === true;
+    if (!airlinesHaveCanonicalEvidence) {
+      REQUIRED_AIRLINES.forEach(required => {
+        const exists = db.commercial.airlineCatalog.some(row => upper(row.awbPrefix) === required.awbPrefix);
+        if (!exists) db.commercial.airlineCatalog.push(clone(required));
+      });
+    }
     db.commercial.sequenceLedger = db.commercial.sequenceLedger && typeof db.commercial.sequenceLedger === "object"
       ? db.commercial.sequenceLedger
       : {};
@@ -137,8 +141,17 @@
         history: { date: today(), search: "", market: "TODOS", page: 1, pageSize: 20 },
         tracking: { date: today(), search: "", page: 1, pageSize: 20 },
         coordination: { date: today(), status: "TODOS", page: 1, pageSize: 30, routeSheetOpen: false, routeSheetSelectedIds: [] },
-        availability: { variety: "TODAS", length: "TODAS" },
-        coldRoom: { date: today(), status: "TODOS", page: 1, pageSize: 20, orderId: "", boxNumber: 1 },
+        availability: {
+          variety: "TODAS",
+          length: "TODAS",
+          remoteRows: [],
+          remoteLoaded: false,
+          remoteLoading: false,
+          remoteAttempted: false,
+          remoteError: "",
+          remoteMode: ""
+        },
+        coldRoom: { date: today(), status: "TODOS", page: 1, pageSize: 20, orderId: "", sellingCompanyId: "", boxNumber: 1, sharedOrders: [], sharedLoaded: false, sharedLoading: false },
         exportShipment: { selectedId: "", selectedOrderId: "", status: "TODOS", message: "", tone: "info" },
         salesRepresentatives: [],
         salesRepresentativesLoaded: false,
@@ -159,6 +172,7 @@
       brands: (commercial.brandCatalog || []).filter(row => sameCompany(row) && upper(row.status || "ACTIVO") !== "INACTIVO"),
       agencies: (commercial.agencyCatalog || []).filter(row => upper(row.status || "ACTIVA") !== "INACTIVA"),
       airlines: (commercial.airlineCatalog || []).filter(row => upper(row.status || "ACTIVA") !== "INACTIVA"),
+      destinations: (commercial.destinationCatalog || []).filter(row => sameCompany(row) && upper(row.status || "ACTIVO") !== "INACTIVO"),
       daes: (commercial.daeCatalog || []).filter(row => sameCompany(row) && upper(row.status || "ACTIVA") === "ACTIVA"),
       countries: (commercial.countryCatalog || []).filter(row => upper(row.status || "ACTIVO") !== "INACTIVO"),
       varieties: (db.operations?.masterData?.varieties || []).filter(row => row.active !== false),
@@ -173,6 +187,34 @@
 
   function brandFor(appState, brandId) {
     return catalogs(appState).brands.find(row => String(row.id) === String(brandId)) || null;
+  }
+
+  function destinationFor(appState, destinationId) {
+    return catalogs(appState).destinations.find(row => String(row.id) === String(destinationId)) || null;
+  }
+
+  function matchingDestination(appState, order = {}) {
+    const explicit = destinationFor(appState, order.destinationId || order.destination_id);
+    if (explicit) return explicit;
+    const destination = upper(order.destination);
+    const country = upper(order.destinationCountry || order.country);
+    return catalogs(appState).destinations.find(row => (
+      (destination && upper(row.destination) === destination)
+      || (country && upper(row.country || row.destination) === country)
+    )) || null;
+  }
+
+  function applyCanonicalDestination(draft, destination) {
+    if (!destination) {
+      draft.destinationId = "";
+      return false;
+    }
+    draft.destinationId = destination.id;
+    draft.destination = destination.destination || destination.country || "";
+    draft.destinationCountry = destination.country || destination.destination || "";
+    draft.destinationModifiedManual = false;
+    draft.destinationCountryModifiedManual = false;
+    return true;
   }
 
   function agencyFor(appState, agencyId) {
@@ -196,8 +238,9 @@
     }
   }
 
-  function guideDigits(value) {
-    return String(value || "").replace(/\D/g, "").slice(0, 11);
+  function guidePrefix(value) {
+    return commercialUtils?.getAwbPrefix?.(value)
+      || String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3);
   }
 
   function normalizeTransportReferences(transportType, values = {}) {
@@ -219,10 +262,10 @@
     return normalized;
   }
 
-  function normalizeMotherGuide(value, transportType = "aereo", options = {}) {
+  function normalizeMotherGuide(value, transportType = "aereo") {
     if (commercialUtils?.normalizeMaritimeMotherGuide
       && upper(commercialUtils.normalizeTransportType?.(transportType) || transportType) === "MARITIMO") {
-      return commercialUtils.normalizeMaritimeMotherGuide(value, { ensurePrefix: options.ensureMaritimePrefix === true });
+      return commercialUtils.normalizeMaritimeMotherGuide(value);
     }
     return normalizeTransportReferences(transportType, { awb: value }).awb;
   }
@@ -235,9 +278,9 @@
 
   function airlineForGuide(appState, value, transportType = "aereo") {
     if (upper(commercialUtils?.normalizeTransportType?.(transportType) || transportType) !== "AEREO") return null;
-    const prefix = guideDigits(value).slice(0, 3);
+    const prefix = guidePrefix(value);
     if (prefix.length !== 3) return null;
-    return catalogs(appState).airlines.find(row => String(row.awbPrefix || "").padStart(3, "0") === prefix) || null;
+    return catalogs(appState).airlines.find(row => upper(row.awbPrefix) === prefix) || null;
   }
 
   function isLocalCustomer(customer) {
@@ -256,7 +299,7 @@
     const transport = upper(commercialUtils?.normalizeTransportType?.(order?.transportType) || order?.transportType || "AEREO");
     const references = normalizeTransportReferences(transport, order || {});
     if (transport === "AEREO") {
-      return guideDigits(references.awb).length === 11 && Boolean(references.hawb) ? "COORDINADA" : "PENDIENTE";
+      return commercialUtils?.isValidAirMawb?.(references.awb) && Boolean(references.hawb) ? "COORDINADA" : "PENDIENTE";
     }
     if (transport === "MARITIMO") {
       return Boolean(references.awb && references.hawb) ? "COORDINADA" : "PENDIENTE";
@@ -324,12 +367,12 @@
     if (["NO_INVENTORY", "SIN_INVENTARIO", "EXTERNAL_PURCHASE"].includes(mode)) return false;
     if (["WITH_INVENTORY", "CON_INVENTARIO"].includes(mode)) return true;
     if (typeof order?.affectsInventory === "boolean") return order.affectsInventory;
-    return !/IMPERIO/i.test(text(order?.sellingCompanyId || order?.companyId || order?.company_id));
+    return true;
   }
 
   function blankDraft(appState, seed = {}) {
     const companyId = activeCompanyId(appState);
-    const inventoryMode = seed.inventoryMode || (/IMPERIO/i.test(companyId) ? "NO_INVENTORY" : "WITH_INVENTORY");
+    const inventoryMode = orderUsesInventory(seed) ? "WITH_INVENTORY" : "NO_INVENTORY";
     const created = data.createOrder({
       ...seed,
       id: seed.id || BlessERP.utils.uid("COM-DRAFT"),
@@ -350,7 +393,7 @@
       affectsInventory: inventoryMode !== "NO_INVENTORY",
       lines: Array.isArray(seed.lines) ? seed.lines : []
     });
-    Object.assign(created, normalizeOrderTransportPayload(created, { ensureMaritimePrefix: true }));
+    Object.assign(created, normalizeOrderTransportPayload(created));
     created.flowVersion = 2;
     created.persistenceMode = "FORM_MEMORY_ONLY";
     if (!text(created.seller_id || created.sellerId)) {
@@ -380,13 +423,48 @@
     return ensureDomain(appState).commercial.orders.find(row => String(row.id) === String(orderId)) || null;
   }
 
+  function findWarehouseOrder(appState, orderId, sellingCompanyId = "") {
+    const ui = sessionFor(appState).coldRoom;
+    const seller = text(sellingCompanyId || ui.sellingCompanyId);
+    return (ui.sharedOrders || []).find(row => (
+      String(row.id) === String(orderId)
+      && (!seller || text(row.sellingCompanyId) === seller)
+    )) || findOrder(appState, orderId);
+  }
+
+  function mapSharedColdRoomOrder(row) {
+    return {
+      id: text(row.order_id || row.orderId),
+      number: text(row.order_number || row.orderNumber),
+      issuedAt: text(row.issued_at || row.issuedAt),
+      status: text(row.status),
+      dispatchStatus: text(row.dispatch_status || row.dispatchStatus),
+      lines: Array.isArray(row.lines) ? row.lines : [],
+      canonicalBoxes: Array.isArray(row.boxes) ? row.boxes : [],
+      requiredBunches: number(row.required_bunches || row.requiredBunches),
+      packedBunches: number(row.packed_bunches || row.packedBunches),
+      sellingCompanyId: text(row.selling_company_id || row.sellingCompanyId),
+      sellingCompanyKey: text(row.selling_company_key || row.sellingCompanyKey),
+      sellingCompanyName: text(row.selling_company_name || row.sellingCompanyName),
+      inventoryPoolCompanyId: text(row.inventory_pool_company_id || row.inventoryPoolCompanyId),
+      customerId: text(row.customer_id || row.customerId),
+      customerDisplay: text(row.customer_display || row.customerDisplay),
+      saleType: text(row.sale_type || row.saleType),
+      dispatchId: text(row.dispatch_id || row.dispatchId),
+      dispatchCode: text(row.dispatch_code || row.dispatchCode),
+      dispatchedAt: text(row.dispatched_at || row.dispatchedAt),
+      affectsInventory: true,
+      inventoryMode: "WITH_INVENTORY"
+    };
+  }
+
   function openOrder(appState, orderId) {
     const order = findOrder(appState, orderId);
     if (!order) return { ok: false, error: "El pedido no existe en la base local." };
     const session = sessionFor(appState);
     session.mode = "EDIT";
     session.selectedOrderId = order.id;
-    session.draft = data.createOrder(normalizeOrderTransportPayload(clone(order), { ensureMaritimePrefix: true }));
+    session.draft = data.createOrder(normalizeOrderTransportPayload(clone(order)));
     session.draft.unsavedDraft = false;
     session.draft.numberPending = false;
     session.draft.persistenceMode = "FORM_MEMORY_ONLY";
@@ -408,35 +486,38 @@
     }
     const previousTransportType = draft.transportType;
     const numericFields = new Set(["creditDays"]);
-    draft[field] = numericFields.has(field) ? number(value) : value;
+    draft[field] = field === "discountPercentage"
+      ? (String(value ?? "").trim() === "" ? 0 : Number(value))
+      : numericFields.has(field) ? number(value) : value;
     if (field === "inventoryMode") {
       draft.inventoryMode = upper(value) === "NO_INVENTORY" ? "NO_INVENTORY" : "WITH_INVENTORY";
       draft.affectsInventory = draft.inventoryMode === "WITH_INVENTORY";
     }
     if (field === "awb") {
       const transport = draft.transportType || "aereo";
-      draft.awb = normalizeMotherGuide(value, transport, { ensureMaritimePrefix: true });
-      const digits = guideDigits(value);
+      draft.awb = normalizeMotherGuide(value, transport);
+      const prefix = guidePrefix(value);
       const airline = airlineForGuide(appState, value, transport);
       if (airline) draft.airlineId = airline.id;
-      else if (upper(commercialUtils?.normalizeTransportType?.(transport) || transport) !== "AEREO" || digits.length >= 3) draft.airlineId = "";
+      else if (upper(commercialUtils?.normalizeTransportType?.(transport) || transport) !== "AEREO" || prefix.length >= 3) draft.airlineId = "";
     }
     if (field === "hawb") {
       draft.hawb = normalizeCoordinationValue("hawb", value, draft.transportType);
     }
     if (field === "transportType") {
-      Object.assign(draft, normalizeOrderTransportPayload(draft, {
-        previousTransportType,
-        ensureMaritimePrefix: true
-      }));
+      Object.assign(draft, normalizeOrderTransportPayload(draft, { previousTransportType }));
     }
     if (field === "customerId") {
       const customer = customerFor(appState, value);
       draft.saleType = isLocalCustomer(customer) ? "LOCAL" : "EXPORTACION";
-      if (isLocalCustomer(customer)) {
+      if (!catalogs(appState).brands.some(row => String(row.id) === String(draft.brandId) && String(row.customerId) === String(value))) {
         draft.brandId = "";
+      }
+      if (isLocalCustomer(customer)) {
         draft.destination = "ECUADOR";
         draft.destinationCountry = "ECUADOR";
+        const localDestination = catalogs(appState).destinations.find(row => upper(row.destination) === "ECUADOR" || upper(row.country) === "ECUADOR");
+        draft.destinationId = localDestination?.id || "";
         draft.coldRoom = "RETIRA EN FINCA";
         draft.localPickup = true;
         draft.daeNumber = "";
@@ -448,12 +529,18 @@
       if (brand) {
         draft.destination = brand.destination || brand.country || draft.destination;
         draft.destinationCountry = brand.country || draft.destinationCountry;
+        draft.destinationId = "";
+        const destination = matchingDestination(appState, draft);
+        if (destination) draft.destinationId = destination.id;
         draft.agencyId = brand.defaultAgencyId || draft.agencyId;
         if (brand.defaultAgencyId) selectAgencyLogistics(draft, agencyFor(appState, brand.defaultAgencyId));
         const matchingDaes = catalogs(appState).daes.filter(row => upper(row.country || row.destination) === upper(draft.destinationCountry));
         const defaultDae = matchingDaes.find(row => row.isDefault) || matchingDaes[0];
         if (defaultDae && !draft.daeModifiedManual) draft.daeNumber = defaultDae.number;
       }
+    }
+    if (field === "destinationId") {
+      applyCanonicalDestination(draft, destinationFor(appState, value));
     }
     if (field === "agencyId") selectAgencyLogistics(draft, agencyFor(appState, value));
     if (field === "coldRoom") {
@@ -463,6 +550,8 @@
     if (field === "saleType" && upper(value) === "LOCAL") {
       draft.destination = "ECUADOR";
       draft.destinationCountry = "ECUADOR";
+      const localDestination = catalogs(appState).destinations.find(row => upper(row.destination) === "ECUADOR" || upper(row.country) === "ECUADOR");
+      draft.destinationId = localDestination?.id || "";
       draft.coldRoom = "RETIRA EN FINCA";
       draft.daeNumber = "";
       draft.agencyId = "";
@@ -477,12 +566,18 @@
 
   function setBoxMode(appState, mode) {
     const session = sessionFor(appState);
+    const previousMode = upper(session.boxDraft?.mode);
+    const nextMode = upper(mode);
+    const anyLength = nextMode === "MIXTO_ABIERTO"
+      ? (previousMode === "MIXTO_ABIERTO" ? Boolean(session.boxDraft?.anyLength) : true)
+      : false;
     session.boxDraft = boxBuilder.normalizeDraft?.({
       ...session.boxDraft,
       mode,
+      anyLength,
       firstBox: Math.max(0, ...(getDraft(appState).lines || []).map(line => Number(line.boxNumber || 0))) + 1,
       generalPo: getDraft(appState).generalPo
-    }) || { ...session.boxDraft, mode };
+    }) || { ...session.boxDraft, mode, anyLength };
     return session.boxDraft;
   }
 
@@ -564,6 +659,7 @@
       boxType: base.boxType,
       boxBuildMode: "MIXTO_MANUAL",
       variety: "",
+      quality: BlessERP.flowerQuality?.normalize?.(base.quality) || "",
       length: base.length || 60,
       bunches: 1,
       stemsPerBunch: 25,
@@ -579,6 +675,7 @@
     const line = draft.lines.find(row => String(row.id) === String(lineId));
     if (!line) return false;
     if (["boxNumber", "length", "bunches", "stemsPerBunch", "unitPrice"].includes(field)) line[field] = number(value);
+    else if (field === "quality") line.quality = BlessERP.flowerQuality?.normalize?.(value) || "";
     else line[field] = value;
     draft.formDirty = true;
     return true;
@@ -600,6 +697,7 @@
     if (!(draft.lines || []).length) errors.push("Agregue al menos una caja al pedido.");
     (draft.lines || []).forEach((line, index) => {
       if (!text(line.variety)) errors.push(`Línea ${index + 1}: falta variedad.`);
+      if (!BlessERP.flowerQuality?.isValid?.(line.quality)) errors.push(`Línea ${index + 1}: seleccione calidad PREMIUM o TIPO B.`);
       if (number(line.length) <= 0 || number(line.bunches) <= 0 || number(line.stemsPerBunch) <= 0) errors.push(`Línea ${index + 1}: medida, ramos y tallos deben ser mayores a cero.`);
       if (number(line.unitPrice) < 0) errors.push(`Línea ${index + 1}: el precio no puede ser negativo.`);
     });
@@ -607,13 +705,21 @@
       errors.push("No se puede convertir en venta sin inventario porque ya existen ramos escaneados en Cuarto Frío.");
     }
     if (!isLocalOrder(draft, appState) && !draft.brandId) errors.push("Seleccione la marca o cliente final de exportación.");
+    try {
+      commercialUtils.calculateOrderEconomics(draft);
+    } catch (error) {
+      errors.push(error.message || "El descuento del pedido no es válido.");
+    }
     const transport = upper(commercialUtils?.normalizeTransportType?.(draft.transportType) || draft.transportType || "AEREO");
     if (transport === "MARITIMO") {
-      if (!commercialUtils?.isMaritimeMotherGuide?.(draft.awb)) errors.push("La guía madre marítima debe comenzar con MAR- y contener una referencia.");
+      const destination = matchingDestination(appState, draft);
+      if (!destination) errors.push("Seleccione un destino activo del catálogo canónico para el pedido marítimo.");
+      else applyCanonicalDestination(draft, destination);
+      if (!commercialUtils?.isMaritimeMotherGuide?.(draft.awb)) errors.push("La guía madre marítima debe ser alfanumérica, admitir guion opcional y tener máximo 14 caracteres.");
       if (text(draft.airlineId || draft.airline_id || draft.airline || draft.airlineName)) errors.push("Un pedido marítimo no puede conservar una línea aérea.");
     }
-    if (transport === "AEREO" && commercialUtils?.isMaritimeMotherGuide?.(draft.awb)) {
-      errors.push("Una guía MAR- no puede utilizarse en un pedido aéreo.");
+    if (transport === "AEREO" && text(draft.awb) && !commercialUtils?.isValidAirMawb?.(draft.awb)) {
+      errors.push("La guía madre aérea debe tener un prefijo alfanumérico de 3 caracteres y 8 dígitos.");
     }
     if (draft.unsavedDraft && (!text(draft.seller_id || draft.sellerId) || !text(draft.sellerEmployeeId) || !text(draft.seller_name || draft.sellerName))) {
       errors.push("Seleccione el vendedor / Sales Representative del pedido.");
@@ -672,7 +778,7 @@
   }
 
   function normalizeConfirmedOrder(appState, draft, existing = null, options = {}) {
-    draft = normalizeOrderTransportPayload(draft, { ensureMaritimePrefix: true });
+    draft = normalizeOrderTransportPayload(draft);
     const remoteIdentifiers = options.remoteIdentifiers === true && !existing?.sriInvoiceNumber;
     const confirmedId = existing?.id || draft.id || BlessERP.utils.uid("COM-ORD");
     const series = invoiceSequence.saleSeries(
@@ -795,7 +901,7 @@
     const record = result?.serverRecord || {};
     const payload = record.payload && typeof record.payload === "object" ? record.payload : fallback;
     const order = data.createOrder({
-      ...normalizeOrderTransportPayload(clone(payload), { ensureMaritimePrefix: true }),
+      ...normalizeOrderTransportPayload(clone(payload)),
       id: text(payload?.id || record.record_id || fallback?.id),
       __syncVersion: number(record.version || result?.resultVersion || payload?.__syncVersion),
       __syncUpdatedAt: text(record.updated_at || result?.serverTime || payload?.__syncUpdatedAt),
@@ -893,7 +999,7 @@
   async function saveOrderConfirmed(appState) {
     const db = ensureDomain(appState);
     const draft = getDraft(appState);
-    Object.assign(draft, normalizeOrderTransportPayload(draft, { ensureMaritimePrefix: true }));
+    Object.assign(draft, normalizeOrderTransportPayload(draft));
     const validation = validateDraft(appState, draft);
     if (!validation.ok) return { ok: false, errors: validation.errors };
     const session = sessionFor(appState);
@@ -930,6 +1036,7 @@
     if (orderUsesInventory(persisted.order) && warehouseRepository()) {
       reservation = await warehouseRepository().reserveOrder(persisted.order.id, { allowPartial: true });
       if (reservation.ok) {
+        invalidateRemoteAvailability(appState);
         persisted.order = findOrder(appState, persisted.order.id) || persisted.order;
       }
     }
@@ -951,7 +1058,7 @@
   function saveOrder(appState) {
     const db = ensureDomain(appState);
     const draft = getDraft(appState);
-    Object.assign(draft, normalizeOrderTransportPayload(draft, { ensureMaritimePrefix: true }));
+    Object.assign(draft, normalizeOrderTransportPayload(draft));
     const validation = validateDraft(appState, draft);
     if (!validation.ok) return { ok: false, errors: validation.errors };
     const existing = sessionFor(appState).mode === "EDIT" ? findOrder(appState, sessionFor(appState).selectedOrderId) : null;
@@ -983,6 +1090,8 @@
     if (!orderUsesInventory(current)) return { ok: false, error: "La venta sin inventario no utiliza Cuarto Frío." };
     if (!current.lines?.length) return { ok: false, error: "El pedido no tiene cajas." };
     if (IMMUTABLE_SRI_STATES.has(upper(current.sriAuthorizationStatus))) return { ok: false, error: "El comprobante SRI ya no admite cambios." };
+    const warehouse = warehouseRepository();
+    if (!warehouse) return { ok: false, error: "Supabase TEST no confirmó el contrato de reserva; el pedido no se envió a Cuarto Frío." };
     current.status = "EN_CUARTO_FRIO";
     current.warehouseStatus = "EN_CUARTO_FRIO";
     current.fulfillmentStatus = "PENDIENTE";
@@ -1009,6 +1118,8 @@
     if (!orderUsesInventory(current)) return { ok: false, error: "La venta sin inventario no utiliza Cuarto Frío." };
     if (!current.lines?.length) return { ok: false, error: "El pedido no tiene cajas." };
     if (IMMUTABLE_SRI_STATES.has(upper(current.sriAuthorizationStatus))) return { ok: false, error: "El comprobante SRI ya no admite cambios." };
+    const warehouse = warehouseRepository();
+    if (!warehouse) return { ok: false, error: "Supabase TEST no confirmó el contrato de reserva; el pedido no se envió a Cuarto Frío." };
     const updated = clone(current);
     updated.status = "EN_CUARTO_FRIO";
     updated.warehouseStatus = "EN_CUARTO_FRIO";
@@ -1026,8 +1137,8 @@
     if (!persisted.ok) return persisted;
     replaceConfirmedOrder(appState, persisted.order);
     let reservation = null;
-    if (warehouseRepository()) {
-      reservation = await warehouseRepository().reserveOrder(persisted.order.id, { allowPartial: true });
+    if (warehouse) {
+      reservation = await warehouse.reserveOrder(persisted.order.id, { allowPartial: true });
       if (!reservation.ok) {
         return {
           ok: false,
@@ -1036,6 +1147,7 @@
           reservationPending: true
         };
       }
+      invalidateRemoteAvailability(appState);
       persisted.order = findOrder(appState, persisted.order.id) || persisted.order;
     }
     newDraft(appState);
@@ -1052,6 +1164,7 @@
     if (current && orderUsesInventory(current) && warehouseRepository()) {
       const result = await warehouseRepository().cancelOrder(orderId, normalizedReason);
       if (!result.ok) return { ok: false, error: result.message || "Supabase no confirmó la anulación y liberación." };
+      invalidateRemoteAvailability(appState);
       return {
         ok: true,
         order: findOrder(appState, orderId),
@@ -1081,8 +1194,8 @@
     return ensureDomain(appState).commercial.orders.filter(order => orderUsesInventory(order) && ACTIVE_ORDER_STATES.has(upper(order.status)));
   }
 
-  function keyOf(variety, length, quality = "EXPORTACION") {
-    return `${upper(variety)}|${number(length)}|${upper(quality || "EXPORTACION")}`;
+  function keyOf(variety, length, quality = "") {
+    return `${upper(variety)}|${number(length)}|${BlessERP.flowerQuality?.preserve?.(quality) || ""}`;
   }
 
   function requestedBunches(line) {
@@ -1099,8 +1212,12 @@
 
   function buildOrderFulfillment(order) {
     if (!order) return null;
-    const boxRegistry = (BlessERP.state?.state?.db?.operations?.orderBoxes || [])
-      .filter(box => String(box.orderId || "") === String(order.id));
+    const sellerId = text(order.sellingCompanyId);
+    const canonicalBoxes = Array.isArray(order.canonicalBoxes) ? order.canonicalBoxes : [];
+    const cachedBoxes = (BlessERP.state?.state?.db?.operations?.orderBoxes || [])
+      .filter(box => String(box.orderId || "") === String(order.id)
+        && (!sellerId || !box.companyId || String(box.companyId) === sellerId));
+    const boxRegistry = canonicalBoxes.length ? canonicalBoxes : cachedBoxes;
     const boxes = groupOrderBoxes(order).map(box => {
       const registry = boxRegistry.find(item => number(item.boxNumber) === number(box.boxNumber)) || null;
       const required = box.lines.reduce((sum, line) => sum + requestedBunches(line), 0);
@@ -1109,6 +1226,7 @@
         lineId: line.id,
         variety: line.variety,
         length: number(line.length),
+        quality: BlessERP.flowerQuality?.preserve?.(line.quality) || "",
         requiredBunches: requestedBunches(line),
         scannedBunches: scannedBunches(line),
         pendingBunches: Math.max(requestedBunches(line) - scannedBunches(line), 0),
@@ -1166,6 +1284,7 @@
       inventoryId: inventory.inventoryId,
       variety: inventory.variety,
       length: number(inventory.length),
+      quality: BlessERP.flowerQuality?.normalize?.(inventory.quality) || "",
       stems: number(inventory.stems || inventory.stemsPerBunch),
       scannedAt: nowIso()
     });
@@ -1179,6 +1298,9 @@
   }
 
   function compatibleLine(line, inventory) {
+    const lineQuality = BlessERP.flowerQuality?.normalize?.(line.quality) || "";
+    const inventoryQuality = BlessERP.flowerQuality?.normalize?.(inventory.quality) || "";
+    if (!lineQuality || !inventoryQuality || lineQuality !== inventoryQuality) return false;
     const openMixed = upper(line.boxBuildMode) === "MIXTO_ABIERTO" || upper(line.variety) === "MIXTO ABIERTO";
     if (openMixed) {
       const excluded = new Set((line.mixedExcludedVarieties || []).map(upper));
@@ -1187,28 +1309,52 @@
     return upper(line.variety) === upper(inventory.variety) && (line.anyLength || number(line.length) === number(inventory.length));
   }
 
+  function matchesVarietyLength(line, inventory) {
+    const openMixed = upper(line.boxBuildMode) === "MIXTO_ABIERTO" || upper(line.variety) === "MIXTO ABIERTO";
+    if (openMixed) {
+      const excluded = new Set((line.mixedExcludedVarieties || []).map(upper));
+      return !excluded.has(upper(inventory.variety)) && (line.anyLength || number(line.length) === number(inventory.length));
+    }
+    return upper(line.variety) === upper(inventory.variety) && (line.anyLength || number(line.length) === number(inventory.length));
+  }
+
+  function qualityMismatch(boxes, inventory) {
+    return boxes.some(box => box.lines.some(line => (
+      scannedBunches(line) < requestedBunches(line)
+      && matchesVarietyLength(line, inventory)
+      && !compatibleLine(line, inventory)
+    )));
+  }
+
   function orderContainsScan(order, code) {
     return (order?.lines || []).some(line => (line.scannedBunches || []).some(scan => (
       normalizeBunchBarcodeCode(scan.code || scan.labelCode) === normalizeBunchBarcodeCode(code)
     )));
   }
 
-  async function scanBunchForOrder(appState, orderId, boxNumber, rawCode) {
+  async function scanBunchForOrder(appState, orderId, boxNumber, rawCode, sellingCompanyId = "") {
     const normalizedCode = normalizeBunchBarcodeCode(rawCode);
     if (warehouseRepository()) {
-      const current = findOrder(appState, orderId);
+      const current = findWarehouseOrder(appState, orderId, sellingCompanyId);
       if (!current) return { ok: false, error: "Pedido no encontrado." };
       if (!orderUsesInventory(current)) return { ok: false, error: "La venta sin inventario no requiere escaneo en Cuarto Frío." };
-      const inventory = inventoryForCode(appState, normalizedCode);
-      if (!inventory) return { ok: false, error: "El código no corresponde a un ramo ingresado al inventario por escaneo." };
+      const sellerId = text(current.sellingCompanyId || sellingCompanyId || activeCompanyId(appState));
+      const context = await warehouseRepository().labelContext(sellerId, normalizedCode);
+      if (!context.ok || !context.row) return { ok: false, error: context.message || "El código no corresponde al inventario físico compartido." };
+      const inventory = context.row;
       const requestedBox = number(boxNumber);
+      const candidateBoxes = requestedBox > 0
+        ? groupOrderBoxes(current).filter(box => number(box.boxNumber) === requestedBox)
+        : groupOrderBoxes(current);
       const targetBox = requestedBox > 0
-        ? groupOrderBoxes(current).find(box => number(box.boxNumber) === requestedBox)
-        : groupOrderBoxes(current).find(box => box.lines.some(line => scannedBunches(line) < requestedBunches(line) && compatibleLine(line, inventory)));
+        ? candidateBoxes.find(box => box.lines.some(line => scannedBunches(line) < requestedBunches(line) && compatibleLine(line, inventory)))
+        : candidateBoxes.find(box => box.lines.some(line => scannedBunches(line) < requestedBunches(line) && compatibleLine(line, inventory)));
+      if (!targetBox && qualityMismatch(candidateBoxes, inventory)) return { ok: false, code: "CALIDAD_NO_CORRESPONDE", error: "CALIDAD_NO_CORRESPONDE: la calidad de la etiqueta no coincide con la línea pendiente." };
       if (!targetBox) return { ok: false, error: "La variedad o medida no corresponde a ninguna caja pendiente de este pedido." };
-      const result = await warehouseRepository().scanIntoBox(orderId, targetBox.boxNumber, normalizedCode);
+      const result = await warehouseRepository().scanIntoBox(orderId, targetBox.boxNumber, normalizedCode, { sellingCompanyId: sellerId });
       if (!result.ok) return { ok: false, error: result.message || "Supabase rechazó el escaneo." };
-      const canonicalOrder = findOrder(appState, orderId);
+      await refreshWarehouseOrders(appState, { force: true });
+      const canonicalOrder = findWarehouseOrder(appState, orderId, sellerId);
       const summary = buildOrderFulfillment(canonicalOrder);
       return {
         ok: true,
@@ -1219,6 +1365,10 @@
         alreadyPacked: result.result?.status === "ALREADY_PACKED",
         confirmedByServer: true
       };
+    }
+    const localOrder = findOrder(appState, orderId);
+    if ((localOrder?.lines || []).some(line => BlessERP.flowerQuality?.isValid?.(line.quality))) {
+      return { ok: false, code: "SUPABASE_REQUERIDO", error: "El escaneo con calidad canónica requiere autoridad Supabase TEST." };
     }
     return persistOrderMutation(appState, orderId, {
       action: "ESCANEAR_RAMO_CUARTO_FRIO",
@@ -1241,13 +1391,14 @@
         const targetBox = requestedBox > 0
           ? groupOrderBoxes(order).find(box => number(box.boxNumber) === requestedBox)
           : groupOrderBoxes(order).find(box => box.lines.some(line => scannedBunches(line) < requestedBunches(line) && compatibleLine(line, inventoryPatch)));
+        if (!targetBox && qualityMismatch(groupOrderBoxes(order), inventoryPatch)) return { ok: false, code: "CALIDAD_NO_CORRESPONDE", error: "CALIDAD_NO_CORRESPONDE: la calidad de la etiqueta no coincide con la línea pendiente." };
         if (!targetBox) return { ok: false, error: "La variedad o medida no corresponde a ninguna caja pendiente de este pedido." };
         const line = targetBox.lines.find(row => scannedBunches(row) < requestedBunches(row) && compatibleLine(row, inventoryPatch));
         if (!line) return { ok: false, error: "La variedad o medida no corresponde a lo pendiente en esta caja." };
         if (!appendScan(line, inventoryPatch, order, targetBox.boxNumber)) return { ok: false, error: "La etiqueta ya fue escaneada en este pedido." };
         if (upper(line.boxBuildMode) === "MIXTO_ABIERTO") {
           line.mixedActualComposition = Array.isArray(line.mixedActualComposition) ? line.mixedActualComposition : [];
-          line.mixedActualComposition.push({ variety: inventoryPatch.variety, length: number(inventoryPatch.length), bunches: 1, stems: number(inventoryPatch.stems || inventoryPatch.stemsPerBunch), code: inventoryPatch.labelCode });
+          line.mixedActualComposition.push({ variety: inventoryPatch.variety, length: number(inventoryPatch.length), quality: BlessERP.flowerQuality?.normalize?.(inventoryPatch.quality) || "", bunches: 1, stems: number(inventoryPatch.stems || inventoryPatch.stemsPerBunch), code: inventoryPatch.labelCode });
         }
         const summary = buildOrderFulfillment(order);
         order.fulfillmentStatus = summary.allBoxesComplete ? "COMPLETADO" : "INCOMPLETO";
@@ -1274,32 +1425,39 @@
     });
   }
 
-  async function scanBunchAutomatically(appState, orderId, rawCode) {
-    return scanBunchForOrder(appState, orderId, 0, rawCode);
+  async function scanBunchAutomatically(appState, orderId, rawCode, sellingCompanyId = "") {
+    return scanBunchForOrder(appState, orderId, 0, rawCode, sellingCompanyId);
   }
 
-  async function unassignBunchFromOrder(appState, orderId, labelCode, reason) {
+  async function unassignBunchFromOrder(appState, orderId, labelCode, reason, sellingCompanyId = "") {
     const repository = warehouseRepository();
     if (!repository) return { ok: false, error: "La desasignación V2 requiere conexión confirmada con Supabase." };
-    const result = await repository.unassignBunch(orderId, labelCode, reason);
+    const order = findWarehouseOrder(appState, orderId, sellingCompanyId);
+    const sellerId = text(order?.sellingCompanyId || sellingCompanyId || activeCompanyId(appState));
+    const result = await repository.unassignBunch(orderId, labelCode, reason, { sellingCompanyId: sellerId });
     if (!result.ok) return { ok: false, error: result.message || "Supabase no confirmó la desasignación." };
-    return { ok: true, order: findOrder(appState, orderId), result: result.result, confirmedByServer: true };
+    await refreshWarehouseOrders(appState, { force: true });
+    return { ok: true, order: findWarehouseOrder(appState, orderId, sellerId), result: result.result, confirmedByServer: true };
   }
 
-  async function closeWarehouseBox(appState, orderId, boxNumber) {
+  async function closeWarehouseBox(appState, orderId, boxNumber, sellingCompanyId = "") {
     const repository = warehouseRepository();
     if (!repository) return { ok: false, error: "El cierre V2 requiere conexión confirmada con Supabase." };
-    const result = await repository.closeBox(orderId, boxNumber);
+    const order = findWarehouseOrder(appState, orderId, sellingCompanyId);
+    const result = await repository.closeBox(orderId, boxNumber, { sellingCompanyId: text(order?.sellingCompanyId || sellingCompanyId) });
     if (!result.ok) return { ok: false, error: result.message || "Supabase no confirmó el cierre de caja." };
-    return { ok: true, order: findOrder(appState, orderId), result: result.result, confirmedByServer: true };
+    await refreshWarehouseOrders(appState, { force: true });
+    return { ok: true, order: findWarehouseOrder(appState, orderId, sellingCompanyId), result: result.result, confirmedByServer: true };
   }
 
-  async function reopenWarehouseBox(appState, orderId, boxNumber, reason) {
+  async function reopenWarehouseBox(appState, orderId, boxNumber, reason, sellingCompanyId = "") {
     const repository = warehouseRepository();
     if (!repository) return { ok: false, error: "La reapertura V2 requiere conexión confirmada con Supabase." };
-    const result = await repository.reopenBox(orderId, boxNumber, reason);
+    const order = findWarehouseOrder(appState, orderId, sellingCompanyId);
+    const result = await repository.reopenBox(orderId, boxNumber, reason, { sellingCompanyId: text(order?.sellingCompanyId || sellingCompanyId) });
     if (!result.ok) return { ok: false, error: result.message || "Supabase no confirmó la reapertura de caja." };
-    return { ok: true, order: findOrder(appState, orderId), result: result.result, confirmedByServer: true };
+    await refreshWarehouseOrders(appState, { force: true });
+    return { ok: true, order: findWarehouseOrder(appState, orderId, sellingCompanyId), result: result.result, confirmedByServer: true };
   }
 
   function localPoolFor(appState, customerId) {
@@ -1346,17 +1504,17 @@
     return { ok: true, inventory: ensureDomain(appState).operations.roseInventory.find(row => String(row.inventoryId) === String(inventoryId)), confirmedByServer: true };
   }
 
-  function getAvailabilityRows(appState) {
+  function localAvailabilityRows(appState) {
     const db = ensureDomain(appState);
     const rows = new Map();
-    const ensure = (variety, length, quality = "EXPORTACION") => {
+    const ensure = (variety, length, quality = "") => {
       const key = keyOf(variety, length, quality);
-      if (!rows.has(key)) rows.set(key, { key, variety: upper(variety), length: number(length), quality: upper(quality || "EXPORTACION"), physicalBunches: 0, demandBunches: 0, scannedBunches: 0, availableBunches: 0, physicalStems: 0, demandStems: 0, availableStems: 0 });
+      if (!rows.has(key)) rows.set(key, { key, variety: upper(variety), length: number(length), quality: BlessERP.flowerQuality?.preserve?.(quality) || "", physicalBunches: 0, demandBunches: 0, scannedBunches: 0, availableBunches: 0, physicalStems: 0, demandStems: 0, availableStems: 0 });
       return rows.get(key);
     };
     db.operations.roseInventory.forEach(item => {
       if (["ANULADO", "DESPACHADO", "DISPATCHED", "CONSUMIDO"].includes(upper(item.state))) return;
-      const row = ensure(item.variety, item.length, item.quality || item.category);
+      const row = ensure(item.variety, item.length, item.quality);
       row.physicalBunches += number(item.bunches || 1);
       row.physicalStems += number(item.stems || item.stemsPerBunch);
       if (["PACKED", "EMPACADO", "ASIGNADO_CAJA"].includes(upper(item.state))) row.packedBunches = number(row.packedBunches) + number(item.bunches || 1);
@@ -1394,10 +1552,10 @@
     }
     rows.forEach(row => {
       const physicallyFree = db.operations.roseInventory.filter(item => (
-        keyOf(item.variety, item.length, item.quality || item.category) === row.key && upper(item.state) === "DISPONIBLE"
+        keyOf(item.variety, item.length, item.quality) === row.key && upper(item.state) === "DISPONIBLE"
       )).reduce((sum, item) => sum + number(item.bunches || 1), 0);
       const physicallyFreeStems = db.operations.roseInventory.filter(item => (
-        keyOf(item.variety, item.length, item.quality || item.category) === row.key && upper(item.state) === "DISPONIBLE"
+        keyOf(item.variety, item.length, item.quality) === row.key && upper(item.state) === "DISPONIBLE"
       )).reduce((sum, item) => sum + number(item.stems || item.stemsPerBunch), 0);
       row.availableBunches = Math.max(physicallyFree - number(row.reservedBunches), 0);
       row.availableStems = Math.max(physicallyFreeStems - number(row.reservedStems), 0);
@@ -1406,24 +1564,128 @@
     return [...rows.values()].sort((a, b) => a.variety.localeCompare(b.variety, "es") || a.length - b.length);
   }
 
+  function normalizeRemoteAvailabilityRow(row = {}) {
+    const reservedBunches = number(row.reserved_bunches ?? row.reservedBunches);
+    const assignedBunches = number(row.assigned_bunches ?? row.assignedBunches);
+    const packedBunches = number(row.packed_bunches ?? row.packedBunches);
+    return {
+      key: text(row.dimension_key ?? row.dimensionKey) || keyOf(row.variety, row.length, row.quality),
+      variety: upper(row.variety),
+      length: number(row.length),
+      quality: BlessERP.flowerQuality?.preserve?.(row.quality) || text(row.quality),
+      physicalBunches: number(row.physical_bunches ?? row.physicalBunches),
+      physicalStems: number(row.physical_stems ?? row.physicalStems),
+      reservedBunches,
+      reservedStems: 0,
+      assignedBunches,
+      packedBunches,
+      blockedBunches: number(row.blocked_bunches ?? row.blockedBunches),
+      scannedBunches: assignedBunches + packedBunches,
+      demandBunches: reservedBunches + assignedBunches + packedBunches,
+      demandStems: 0,
+      availableBunches: number(row.available_bunches ?? row.availableBunches),
+      availableStems: number(row.available_stems ?? row.availableStems),
+      source: "WAREHOUSE_V2_REMOTE"
+    };
+  }
+
+  function invalidateRemoteAvailability(appState) {
+    const state = sessionFor(appState).availability;
+    state.remoteLoaded = false;
+    state.remoteAttempted = false;
+    state.remoteError = "";
+  }
+
+  async function refreshAvailability(appState) {
+    const state = sessionFor(appState).availability;
+    const repository = warehouseRepository();
+    if (!repository) {
+      state.remoteRows = [];
+      state.remoteLoaded = false;
+      state.remoteLoading = false;
+      state.remoteAttempted = false;
+      state.remoteError = "";
+      state.remoteMode = "LOCAL_ONLY";
+      return { ok: true, rows: localAvailabilityRows(appState), mode: "LOCAL_ONLY" };
+    }
+    if (state.remoteLoading) return { ok: false, rows: [], mode: "LOADING" };
+    state.remoteLoading = true;
+    state.remoteAttempted = true;
+    state.remoteError = "";
+    try {
+      const response = await repository.availability();
+      state.remoteMode = text(response?.mode || "");
+      if (!response?.ok) {
+        state.remoteRows = [];
+        state.remoteLoaded = false;
+        state.remoteError = text(response?.message || response?.error?.message || "No se pudo consultar la disponibilidad compartida en Supabase.");
+        return { ...response, ok: false, rows: [] };
+      }
+      state.remoteRows = (response.rows || []).map(normalizeRemoteAvailabilityRow);
+      state.remoteLoaded = true;
+      return { ...response, ok: true, rows: [...state.remoteRows] };
+    } catch (error) {
+      state.remoteRows = [];
+      state.remoteLoaded = false;
+      state.remoteMode = "SUPABASE_ERROR";
+      state.remoteError = text(error?.message || "No se pudo consultar la disponibilidad compartida en Supabase.");
+      return { ok: false, rows: [], mode: state.remoteMode, error, message: state.remoteError };
+    } finally {
+      state.remoteLoading = false;
+    }
+  }
+
+  function getAvailabilityRows(appState) {
+    const state = sessionFor(appState).availability;
+    if (warehouseRepository()) return [...state.remoteRows];
+    return localAvailabilityRows(appState);
+  }
+
   function getWarehouseOrders(appState) {
+    const ui = sessionFor(appState).coldRoom;
+    if (warehouseRepository() && ui.sharedLoaded) return [...ui.sharedOrders];
     return ensureDomain(appState).commercial.orders
       .filter(order => orderUsesInventory(order) && ["EN_CUARTO_FRIO", "COMPLETADO", "READY_FOR_DISPATCH", "DISPATCHED"].includes(upper(order.status)))
       .sort((a, b) => String(b.issuedAt || "").localeCompare(String(a.issuedAt || "")) || String(b.number).localeCompare(String(a.number)));
+  }
+
+  async function refreshWarehouseOrders(appState, options = {}) {
+    const repository = warehouseRepository();
+    const ui = sessionFor(appState).coldRoom;
+    if (!repository?.coldRoomOrders) return { ok: false, rows: getWarehouseOrders(appState), mode: "LOCAL_ONLY" };
+    if (ui.sharedLoading && !options.force) return { ok: true, rows: ui.sharedOrders, loading: true };
+    ui.sharedLoading = true;
+    try {
+      const result = await repository.coldRoomOrders();
+      if (!result.ok) return result;
+      ui.sharedOrders = result.rows.map(mapSharedColdRoomOrder);
+      ui.sharedLoaded = true;
+      return { ok: true, rows: ui.sharedOrders, mode: result.mode };
+    } finally {
+      ui.sharedLoading = false;
+    }
   }
 
   async function markShipment(appState, orderId) {
     return confirmDispatch(appState, orderId);
   }
 
-  function getDispatchRecord(appState, orderId) {
-    return ensureDomain(appState).operations.dispatchRecords.find(row => String(row.orderId || "") === String(orderId || "")) || null;
+  function getDispatchRecord(appState, orderId, sellingCompanyId = "") {
+    const shared = findWarehouseOrder(appState, orderId, sellingCompanyId);
+    if (shared?.dispatchId) {
+      return { dispatchId: shared.dispatchId, dispatchCode: shared.dispatchCode, dispatchedAt: shared.dispatchedAt, status: shared.dispatchStatus };
+    }
+    return ensureDomain(appState).operations.dispatchRecords.find(row => (
+      String(row.orderId || "") === String(orderId || "")
+      && (!sellingCompanyId || !row.companyId || String(row.companyId) === String(sellingCompanyId))
+    )) || null;
   }
 
-  async function validateDispatchReady(appState, orderId) {
+  async function validateDispatchReady(appState, orderId, sellingCompanyId = "") {
     const repository = dispatchRepository();
     if (!repository) return { ok: false, ready: false, error: "La validación de despacho requiere conexión confirmada con Supabase." };
-    const response = await repository.validateReady(orderId);
+    const order = findWarehouseOrder(appState, orderId, sellingCompanyId);
+    const response = await repository.validateReady(orderId, { sellingCompanyId: text(order?.sellingCompanyId || sellingCompanyId) });
     if (!response.ok) return { ok: false, ready: false, error: response.message || "Supabase no pudo validar el pedido." };
     return { ok: true, ready: response.ready, validation: response.validation };
   }
@@ -1450,10 +1712,10 @@
     return response?.message || "Supabase rechazó el despacho definitivo.";
   }
 
-  async function confirmDispatch(appState, orderId, payload = {}) {
+  async function confirmDispatch(appState, orderId, payload = {}, sellingCompanyId = "") {
     const repository = dispatchRepository();
     if (!repository) return { ok: false, error: "El despacho definitivo requiere conexión confirmada con Supabase." };
-    const order = findOrder(appState, orderId);
+    const order = findWarehouseOrder(appState, orderId, sellingCompanyId);
     if (!order) return { ok: false, error: "Pedido no encontrado." };
     const logistics = {
       destination: text(order.destinationCountry || order.country || ""),
@@ -1474,13 +1736,17 @@
     const response = await repository.confirmDispatch(orderId, {
       logistics,
       observations: text(payload.observations || "Salida física confirmada desde Cuarto Frío.")
-    });
+    }, { sellingCompanyId: text(order.sellingCompanyId || sellingCompanyId) });
     if (!response.ok) {
-      const latest = await remoteOrderRepository()?.getFullOrder?.(orderId);
+      const sellerId = text(order.sellingCompanyId || sellingCompanyId);
+      const latest = !sellerId || sellerId === text(activeCompanyId(appState))
+        ? await remoteOrderRepository()?.getFullOrder?.(orderId)
+        : null;
       if (latest?.ok && latest.order) replaceConfirmedOrder(appState, latest.order);
       return { ok: false, error: dispatchFailureMessage(response), canonicalRefreshed: Boolean(latest?.ok) };
     }
-    return { ok: true, order: findOrder(appState, orderId), dispatch: getDispatchRecord(appState, orderId),
+    await refreshWarehouseOrders(appState, { force: true });
+    return { ok: true, order: findWarehouseOrder(appState, orderId, sellingCompanyId), dispatch: getDispatchRecord(appState, orderId, sellingCompanyId),
       result: response.result, confirmedByServer: true };
   }
 
@@ -1662,7 +1928,7 @@
           order.awb = normalizeMotherGuide(allowedPayload.awb, order.transportType);
           const airline = airlineForGuide(appState, allowedPayload.awb, order.transportType);
           if (airline) order.airlineId = airline.id;
-          else if (upper(commercialUtils?.normalizeTransportType?.(order.transportType) || order.transportType) !== "AEREO" || guideDigits(allowedPayload.awb).length >= 3) order.airlineId = "";
+          else if (upper(commercialUtils?.normalizeTransportType?.(order.transportType) || order.transportType) !== "AEREO" || guidePrefix(allowedPayload.awb).length >= 3) order.airlineId = "";
         }
         order.coordinationUpdatedAt = nowIso();
         return { ok: true };
@@ -1731,10 +1997,13 @@
     annulOrder,
     boxNumbers,
     buildOrderFulfillment,
+    compatibleLine,
     catalogs,
     confirmLocalOrder,
     closeWarehouseBox,
     customerFor,
+    destinationFor,
+    matchingDestination,
     deriveCoordinationStatus,
     deleteBox,
     deleteLine,
@@ -1748,6 +2017,7 @@
     exportShipmentRepository,
     exportShipments,
     findOrder,
+    findWarehouseOrder,
     findExportShipment,
     getAvailabilityRows,
     getBoxDraft,
@@ -1755,8 +2025,10 @@
     getDraft,
     getOrderFulfillment,
     getWarehouseOrders,
+    refreshWarehouseOrders,
     groupOrderBoxes,
     isLocalOrder,
+    keyOf,
     loadSalesRepresentatives,
     linesForBox,
     localPoolFor,
@@ -1772,6 +2044,7 @@
     orderUsesInventory,
     preorderDraft,
     preorderToOrder,
+    refreshAvailability,
     removeManualBoxItem,
     saveOrder,
     saveOrderConfirmed,

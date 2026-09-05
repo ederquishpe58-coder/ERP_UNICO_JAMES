@@ -245,7 +245,15 @@ assert.match(settingsSource, /data-unlinked-user-enable/, "Las cuentas existente
 assert.match(settingsSource, /user\.email \|\| user\.loginEmail/, "La lista debe mostrar el correo real de Supabase Auth cuando no exista correo de contacto");
 assert.match(settingsSource, /preserveAuthEmail:\s*true/, "Al habilitar una cuenta existente debe conservarse su correo de inicio de sesión");
 assert.match(adminApiSource, /email:\s*contactEmail \|\| loginEmail/, "El backend debe exponer el correo real de las cuentas sin perfil ERP");
-assert.match(adminApiSource, /input\.preserveAuthEmail !== true/, "El backend no debe reemplazar el correo Auth al crear el perfil ERP");
+assert.match(adminApiSource, /action === "update_access"/, "La edición debe usar una acción exclusiva de autorización");
+assert.match(adminApiSource, /existingTargetUser/, "La edición debe conservar el Auth UUID existente");
+const existingTargetSource = adminApiSource.slice(
+  adminApiSource.indexOf("async function existingTargetUser"),
+  adminApiSource.indexOf("async function createTargetUser")
+);
+assert.doesNotMatch(existingTargetSource, /(?:inviteUserByEmail|createUser|deleteUser|updateUserById|generateLink|resetPassword|recovery)/i, "La edición de accesos no debe mutar Auth");
+assert.match(adminApiSource, /async function createTargetUser[\s\S]*authEmailForUsername[\s\S]*updateUserById[\s\S]*inviteUserByEmail/, "Create, contraseña e invitación deben conservar el contrato RC11");
+assert.match(remoteUserAccessSource, /user\.cloudManaged\s*\?\s*"update_access"\s*:\s*"create_user"/, "Create y update deben usar contratos separados");
 assert.match(remoteUserAccessSource, /preserveAuthEmail:\s*user\.preserveAuthEmail === true/, "La intención de conservar el correo Auth debe llegar al backend seguro");
 assert.match(adminConfigSource, /cloudManaged:\s*current\.cloudManaged === true/, "La normalización debe conservar el vínculo con Supabase Auth");
 

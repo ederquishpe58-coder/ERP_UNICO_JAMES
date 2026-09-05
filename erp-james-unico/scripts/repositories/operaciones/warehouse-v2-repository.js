@@ -133,7 +133,8 @@
   }
 
   async function command(rpcName, parameters = {}, options = {}) {
-    const companyId = activeCompanyUuid();
+    const operatorCompanyId = activeCompanyUuid();
+    const companyId = String(options.sellingCompanyId || operatorCompanyId || "").trim();
     const operationId = String(options.operationId || uuid());
     if (!configured() || !companyId) {
       return {
@@ -298,9 +299,35 @@
     return { ok: true, rows: Array.isArray(data) ? data : [], mode: "SUPABASE_CONFIRMED" };
   }
 
+  async function coldRoomOrders() {
+    const poolCompanyId = activeCompanyUuid();
+    if (!configured() || !poolCompanyId) return { ok: false, rows: [], mode: remoteRequired() ? "REMOTE_REQUIRED" : "LOCAL_ONLY" };
+    const backend = await probeBackend();
+    if (!backend.ok || !canExecute()) return { ok: false, rows: [], mode: backend.status || "BACKEND_UNAVAILABLE", error: backend.error, message: backend.message };
+    const { data, error } = await BlessERP.getSupabaseClient().rpc("erp_warehouse_v2_cold_room_orders", {
+      p_inventory_pool_company_id: poolCompanyId
+    });
+    if (error) return { ok: false, rows: [], mode: "SUPABASE_ERROR", error, message: error.message };
+    return { ok: true, rows: Array.isArray(data) ? data : [], mode: "SUPABASE_CONFIRMED" };
+  }
+
+  async function labelContext(sellingCompanyId, labelCode) {
+    const poolCompanyId = activeCompanyUuid();
+    if (!configured() || !poolCompanyId) return { ok: false, mode: remoteRequired() ? "REMOTE_REQUIRED" : "LOCAL_ONLY" };
+    const backend = await probeBackend();
+    if (!backend.ok || !canExecute()) return { ok: false, mode: backend.status || "BACKEND_UNAVAILABLE", error: backend.error, message: backend.message };
+    const { data, error } = await BlessERP.getSupabaseClient().rpc("erp_warehouse_v2_label_context", {
+      p_selling_company_id: String(sellingCompanyId || "").trim(),
+      p_label_code: String(labelCode || "").trim()
+    });
+    if (error) return { ok: false, mode: "SUPABASE_ERROR", error, message: error.message };
+    return { ok: true, row: Array.isArray(data) ? data[0] : data, mode: "SUPABASE_CONFIRMED" };
+  }
+
   const repository = Object.freeze({
     activeCompanyUuid,
     availability,
+    coldRoomOrders,
     canExecute,
     cancelOrder,
     closeBox,
@@ -314,6 +341,7 @@
     unassignBunch,
     uuid,
     healthStatus,
+    labelContext,
     probeBackend
   });
 

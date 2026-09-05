@@ -15,6 +15,16 @@
   }
   const { clone } = BlessERP.utils;
 
+  function syncMetadata(seed = {}) {
+    return {
+      ...(seed.__syncVersion === undefined ? {} : { __syncVersion: seed.__syncVersion }),
+      ...(seed.__syncUpdatedAt === undefined ? {} : { __syncUpdatedAt: seed.__syncUpdatedAt }),
+      ...(seed.__syncUpdatedBy === undefined ? {} : { __syncUpdatedBy: seed.__syncUpdatedBy }),
+      ...(seed.__syncDeviceId === undefined ? {} : { __syncDeviceId: seed.__syncDeviceId }),
+      ...(seed.__syncOperationId === undefined ? {} : { __syncOperationId: seed.__syncOperationId })
+    };
+  }
+
   const operationalDeployment = isOperationalDeployment();
   const sriSalePaymentMethods = Object.freeze([
     {
@@ -98,7 +108,8 @@
         seed.sriPaymentMethod ?? seed.sri_payment_method ?? seed.paymentMethod ?? seed.formaPago,
         "20"
       ),
-      observation: seed.observation || ""
+      observation: seed.observation || "",
+      ...syncMetadata(seed)
     };
   }
 
@@ -196,7 +207,8 @@
       printedMark: seed.printedMark || "",
       printedInvoiceAddress: seed.printedInvoiceAddress || "",
       observation: seed.observation || "",
-      status: seed.status || "ACTIVO"
+      status: seed.status || "ACTIVO",
+      ...syncMetadata(seed)
     };
   }
 
@@ -302,7 +314,8 @@
       airlineId: seed.airlineId || "",
       customerIds: Array.isArray(seed.customerIds) ? [...new Set(seed.customerIds.filter(Boolean))] : [],
       isDefault: Boolean(seed.isDefault || seed.default),
-      observation: seed.observation || ""
+      observation: seed.observation || "",
+      ...syncMetadata(seed)
     };
   }
 
@@ -388,8 +401,11 @@
 
   function createAgency(seed = {}) {
     const coldRooms = normalizeColdRooms(seed);
+    const companyId = seed.companyId || seed.company_id || BLESS_COMPANY_ID;
     return {
       id: seed.id || BlessERP.utils.uid("COM-AGE"),
+      company_id: companyId,
+      companyId,
       code: seed.code || "",
       name: seed.name || "",
       coldRoom: seed.coldRoom || coldRooms[0] || "",
@@ -399,7 +415,8 @@
       email: seed.email || "",
       phone: seed.phone || "",
       status: seed.status || "ACTIVA",
-      observation: seed.observation || ""
+      observation: seed.observation || "",
+      ...syncMetadata(seed)
     };
   }
 
@@ -479,12 +496,16 @@
   ].map(createAgency);
 
   function createAirline(seed = {}) {
+    const companyId = seed.companyId || seed.company_id || BLESS_COMPANY_ID;
     return {
       id: seed.id || BlessERP.utils.uid("COM-AIR"),
+      company_id: companyId,
+      companyId,
       code: seed.code || "",
       name: seed.name || "",
-      awbPrefix: String(seed.awbPrefix || ""),
-      status: seed.status || "ACTIVA"
+      awbPrefix: String(seed.awbPrefix || "").trim().toUpperCase(),
+      status: seed.status || "ACTIVA",
+      ...syncMetadata(seed)
     };
   }
 
@@ -496,13 +517,18 @@
     { id: "air-avianca", code: "AIR-AVI", name: "AVIANCA", awbPrefix: "134", status: "ACTIVA" },
     { id: "air-american", code: "AIR-AAL", name: "AMERICAN AIRLINES", awbPrefix: "001", status: "ACTIVA" }
   ].map(createAirline);
+  const embeddedAirlineTemplates = airlines.map(item => ({ ...item }));
 
   function createCountry(seed = {}) {
+    const companyId = seed.companyId || seed.company_id || BLESS_COMPANY_ID;
     return {
       id: seed.id || BlessERP.utils.uid("COM-PAIS"),
+      company_id: companyId,
+      companyId,
       code: String(seed.code || "").trim().toUpperCase(),
       name: String(seed.name || "").trim().toUpperCase(),
-      status: seed.status || "ACTIVO"
+      status: seed.status || "ACTIVO",
+      ...syncMetadata(seed)
     };
   }
 
@@ -514,6 +540,29 @@
     { id: "country-nl", code: "PAIS-NL", name: "NETHERLANDS" },
     { id: "country-ru", code: "PAIS-RU", name: "RUSIA" }
   ].map(createCountry);
+  const embeddedCountryTemplates = countries.map(item => ({ ...item }));
+
+  function matchesEmbeddedCatalogRecord(record, template, fields) {
+    return fields.every(field => JSON.stringify(record?.[field] ?? null) === JSON.stringify(template?.[field] ?? null));
+  }
+
+  function isEmbeddedAirline(record) {
+    if (Number(record?.__syncVersion || 0) > 0) return false;
+    return embeddedAirlineTemplates.some(template => matchesEmbeddedCatalogRecord(
+      record,
+      template,
+      ["code", "name", "awbPrefix", "status"]
+    ));
+  }
+
+  function isEmbeddedCountry(record) {
+    if (Number(record?.__syncVersion || 0) > 0) return false;
+    return embeddedCountryTemplates.some(template => matchesEmbeddedCatalogRecord(
+      record,
+      template,
+      ["code", "name", "status"]
+    ));
+  }
 
   function createDestination(seed = {}) {
     return {
@@ -522,7 +571,8 @@
       destination: seed.destination || "",
       country: seed.country || seed.destination || "",
       suggestedTransport: seed.suggestedTransport || "aereo",
-      status: seed.status || "ACTIVO"
+      status: seed.status || "ACTIVO",
+      ...syncMetadata(seed)
     };
   }
 
@@ -687,6 +737,7 @@
       boxNumber: Number(seed.boxNumber || 1),
       boxType: seed.boxType || "HB",
       variety: seed.variety || "EXPLORER",
+      quality: BlessERP.flowerQuality?.preserve?.(seed.quality) || "",
       po: seed.po || "",
       length: Number(seed.length || 60),
       bunches: Number(seed.bunches || 1),
@@ -765,6 +816,10 @@
       : { ...seed };
     const synchronizedSeries = invoiceSequence.fullNumberParts?.(synchronizedInvoices.sriInvoiceNumber) || {};
     const seriesWasCorrected = false;
+    const discountSource = seed.discountPercentage ?? seed.discount_percentage ?? "";
+    const discountPercentage = discountSource === null || String(discountSource).trim() === ""
+      ? 0
+      : Number(discountSource);
     return {
       id: seed.id || BlessERP.utils.uid("COM-ORD"),
       number: orderNumber,
@@ -820,6 +875,7 @@
       vendedorNombre: sellerName,
       seller_employee_id: sellerEmployeeId,
       sellerEmployeeId,
+      destinationId: seed.destinationId || seed.destination_id || "",
       destination: seed.destination || "",
       destinationCountry: seed.destinationCountry || "",
       destinationModifiedManual: Boolean(seed.destinationModifiedManual),
@@ -840,6 +896,7 @@
       transportType: seed.transportType || "aereo",
       coldRoom: seed.coldRoom || "",
       currency: seed.currency || "USD",
+      discountPercentage,
       paymentTerms: seed.paymentTerms || company.paymentTermsDefault,
       sriPaymentMethod: normalizeSriPaymentMethod(
         seed.sriPaymentMethod ?? seed.sri_payment_method ?? seed.paymentMethod ?? seed.formaPago,
@@ -1248,6 +1305,8 @@
     createCountry,
     createDae,
     createDestination,
+    isEmbeddedAirline,
+    isEmbeddedCountry,
     customers,
     brands,
     countries,

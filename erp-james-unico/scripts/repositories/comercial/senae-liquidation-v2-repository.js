@@ -73,7 +73,10 @@
       p_company_id: companyId,
       p_date_from: normalized.dateFrom,
       p_date_to: normalized.dateTo,
-      p_commerce_type: normalized.commerceType === "TODOS" ? null : normalized.commerceType,
+      // El contrato SQL normaliza el valor canonico TODOS a ausencia de filtro.
+      // Enviar null activa incorrectamente su guard porque el RPC instalado
+      // convierte null en cadena vacia antes de validar.
+      p_commerce_type: normalized.commerceType,
       p_page: normalized.page,
       p_page_size: normalized.pageSize
     });

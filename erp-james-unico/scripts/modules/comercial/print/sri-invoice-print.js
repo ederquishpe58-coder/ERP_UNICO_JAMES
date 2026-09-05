@@ -136,7 +136,33 @@
     const logoUrl = printUtils.companyLogoUrl(company);
     const quantity = Number(metrics.totalStems || 0);
     const unitPrice = quantity ? Number(metrics.totalUsd || 0) / quantity : 0;
-    const total = Number(metrics.totalUsd || 0);
+    const authorizationDate = String(order?.sriAuthorizedAt || "").slice(0, 10);
+    const payloadResult = queueCore?.buildInvoicePayload?.({
+      ...context,
+      today: /^\d{4}-\d{2}-\d{2}$/.test(authorizationDate) ? authorizationDate : undefined
+    });
+    const fallbackEconomics = utils.calculateOrderEconomics?.(order) || {
+      subtotal: Number(metrics.totalUsd || 0),
+      discountAmount: 0,
+      taxAmount: 0,
+      netTotal: Number(metrics.totalUsd || 0)
+    };
+    const invoicePayload = payloadResult?.ok ? payloadResult.payload : null;
+    const rideLines = invoicePayload?.lines?.length
+      ? invoicePayload.lines
+      : [{
+        mainCode: "ROSES",
+        quantity,
+        description: "ROSES",
+        measure: "",
+        unitPrice,
+        discount: Number(fallbackEconomics.discountAmount || 0),
+        subtotal: Number(fallbackEconomics.subtotal || 0) - Number(fallbackEconomics.discountAmount || 0)
+      }];
+    const totalWithoutTax = Number(invoicePayload?.invoice?.totalWithoutTax ?? (fallbackEconomics.netTotal - fallbackEconomics.taxAmount));
+    const discountTotal = Number(invoicePayload?.invoice?.discountTotal ?? fallbackEconomics.discountAmount);
+    const taxTotal = Number((invoicePayload?.taxes || []).reduce((sum, tax) => sum + Number(tax.value || 0), 0) || fallbackEconomics.taxAmount || 0);
+    const grandTotal = Number(invoicePayload?.invoice?.grandTotal ?? fallbackEconomics.netTotal);
     const accountingRequired = company.accountingRequired === false ? "NO" : "SI";
     const environment = normalizeSriText(order.sriEnvironment || company.sriEnvironment || "PRUEBAS", 20).toUpperCase();
     const paymentLabel = normalizeSriText(order.paymentMethodLabel || order.paymentTerms || "20 - OTROS CON UTILIZACION DEL SISTEMA FINANCIERO", 100);
@@ -146,21 +172,6 @@
       customer?.email || customer?.billingEmail || customer?.contactEmail || order?.customerEmail,
       300
     );
-    const authorizationDate = String(order?.sriAuthorizedAt || "").slice(0, 10);
-    const payloadResult = queueCore?.buildInvoicePayload?.({
-      ...context,
-      today: /^\d{4}-\d{2}-\d{2}$/.test(authorizationDate) ? authorizationDate : undefined
-    });
-    const rideLines = payloadResult?.ok && payloadResult.payload?.lines?.length
-      ? payloadResult.payload.lines
-      : [{
-        mainCode: "ROSES",
-        quantity,
-        description: "ROSES",
-        measure: "",
-        unitPrice,
-        subtotal: total
-      }];
     const detailRows = rideLines.map((line, index) => `
       <tr>
         <td>${utils.esc(line.mainCode || String(index + 1))}</td>
@@ -171,7 +182,7 @@
         <td class="numeric">${utils.esc(Number(line.unitPrice || 0).toFixed(6))}</td>
         <td class="numeric">0.00</td>
         <td class="numeric">0.00</td>
-        <td class="numeric">0.00</td>
+        <td class="numeric">${utils.esc(Number(line.discount || 0).toFixed(2))}</td>
         <td class="numeric">${utils.esc(Number(line.subtotal || 0).toFixed(2))}</td>
       </tr>
     `).join("");
@@ -244,20 +255,20 @@
             </section>
             <table class="sri-traditional-payment">
               <thead><tr><th>Forma de pago</th><th>Valor</th></tr></thead>
-              <tbody><tr><td>${utils.esc(paymentLabel)}</td><td class="numeric">${utils.esc(total.toFixed(2))}</td></tr></tbody>
+              <tbody><tr><td>${utils.esc(paymentLabel)}</td><td class="numeric">${utils.esc(grandTotal.toFixed(2))}</td></tr></tbody>
             </table>
           </div>
           <table class="sri-traditional-totals">
             <tbody>
-              <tr><td>SUBTOTAL 0%</td><td>${utils.esc(total.toFixed(2))}</td></tr>
+              <tr><td>SUBTOTAL 0%</td><td>${utils.esc(totalWithoutTax.toFixed(2))}</td></tr>
               <tr><td>SUBTOTAL NO OBJETO DE IVA</td><td>0.00</td></tr>
               <tr><td>SUBTOTAL EXENTO DE IVA</td><td>0.00</td></tr>
-              <tr><td>SUBTOTAL SIN IMPUESTOS</td><td>${utils.esc(total.toFixed(2))}</td></tr>
-              <tr><td>TOTAL DESCUENTO</td><td>0.00</td></tr>
+              <tr><td>SUBTOTAL SIN IMPUESTOS</td><td>${utils.esc(totalWithoutTax.toFixed(2))}</td></tr>
+              <tr><td>TOTAL DESCUENTO</td><td>${utils.esc(discountTotal.toFixed(2))}</td></tr>
               <tr><td>ICE</td><td>0.00</td></tr>
               <tr><td>IRBPNR</td><td>0.00</td></tr>
               <tr><td>PROPINA</td><td>0.00</td></tr>
-              <tr class="total"><td>VALOR TOTAL</td><td>${utils.esc(total.toFixed(2))}</td></tr>
+              <tr class="total"><td>VALOR TOTAL</td><td>${utils.esc(grandTotal.toFixed(2))}</td></tr>
             </tbody>
           </table>
         </section>

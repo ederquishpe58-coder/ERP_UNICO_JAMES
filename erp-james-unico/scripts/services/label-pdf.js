@@ -368,6 +368,15 @@
       minimumSize: 4.5,
       size: 7.5 * BUNCH_CONTENT_SCALE
     });
+    if (BlessERP.flowerQuality?.isTipoB?.(label?.quality)) {
+      content += textCommand(height, "TIPO B", contentLeft, mmToPt(30.5), {
+        align: "right",
+        bold: true,
+        maxWidth: contentWidth,
+        minimumSize: 7,
+        size: 8.5
+      });
+    }
 
     return { content, width, height };
   }

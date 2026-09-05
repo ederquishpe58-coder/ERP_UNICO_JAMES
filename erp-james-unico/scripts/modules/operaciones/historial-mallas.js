@@ -3,6 +3,14 @@
   const utils = BlessERP.operacionesUtils;
   const stateApi = BlessERP.operacionesState;
 
+  function qualityReportLabel(value) {
+    const canonical = BlessERP.flowerQuality?.normalize?.(value) || "";
+    if (canonical === "PREMIUM") return "EXPORTACION";
+    if (canonical === "TIPO_B") return "TIPO B";
+    const historical = BlessERP.flowerQuality?.preserve?.(value) || "";
+    return historical === "EXPORTACION" ? "EXPORTACION" : historical;
+  }
+
   function uniqueOptions(rows, field, selected) {
     return [...new Set(rows.map(item => String(item[field] || "").trim()).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b))
@@ -56,10 +64,10 @@
     const sheet = {
       name: "Mallas procesadas",
       title: "HISTORIAL DE MALLAS PROCESADAS",
-      widths: [24,22,14,26,18,22,14,18,18,20,22,18,36],
-      headers: ["Codigo malla","Fecha y hora","Cantidad de mallas","Proveedor","Bloque","Variedad","Medida","Tallos procesados","Ramos obtenidos","Trabajador","Usuario","Estado","Observaciones"],
-      rows: rows.map(item => [item.meshCode,item.processedAt,item.meshCount || 1,item.supplier,item.block,item.variety,item.length || "",item.processedStems,item.bunchesObtained,item.workerName,item.userName,item.state,item.observations]),
-      totals: ["TOTALES","",totalMeshes,"","","","",totalStems,totalBunches,"","","",""]
+      widths: [24,22,14,26,18,22,16,14,18,18,20,22,18,36],
+      headers: ["Codigo malla","Fecha y hora","Cantidad de mallas","Proveedor","Bloque","Variedad","TIPO","Medida","Tallos procesados","Ramos obtenidos","Trabajador","Usuario","Estado","Observaciones"],
+      rows: rows.map(item => [item.meshCode,item.processedAt,item.meshCount || 1,item.supplier,item.block,item.variety,qualityReportLabel(item.quality),item.length || "",item.processedStems,item.bunchesObtained,item.workerName,item.userName,item.state,item.observations]),
+      totals: ["TOTALES","",totalMeshes,"","","","","",totalStems,totalBunches,"","","",""]
     };
     const report = {
       period: `Exportado ${new Date().toLocaleString("es-EC")}`,
@@ -186,5 +194,5 @@
     `;
   }
 
-  BlessERP.operacionesHistorialMallas = { exportHistoryXlsx, filterRows, getVisibleRows, render, sortRows };
+  BlessERP.operacionesHistorialMallas = { exportHistoryXlsx, filterRows, getVisibleRows, qualityReportLabel, render, sortRows };
 })();

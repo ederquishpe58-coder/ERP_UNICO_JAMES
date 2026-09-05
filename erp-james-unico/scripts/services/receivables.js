@@ -1043,8 +1043,10 @@
     return { ok: true, receivable: clone(candidate), entry: clone(postedEntry.entry) };
   }
 
-  async function postReceivableV2(receivableId, options = {}) {
-    const candidate = findReceivableById(receivableId);
+  async function postReceivableV2(receivableInput, options = {}) {
+    const candidate = receivableInput && typeof receivableInput === "object"
+      ? normalizeReceivable(receivableInput)
+      : findReceivableById(receivableInput);
     if (!candidate) return { ok: false, errors: ["Documento de cartera no encontrado."] };
     const canonical = BlessERP.services?.financialV2?.financialReceivableForLegacy?.(candidate);
     if (canonical?.journalEntryId) {

@@ -1003,6 +1003,26 @@ body[data-print-preview="true"]{
   white-space:nowrap;
 }
 
+.client-detail-table tfoot td{
+  vertical-align:middle;
+}
+
+.client-invoice-discount-row td{
+  background:#f8faf9;
+  color:#42554b;
+}
+
+.client-invoice-discount-row td:first-child,
+.client-invoice-final-total-row td:first-child{
+  text-align:right;
+}
+
+.client-invoice-final-total-row td{
+  border-top:1.5px solid #111;
+  background:#eef4f0;
+  font-size:8pt;
+}
+
 .invoice-a4-table.compact th,
 .invoice-a4-table.compact td{
   padding:1.4mm;
@@ -1155,15 +1175,17 @@ body[data-print-preview="true"]{
   font-size:13pt;
 }
 
-.client-detail-table th:nth-child(1){width:10%;}
-.client-detail-table th:nth-child(2){width:7%;}
-.client-detail-table th:nth-child(3){width:23%;}
-.client-detail-table th:nth-child(4){width:9%;}
-.client-detail-table th:nth-child(5){width:10%;}
+.client-detail-table th:nth-child(1){width:6%;}
+.client-detail-table th:nth-child(2){width:5%;}
+.client-detail-table th:nth-child(3){width:9%;}
+.client-detail-table th:nth-child(4){width:23%;}
+.client-detail-table th:nth-child(5){width:8%;}
 .client-detail-table th:nth-child(6){width:9%;}
-.client-detail-table th:nth-child(7){width:11%;}
-.client-detail-table th:nth-child(8){width:10%;}
-.client-detail-table th:nth-child(9){width:11%;}
+.client-detail-table th:nth-child(7){width:8%;}
+.client-detail-table th:nth-child(8){width:7%;}
+.client-detail-table th:nth-child(9){width:9%;}
+.client-detail-table th:nth-child(10){width:8%;}
+.client-detail-table th:nth-child(11){width:8%;}
 
 .client-detail-table th{
   background:#d6ddd2;
@@ -1395,6 +1417,40 @@ body[data-print-preview="true"]{
 
 .commercial-invoice-totals > strong{
   text-align:right;
+}
+
+.commercial-invoice-totals.has-discount{
+  grid-template-columns:minmax(0,1fr) 14mm 40mm;
+  gap:2mm;
+}
+
+.commercial-invoice-amount-totals{
+  display:grid;
+  gap:.6mm;
+  margin:0;
+  font-size:6.6pt;
+}
+
+.commercial-invoice-amount-totals > div{
+  display:flex;
+  justify-content:space-between;
+  gap:2mm;
+  white-space:nowrap;
+}
+
+.commercial-invoice-amount-totals dt,
+.commercial-invoice-amount-totals dd{
+  margin:0;
+}
+
+.commercial-invoice-amount-totals dd,
+.commercial-invoice-net-total{
+  font-weight:700;
+}
+
+.commercial-invoice-net-total{
+  padding-top:.4mm;
+  border-top:.2mm solid #111;
 }
 
 .commercial-invoice-bill{

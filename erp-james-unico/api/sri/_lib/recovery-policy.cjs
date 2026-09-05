@@ -5,7 +5,8 @@ const ERROR_STATUSES = new Set([
   "PENDIENTE_REINTENTO"
 ]);
 
-const QUERY_ONLY_IDENTIFIERS = new Set(["45", "70"]);
+const QUERY_ONLY_IDENTIFIERS = new Set(["43", "45", "70"]);
+const QUERY_FIRST_TECHNICAL_ERRORS = new Set(["SRI_TIMEOUT", "SRI_AUTHORIZATION_PENDING"]);
 
 function normalizedStatus(value) {
   return String(value || "PENDIENTE").trim().toUpperCase();
@@ -32,6 +33,7 @@ function recoveryPolicy(detail = {}) {
   const identifier = normalizedIdentifier(primaryError.identifier);
   const latestAttempt = attempts[0] || {};
   const latestTransmission = transmissions[0] || {};
+  const technicalErrorCode = String(latestAttempt.error_class || latestTransmission.error_class || "").trim().toUpperCase();
   const base = {
     status,
     diagnostic: {
@@ -75,6 +77,14 @@ function recoveryPolicy(detail = {}) {
   }
 
   if (["ERROR_ENVIO", "PENDIENTE_REINTENTO"].includes(status)) {
+    if (QUERY_FIRST_TECHNICAL_ERRORS.has(technicalErrorCode)) {
+      return {
+        ...base,
+        action: "QUERY_AUTHORIZATION",
+        actionLabel: "Consultar estado en SRI",
+        reason: "El resultado de la transmisión es incierto. Primero se consultará autorización con la misma clave, sin reenviar ni generar otro secuencial."
+      };
+    }
     const explicitlyNonRetryable = latestAttempt.retryable === false || latestTransmission.status === "FAILED";
     if (!explicitlyNonRetryable) {
       return {
@@ -101,6 +111,7 @@ function recoveryPolicy(detail = {}) {
 
 module.exports = {
   ERROR_STATUSES,
+  QUERY_FIRST_TECHNICAL_ERRORS,
   QUERY_ONLY_IDENTIFIERS,
   diagnosticMessage,
   normalizedIdentifier,

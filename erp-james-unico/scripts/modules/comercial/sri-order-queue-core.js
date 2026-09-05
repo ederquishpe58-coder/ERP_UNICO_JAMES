@@ -123,6 +123,57 @@
     return [{ code: "2", percentageCode: "0", rate: 0, taxableBase: Number(base || 0), value: 0 }];
   }
 
+  function roundCurrency(value) {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) throw new TypeError("El valor monetario no es válido.");
+    return Math.round((amount + Number.EPSILON) * 100) / 100;
+  }
+
+  function commercialDiscountPercentage(order = {}) {
+    const source = order.discountPercentage ?? order.discount_percentage;
+    if (source === null || source === undefined || String(source).trim() === "") return 0;
+    const percentage = Number(source);
+    if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) {
+      throw new RangeError("El descuento comercial debe ser un porcentaje entre 0 y 100.");
+    }
+    return percentage;
+  }
+
+  function allocateCommercialDiscount(order = {}, sourceLines = [], grossTotal = 0) {
+    const percentage = commercialDiscountPercentage(order);
+    const canonicalGrossTotal = roundCurrency(grossTotal);
+    const discountTotal = roundCurrency(canonicalGrossTotal * percentage / 100);
+    let allocatedGross = 0;
+    let allocatedDiscount = 0;
+    const lines = sourceLines.map((line, index) => {
+      const lastLine = index === sourceLines.length - 1;
+      const grossAmount = lastLine
+        ? roundCurrency(canonicalGrossTotal - allocatedGross)
+        : roundCurrency(line.subtotal);
+      const discount = lastLine
+        ? roundCurrency(discountTotal - allocatedDiscount)
+        : roundCurrency(canonicalGrossTotal ? discountTotal * grossAmount / canonicalGrossTotal : 0);
+      const subtotal = roundCurrency(grossAmount - discount);
+      allocatedGross = roundCurrency(allocatedGross + grossAmount);
+      allocatedDiscount = roundCurrency(allocatedDiscount + discount);
+      return {
+        ...line,
+        discount,
+        subtotal,
+        taxes: zeroTax(subtotal)
+      };
+    });
+    const totalWithoutTax = roundCurrency(lines.reduce((sum, line) => sum + Number(line.subtotal || 0), 0));
+    return {
+      lines,
+      percentage,
+      grossTotal: canonicalGrossTotal,
+      discountTotal,
+      totalWithoutTax,
+      grandTotal: totalWithoutTax
+    };
+  }
+
   function validateOrder(context = {}) {
     const { order = {}, customer, brand, metrics = {} } = context;
     const errors = [];
@@ -270,11 +321,12 @@
     const incotermParts = normalizeText(company.incoterm || "FCA UIO", 50).split(/\s+/);
     const incoterm = incotermParts.shift() || "FCA";
     const incotermPlace = incotermParts.join(" ") || "UIO";
-    const total = Number(metrics.totalUsd || 0);
+    const grossTotal = Number(metrics.totalUsd || 0);
     const paymentMethod = paymentMethodCode(order.sriPaymentMethod || customer.sriPaymentMethod, "20");
-    const lines = exportOrder
+    const grossLines = exportOrder
       ? buildExportSriLines(metrics)
       : buildLocalSriLines(metrics);
+    const economics = allocateCommercialDiscount(order, grossLines, grossTotal);
 
     return {
       ok: true,
@@ -300,19 +352,19 @@
             destinationCountryCode: countryCode(order, brand),
             totalWithoutTaxIncoterm: incoterm
           } : {}),
-          totalWithoutTax: total,
-          discountTotal: 0,
-          grandTotal: total,
+          totalWithoutTax: economics.totalWithoutTax,
+          discountTotal: economics.discountTotal,
+          grandTotal: economics.grandTotal,
           currency: "DOLAR",
           payments: [{
             method: paymentMethod,
-            total,
+            total: economics.grandTotal,
             term: Math.max(0, Number(customer.creditDays || 0)),
             unit: "dias"
           }]
         },
-        taxes: zeroTax(total),
-        lines,
+        taxes: zeroTax(economics.totalWithoutTax),
+        lines: economics.lines,
         additionalInformation: publicAdditionalInformation,
         erpEmission: {
           sourceOrderId: normalizeText(order.id, 120),
@@ -349,6 +401,7 @@
 
   return {
     buildInvoicePayload,
+    allocateCommercialDiscount,
     countryCode,
     guides,
     isExportOrder,

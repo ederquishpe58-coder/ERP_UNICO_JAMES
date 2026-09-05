@@ -26,6 +26,12 @@
     operations_inventory_movements: "inventoryMovements",
     operations_destination_lots: "destinationLots"
   });
+  const ASSIGN_CLASSIFICATION_WORKDAY_ENTITIES = new Set([
+    "operations_classifier_assignments",
+    "operations_mesh_records",
+    "operations_mesh_history",
+    "operations_performances"
+  ]);
 
   function scanArraySignature(rows, codeOf) {
     return {
@@ -263,6 +269,18 @@
     return records;
   }
 
+  function classificationCommandWorkdayLineage(records, expectedWorkdayId) {
+    const expected = String(expectedWorkdayId || "").trim();
+    const relevant = (records || []).filter(record => ASSIGN_CLASSIFICATION_WORKDAY_ENTITIES.has(record?.entity));
+    const workdayIds = [...new Set(relevant.map(record => String(record?.payload?.workdayId || "").trim()))];
+    return {
+      ok: relevant.length > 0 && workdayIds.length === 1 && workdayIds[0] === expected,
+      expectedWorkdayId: expected,
+      relevantRecords: relevant.length,
+      workdayIds
+    };
+  }
+
   async function executeOperationsCommand(command, payload, options = {}) {
     const repository = operationsV2Repository();
     if (!repository?.execute) {
@@ -337,6 +355,7 @@
         buncherEmployeeId: item.buncherEmployeeId || item.buncher_employee_id || "",
         variety: item.variety,
         length: item.length,
+        quality: item.quality || "",
         category: item.category,
         stemsPerBunch: item.stemsPerBunch,
         labelType: item.labelType,
@@ -1183,6 +1202,7 @@
       selectedPendingLine = pendingReceptionLines.find(item => (
         String(item.block || "").trim().toUpperCase() === String(assignmentDraft.block || "").trim().toUpperCase()
         && String(item.variety || "").trim().toUpperCase() === String(assignmentDraft.variety || "").trim().toUpperCase()
+        && BlessERP.flowerQuality?.normalize?.(item.quality) === BlessERP.flowerQuality?.normalize?.(assignmentDraft.quality)
       ));
     }
     if (selectedPendingLine) {
@@ -1214,6 +1234,7 @@
       resultDraft.block = selectedResultAssignment.block || "";
       resultDraft.classifier = selectedResultAssignment.classifier || "";
       resultDraft.variety = selectedResultAssignment.variety || "";
+      resultDraft.quality = BlessERP.flowerQuality?.preserve?.(selectedResultAssignment.quality) || "";
     } else {
       const latest = classificationResultAssignments(store)[0];
       resultDraft.assignmentId = latest?.id || "";
@@ -1221,6 +1242,7 @@
       resultDraft.block = latest?.block || "";
       resultDraft.classifier = latest?.classifier || "";
       resultDraft.variety = latest?.variety || "";
+      resultDraft.quality = BlessERP.flowerQuality?.preserve?.(latest?.quality) || "";
     }
     normalizedStore = store;
     normalizedRenderCycle = Number.isFinite(renderCycle) ? renderCycle : -1;
@@ -1283,6 +1305,7 @@
       draft.classifier = latest?.classifier || draft.classifier || "";
       draft.variety = latest?.variety || "";
       draft.assignmentId = latest?.id || "";
+      draft.quality = BlessERP.flowerQuality?.preserve?.(latest?.quality) || "";
       return;
     }
     if (draft.block) candidates = candidates.filter(item => item.block === draft.block);
@@ -1293,6 +1316,7 @@
         draft.classifier = latest.classifier;
         draft.variety = latest.variety;
         draft.assignmentId = latest.id;
+        draft.quality = BlessERP.flowerQuality?.preserve?.(latest.quality) || "";
       } else {
         draft.variety = "";
         draft.assignmentId = "";
@@ -1305,6 +1329,7 @@
       if (latest) {
         draft.variety = latest.variety;
         draft.assignmentId = latest.id;
+        draft.quality = BlessERP.flowerQuality?.preserve?.(latest.quality) || "";
       } else {
         draft.variety = "";
         draft.assignmentId = "";
@@ -1313,6 +1338,7 @@
     }
     if (draft.variety) candidates = candidates.filter(item => item.variety === draft.variety);
     draft.assignmentId = candidates[0]?.id || "";
+    draft.quality = BlessERP.flowerQuality?.preserve?.(candidates[0]?.quality) || "";
   }
 
   function updateDraftField(appState, draftKey, field, value) {
@@ -1395,7 +1421,12 @@
         draft.supplier = selectedBlockLine?.supplier || configuredSupplier?.name || "";
         store.ui.classificationAssignmentSelectionConfirmed = Boolean(selectedBlockLine || configuredSupplier);
       }
-      const blockLines = pendingLines.filter(item => item.block === draft.block);
+      const quality = BlessERP.flowerQuality?.normalize?.(draft.quality) || "PREMIUM";
+      draft.quality = quality;
+      const blockLines = pendingLines.filter(item => (
+        item.block === draft.block
+        && BlessERP.flowerQuality?.normalize?.(item.quality) === quality
+      ));
       if (["block", "supplier"].includes(field) && !blockLines.some(item => item.variety === draft.variety)) {
         draft.variety = blockLines[0]?.variety || "";
       }
@@ -1558,24 +1589,14 @@
     return { allowed, workday, message };
   }
 
-  function syncYieldWorkday(appState, workday) {
+  async function hydrateYieldWorkday(appState) {
     const syncService = BlessERP.operationsWorkdayCloudSync;
-    workday.syncState = syncService?.isEnabled?.() ? "PENDIENTE" : "LOCAL";
-    if (!syncService?.isEnabled?.()) return;
-    syncService.sync(clone(workday)).then(result => {
-      const store = ensureStore(appState);
-      if (store.yieldWorkday?.id !== workday.id) return;
-      store.yieldWorkday.syncState = result.ok ? "SINCRONIZADA" : "PENDIENTE";
-      store.yieldWorkday.cloudId = result.cloudId || store.yieldWorkday.cloudId || "";
-      store.yieldWorkday.syncError = result.ok ? "" : result.error;
-      const history = store.yieldWorkdayHistory.find(item => item.id === workday.id);
-      if (history) Object.assign(history, {
-        syncState: store.yieldWorkday.syncState,
-        cloudId: store.yieldWorkday.cloudId,
-        syncError: store.yieldWorkday.syncError
-      });
-      saveDb();
-    });
+    if (!syncService?.isEnabled?.() || !syncService?.hydrate) {
+      return { ok: false, confirmed: false, message: "La jornada requiere autoridad Supabase." };
+    }
+    const result = await syncService.hydrate();
+    if (!result.ok) setNotice(appState, result.message || "No se pudo consultar la jornada canónica.", "danger", false);
+    return result;
   }
 
   function getYieldWorkdaySummary(appState) {
@@ -1587,9 +1608,11 @@
     );
   }
 
-  function updateYieldWorkday(appState, requestedAction) {
+  async function updateYieldWorkday(appState, requestedAction) {
+    const hydrated = await hydrateYieldWorkday(appState);
+    if (!hydrated.ok) return { ok: false, confirmed: false, message: hydrated.message };
     const store = ensureStore(appState);
-    const current = store.yieldWorkday || data.createYieldWorkday();
+    const current = clone(store.yieldWorkday || data.createYieldWorkday());
     const actionMap = {
       EN_CURSO_DEMO: "START",
       PAUSADA_DEMO: "PAUSE",
@@ -1608,7 +1631,7 @@
         return { ok: false, workday: current, message };
       }
       workday = data.createYieldWorkday({
-        id: uid("JOR-OPS"),
+        id: uuid(),
         date: timestamp.slice(0, 10),
         status: "ACTIVA",
         startedAt: timestamp,
@@ -1622,64 +1645,85 @@
         setNotice(appState, message, "warning");
         return { ok: false, workday: current, message };
       }
-      current.status = "PAUSADA";
-      current.pausedAt = timestamp;
-      current.pauses.push({ pausedAt: timestamp, resumedAt: "", durationMs: 0 });
-      current.observation = "Jornada laboral pausada; el registro de rendimientos esta detenido.";
+      workday = current;
+      workday.status = "PAUSADA";
+      workday.pausedAt = timestamp;
+      workday.pauses.push({ pausedAt: timestamp, resumedAt: "", durationMs: 0 });
+      workday.observation = "Jornada laboral pausada; el registro de rendimientos esta detenido.";
     } else if (action === "RESUME") {
       if (current.status !== "PAUSADA") {
         const message = "Solo una jornada pausada puede reanudarse.";
         setNotice(appState, message, "warning");
         return { ok: false, workday: current, message };
       }
-      const pause = current.pauses.at(-1);
+      workday = current;
+      const pause = workday.pauses.at(-1);
       if (pause && !pause.resumedAt) {
         pause.resumedAt = timestamp;
         pause.durationMs = workdayCore.totalPausedMs({ pauses: [pause] }, workdayCore.parseDateTime(timestamp));
       }
-      current.status = "ACTIVA";
-      current.resumedAt = timestamp;
-      current.totalPausedMs = workdayCore.totalPausedMs(current, workdayCore.parseDateTime(timestamp));
-      current.observation = "Jornada laboral reanudada."
+      workday.status = "ACTIVA";
+      workday.resumedAt = timestamp;
+      workday.totalPausedMs = workdayCore.totalPausedMs(workday, workdayCore.parseDateTime(timestamp));
+      workday.observation = "Jornada laboral reanudada."
     } else if (action === "FINISH") {
       if (!["ACTIVA", "PAUSADA"].includes(current.status)) {
         const message = "No existe una jornada abierta para finalizar.";
         setNotice(appState, message, "warning");
         return { ok: false, workday: current, message };
       }
-      if (current.status === "PAUSADA") {
-        const pause = current.pauses.at(-1);
+      workday = current;
+      if (workday.status === "PAUSADA") {
+        const pause = workday.pauses.at(-1);
         if (pause && !pause.resumedAt) {
           pause.resumedAt = timestamp;
           pause.durationMs = workdayCore.totalPausedMs({ pauses: [pause] }, workdayCore.parseDateTime(timestamp));
         }
       }
-      current.status = "FINALIZADA";
-      current.endedAt = timestamp;
-      current.closedBy = user.name || "Usuario JAEDER SYSTEMS";
-      current.closedByUserId = user.id || "";
-      current.totalPausedMs = workdayCore.totalPausedMs(current, workdayCore.parseDateTime(timestamp));
-      current.summary = workdayCore.buildSummary(
-        current,
+      workday.status = "FINALIZADA";
+      workday.endedAt = timestamp;
+      workday.closedBy = user.name || "Usuario JAEDER SYSTEMS";
+      workday.closedByUserId = user.id || "";
+      workday.totalPausedMs = workdayCore.totalPausedMs(workday, workdayCore.parseDateTime(timestamp));
+      workday.summary = workdayCore.buildSummary(
+        workday,
         store.meshProcessingRecords || [],
         store.bunchEntries || [],
         workdayCore.parseDateTime(timestamp)
       );
-      current.observation = "Jornada finalizada y resumen de rendimientos guardado.";
-      const historyIndex = store.yieldWorkdayHistory.findIndex(item => item.id === current.id);
-      if (historyIndex >= 0) store.yieldWorkdayHistory[historyIndex] = clone(current);
-      else store.yieldWorkdayHistory.unshift(clone(current));
+      workday.observation = "Jornada finalizada y resumen de rendimientos guardado.";
     } else {
       const message = "Accion de jornada no reconocida.";
       setNotice(appState, message, "warning");
       return { ok: false, workday: current, message };
     }
 
-    store.yieldWorkday = workday;
-    setNotice(appState, `Jornada laboral actualizada: ${workday.status}.`, workday.status === "FINALIZADA" ? "success" : "info", false);
-    saveDb();
-    syncYieldWorkday(appState, workday);
-    return { ok: true, workday, message: workday.observation };
+    workday.syncState = "PENDIENTE_SERVIDOR";
+    workday.syncAuthority = "operations_yield_workday";
+    const persisted = await BlessERP.operationsWorkdayCloudSync?.persist?.(workday);
+    if (!persisted?.ok || persisted.confirmed !== true) {
+      const message = persisted?.message || "Supabase no confirmó la jornada. No se aplicó ningún éxito local.";
+      setNotice(appState, message, "danger", false);
+      return { ok: false, confirmed: false, workday: store.yieldWorkday, message, error: persisted?.error };
+    }
+
+    const confirmedWorkday = clone(persisted.workday || workday);
+    confirmedWorkday.syncState = "SINCRONIZADA";
+    confirmedWorkday.syncAuthority = "operations_yield_workday";
+    store.yieldWorkday = confirmedWorkday;
+    let historyConfirmed = true;
+    if (action === "FINISH") {
+      const historyResult = await BlessERP.operationsWorkdayCloudSync?.persistHistory?.(confirmedWorkday);
+      historyConfirmed = historyResult?.ok === true && historyResult.confirmed === true;
+      if (!historyConfirmed) {
+        setNotice(appState, "La jornada fue cerrada en Supabase, pero su historial no pudo confirmarse. Recargue antes de continuar.", "warning", false);
+        cacheSave();
+        return { ok: true, confirmed: true, historyConfirmed: false, workday: confirmedWorkday, message: confirmedWorkday.observation };
+      }
+    }
+    setNotice(appState, `Jornada laboral confirmada en Supabase: ${confirmedWorkday.status}.`, confirmedWorkday.status === "FINALIZADA" ? "success" : "info", false);
+    cacheSave();
+    return { ok: true, confirmed: true, historyConfirmed, workday: confirmedWorkday, message: confirmedWorkday.observation };
   }
 
   function nextBunchLabelCode(store, additionalReservedCodes = null) {
@@ -1852,8 +1896,9 @@
   function addOrUpdateReceptionItem(appState) {
     const store = ensureStore(appState);
     const itemDraft = clone(store.ui.receptionItemDraft || {});
-    if (!itemDraft.variety || !itemDraft.stemType || utils.parseNumber(itemDraft.meshCount) <= 0 || utils.parseNumber(itemDraft.stemsPerMesh) <= 0) {
-      setNotice(appState, "Complete variedad, tipo de tallo, mallas y tallos por malla para agregar el item.", "warning");
+    const quality = BlessERP.flowerQuality?.normalize?.(itemDraft.quality) || "";
+    if (!itemDraft.variety || !itemDraft.stemType || !quality || utils.parseNumber(itemDraft.meshCount) <= 0 || utils.parseNumber(itemDraft.stemsPerMesh) <= 0) {
+      setNotice(appState, "Complete variedad, tipo de tallo, calidad, mallas y tallos por malla para agregar el item.", "warning");
       return null;
     }
 
@@ -1861,6 +1906,7 @@
       id: itemDraft.id || uid("REC-ITEM"),
       variety: itemDraft.variety,
       stemType: itemDraft.stemType,
+      quality,
       meshCount: utils.parseNumber(itemDraft.meshCount),
       stemsPerMesh: utils.parseNumber(itemDraft.stemsPerMesh),
       extraStems: utils.parseNumber(itemDraft.extraStems),
@@ -1931,6 +1977,7 @@
       if (receptionItem) {
         assignment.variety = receptionItem.variety;
         assignment.stemType = receptionItem.stemType;
+        assignment.quality = BlessERP.flowerQuality?.preserve?.(receptionItem.quality) || "";
       }
       assignment.updatedAt = nowExactLabel();
 
@@ -1938,12 +1985,14 @@
         item.supplier = assignment.supplier;
         item.block = assignment.block;
         item.variety = assignment.variety;
+        item.quality = assignment.quality;
         item.updatedAt = assignment.updatedAt;
       });
       (store.processedMeshHistory || []).filter(item => item.assignmentId === assignment.id).forEach(item => {
         item.supplier = assignment.supplier;
         item.block = assignment.block;
         item.variety = assignment.variety;
+        item.quality = assignment.quality;
         item.updatedAt = assignment.updatedAt;
       });
     });
@@ -1961,6 +2010,10 @@
     }));
     if (!draft.supplier || !draft.block || !draft.receptionist || !items.length) {
       setNotice(appState, "Complete proveedor con bloque, recepcionista y agregue al menos una variedad a la recepcion.", "warning");
+      return null;
+    }
+    if (!existing && items.some(item => !BlessERP.flowerQuality?.isValid?.(item.quality))) {
+      setNotice(appState, "Cada línea nueva de recepción debe guardar quality PREMIUM o TIPO B.", "warning");
       return null;
     }
     const assignedTotals = new Map();
@@ -2066,6 +2119,7 @@
           String(item.block || "").trim().toUpperCase() === String(options.block || "").trim().toUpperCase()
           && String(item.supplier || "").trim().toUpperCase() === String(options.supplier || "").trim().toUpperCase()
           && String(item.variety || "").trim().toUpperCase() === String(options.variety || "").trim().toUpperCase()
+          && BlessERP.flowerQuality?.normalize?.(item.quality) === BlessERP.flowerQuality?.normalize?.(options.quality || "PREMIUM")
         ))
       : null;
     store.ui.classificationAssignmentDraft = data.createClassificationAssignmentDraft({
@@ -2074,6 +2128,7 @@
       supplier: preferredPending?.supplier || "",
       block: preferredPending?.block || "",
       variety: preferredPending?.variety || "",
+      quality: BlessERP.flowerQuality?.normalize?.(preferredPending?.quality || options.quality) || "PREMIUM",
       classifier: options.classifier || store.catalogs.classifiers[0] || "",
       ...(preferredPending ? classificationAssignmentQuantitySeed(preferredPending) : { meshCount: "", extraStems: "" })
     });
@@ -2094,6 +2149,7 @@
       && normalizedOperationalValue(entry.reception.supplier) === normalizedOperationalValue(referenceReception.supplier)
       && normalizedOperationalValue(entry.item.variety) === normalizedOperationalValue(reference.variety)
       && normalizedOperationalValue(entry.item.stemType || "LARGO") === normalizedOperationalValue(reference.stemType || "LARGO")
+      && BlessERP.flowerQuality?.normalize?.(entry.item.quality) === BlessERP.flowerQuality?.normalize?.(reference.quality)
       && utils.parseNumber(entry.item.stemsPerMesh) === utils.parseNumber(reference.stemsPerMesh)
     ));
   }
@@ -2133,8 +2189,13 @@
       : pendingEntries.find(entry => entry.reception.block === draft.block && entry.item.variety === draft.variety);
     const referenceReception = (store.receptions || []).find(item => item.id === selectedPending?.reception?.id);
     const referenceReceptionItem = (referenceReception?.items || []).find(item => item.id === selectedPending?.item?.id);
-    if (!referenceReception || !referenceReceptionItem || !draft.classifier) {
+    const quality = BlessERP.flowerQuality?.normalize?.(draft.quality) || "";
+    if (!referenceReception || !referenceReceptionItem || !draft.classifier || !quality) {
       setNotice(appState, "Seleccione bloque, variedad y clasificador. Debe existir saldo pendiente en Recepcion.", "warning");
+      return null;
+    }
+    if (BlessERP.flowerQuality?.normalize?.(referenceReceptionItem.quality) !== quality) {
+      setNotice(appState, "CALIDAD_NO_CORRESPONDE_A_RECEPCION", "danger");
       return null;
     }
     const meshCount = utils.parseNumber(draft.meshCount);
@@ -2198,6 +2259,8 @@
         block: reception.block,
         variety: receptionItem.variety,
         stemType: receptionItem.stemType || "LARGO",
+        quality,
+        workdayId: gate.workday.id,
         meshCount: part.meshCount,
         stemsPerMesh: utils.parseNumber(receptionItem.stemsPerMesh),
         extraStems: part.extraStems,
@@ -2215,6 +2278,7 @@
         supplier: entry.supplier,
         block: entry.block,
         variety: entry.variety,
+        quality: entry.quality,
         classifier: entry.classifier,
         responsible: getDemoUser(appState),
         meshCount: entry.meshCount,
@@ -2263,13 +2327,15 @@
       block: entry.block,
       classifier: entry.classifier,
       classifierEmployeeId: classifierLink.employeeId,
-      variety: entry.variety
+      variety: entry.variety,
+      quality: entry.quality
     });
     resetClassificationAssignmentDraft(appState, {
       preservePending: true,
       supplier: entry.supplier,
       block: entry.block,
       variety: entry.variety,
+      quality: entry.quality,
       classifier: entry.classifier
     });
     setNotice(
@@ -2297,7 +2363,8 @@
       supplier: assignment?.supplier || "",
       block: assignment?.block || "",
       classifier: assignment?.classifier || "",
-      variety: assignment?.variety || ""
+      variety: assignment?.variety || "",
+      quality: BlessERP.flowerQuality?.preserve?.(assignment?.quality) || ""
     });
     saveDb();
   }
@@ -2319,6 +2386,11 @@
     const store = ensureStore(appState);
     const draft = clone(store.ui.classificationResultDraft);
     const assignment = findClassificationResultAssignment(store, draft);
+    const quality = BlessERP.flowerQuality?.normalize?.(assignment?.quality) || "";
+    if (!quality) {
+      setNotice(appState, "La entrega seleccionada no posee quality canónica. El resultado no puede inventarla ni inferirla.", "warning");
+      return null;
+    }
     const generalNationalStems = utils.parseNumber(draft.nationalStems);
     const nationalCauses = classificationNationalCauses(draft);
     const causeValues = Object.values(nationalCauses);
@@ -2360,6 +2432,7 @@
       id: uuid(),
       assignmentId: assignment.id,
       dateTime: nowLabel(),
+      quality,
       nationalStems,
       nationalGeneralStems,
       nationalOidioStems: nationalCauses.oidio,
@@ -2384,6 +2457,7 @@
     assignment.nationalBotrytisStems = result.accumulatedNationalBotrytisStems;
     assignment.nationalMaltratoStems = result.accumulatedNationalMaltratoStems;
     assignment.classificationResultObservation = result.observation;
+    assignment.quality = quality;
     assignment.exportableStems = result.exportableStems;
     assignment.status = "ENTREGADO + REGISTRADO NACIONAL";
     assignment.closedAt = result.dateTime;
@@ -2401,7 +2475,7 @@
       });
     }
     resetClassificationResultDraft(appState);
-    setNotice(appState, `Nacional registrada: ${result.nationalStems} tallos. Acumulada: ${result.accumulatedNationalStems} de ${assignment.totalStems}.`, "success");
+    setNotice(appState, `Clasificación ${BlessERP.flowerQuality.label(quality)} registrada. Nacional: ${result.nationalStems} tallos. Acumulada: ${result.accumulatedNationalStems} de ${assignment.totalStems}.`, "success");
     saveDb();
     return attachDurableSync(result);
   }
@@ -2465,6 +2539,7 @@
       supplier: meshEntry.supplier || "",
       block: meshEntry.block || "",
       variety: meshEntry.variety || "",
+      quality: BlessERP.flowerQuality?.preserve?.(meshEntry.quality) || "",
       length: utils.parseNumber(meshEntry.length),
       initialStems: totalStems,
       processedStems: totalStems,
@@ -2895,7 +2970,7 @@
         bunchId: String(source.bunchId || source.bunch_id || uuid()),
         variety: String(source.variety || "").trim().toUpperCase(),
         length: utils.parseNumber(source.length),
-        quality: String(source.quality || source.category || "EXPORTACION").trim().toUpperCase(),
+        quality: BlessERP.flowerQuality?.normalize?.(source.quality) || "",
         category: String(source.category || (source.localDestinationCustomerId ? "LOCAL" : "EXPORTACION")).trim().toUpperCase(),
         stemsPerBunch: utils.parseNumber(source.stemsPerBunch || source.target),
         color: labelColor,
@@ -2906,7 +2981,6 @@
         components,
         labelType: components.length > 1 ? "MIXTA" : "NORMAL",
         receptionId: String(source.receptionId || source.reception_id || "").trim(),
-        classificationResultId: String(source.classificationResultId || source.classification_result_id || "").trim(),
         destinationMode: String(source.destinationMode || "BLESS_EXPORT").trim(),
         destinationType: String(source.destinationType || (source.localDestinationCustomerId ? "LOCAL" : "EXPORT")).trim().toUpperCase(),
         localDestinationCustomerId: String(source.localDestinationCustomerId || "").trim(),
@@ -2921,6 +2995,7 @@
       || label.length <= 0
       || label.stemsPerBunch <= 0
       || !label.color
+      || !BlessERP.flowerQuality?.isValid?.(label.quality)
       || !label.components.length
       || label.components.some(component => !component.provider || !component.block || component.stems <= 0)
       || label.components.reduce((sum, component) => sum + component.stems, 0) !== label.stemsPerBunch
@@ -2971,6 +3046,14 @@
   }
 
   function registerPrintedZebraLabels(appState, sourceLabels = [], options = {}) {
+    const usesCanonicalQuality = (Array.isArray(sourceLabels) ? sourceLabels : []).some(source => (
+      BlessERP.flowerQuality?.isValid?.(source?.quality)
+    ));
+    if (usesCanonicalQuality && !requiresConfirmedZebra()) {
+      const error = "La calidad de la etiqueta requiere confirmación de Supabase TEST; el registro local no es autoridad.";
+      setNotice(appState, error, "danger", false);
+      return Promise.resolve({ ok: false, confirmed: false, error, labels: [] });
+    }
     return requiresConfirmedZebra()
       ? registerPrintedZebraLabelsConfirmed(appState, sourceLabels, options)
       : registerPrintedZebraLabelsLegacy(appState, sourceLabels, options);
@@ -3441,7 +3524,7 @@
       labelCode: code,
       variety: inventory.variety,
       length: inventory.length,
-      quality: inventory.quality || inventory.category || "EXPORTACION",
+      quality: BlessERP.flowerQuality?.preserve?.(inventory.quality) || "",
       warehouse: inventory.warehouse,
       location: inventory.location,
       stockKey: inventoryLogicalKey(inventory),
@@ -3630,6 +3713,19 @@
   }
 
   async function registerClassifierAssignmentConfirmed(appState) {
+    const hydrated = await hydrateYieldWorkday(appState);
+    const canonicalWorkday = hydrated?.workday || null;
+    const canonicalWorkdayId = String(canonicalWorkday?.id || "").trim();
+    const canonicalWorkdayIsActive = hydrated?.ok === true
+      && hydrated?.confirmed === true
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(canonicalWorkdayId)
+      && String(canonicalWorkday?.status || "").toUpperCase() === "ACTIVA"
+      && !String(canonicalWorkday?.endedAt || "").trim();
+    if (!canonicalWorkdayIsActive) {
+      const message = hydrated?.message || "OPERATIONS_ACTIVE_WORKDAY_REQUIRED";
+      setNotice(appState, message, "warning", false);
+      return { ok: false, confirmed: false, error: "OPERATIONS_ACTIVE_WORKDAY_REQUIRED", message };
+    }
     const simulation = simulateLegacyMutation(appState, shadowState => registerClassifierAssignmentLegacy(shadowState));
     if (!simulation.result) {
       propagateSimulationNotice(appState, simulation.nextStore, "La entrega al clasificador contiene datos inválidos.");
@@ -3642,10 +3738,17 @@
       "operations_mesh_history",
       "operations_performances"
     ]);
+    const lineage = classificationCommandWorkdayLineage(records, canonicalWorkdayId);
+    if (!lineage.ok) {
+      const message = "OPERATIONS_COMMAND_WORKDAY_MISMATCH";
+      setNotice(appState, message, "danger", false);
+      return { ok: false, confirmed: false, error: message, message, lineage };
+    }
     const operationId = uuid();
     const persisted = await executeOperationsCommand("ASSIGN_CLASSIFICATION", {
       deliveryGroupId: simulation.result.deliveryGroupId,
       assignmentIds: (simulation.result.entries || []).map(item => item.id),
+      workdayId: canonicalWorkdayId,
       records
     }, { operationId });
     if (!persisted.ok) {
@@ -3684,6 +3787,7 @@
       assignmentId: simulation.result.assignmentId,
       resultId: simulation.result.id,
       nationalStems: simulation.result.nationalStems,
+      quality: simulation.result.quality,
       records
     }, { operationId });
     if (!persisted.ok) {
@@ -3700,7 +3804,7 @@
     return [
       String(inventory.variety || "").trim().toUpperCase(),
       String(utils.parseNumber(inventory.length)),
-      String(inventory.quality || inventory.category || "EXPORTACION").trim().toUpperCase(),
+      BlessERP.flowerQuality?.preserve?.(inventory.quality) || "",
       String(inventory.warehouse || "CUARTO FRIO 1").trim().toUpperCase(),
       String(inventory.location || "PENDIENTE UBICACION").trim().toUpperCase()
     ].join("|");
@@ -3716,10 +3820,25 @@
       setNotice(appState, response.observation, "warning", false, { toast: options.suppressToast !== true });
       return response;
     }
+    const gate = getYieldRegistrationGate(appState, store);
+    if (!gate.allowed || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(gate.workday?.id || ""))) {
+      const response = {
+        ok: false,
+        result: "OPERATIONS_ACTIVE_WORKDAY_REQUIRED",
+        code,
+        observation: "OPERATIONS_ACTIVE_WORKDAY_REQUIRED",
+        mode: "CANONICAL_WORKDAY_REQUIRED"
+      };
+      store.ui.lastBunchIntakeResult = response;
+      store.ui.bunchIntakeDraft.code = "";
+      setNotice(appState, "Debe existir una jornada canónica activa antes de recibir la etiqueta Zebra.", "warning", false, { toast: options.suppressToast !== true });
+      return response;
+    }
     const operationId = String(options.operationId || uuid());
     const persisted = await destinationV2Repository()?.receiveBunch?.(code, {
       responsible: options.responsible || store.ui.bunchIntakeDraft?.responsible || getDemoUser(appState),
-      observation: String(options.observation || "").trim()
+      observation: String(options.observation || "").trim(),
+      workdayId: String(gate.workday.id)
     }, { operationId });
     if (!persisted?.ok) {
       const response = {
@@ -3836,7 +3955,7 @@
       labelCode: next.labelCode || previous.labelCode || "",
       variety: next.variety || previous.variety || "",
       length: next.length || previous.length || 0,
-      quality: next.quality || next.category || previous.quality || previous.category || "EXPORTACION",
+      quality: BlessERP.flowerQuality?.preserve?.(next.quality || previous.quality) || "",
       warehouse: next.warehouse || previous.warehouse || "",
       location: next.location || previous.location || "",
       stockKey: inventoryLogicalKey(next),
@@ -3876,12 +3995,41 @@
   }
 
   function registerClassificationResult(appState) {
+    const store = ensureStore(appState);
+    const draft = store.ui?.classificationResultDraft || {};
+    const assignment = findClassificationResultAssignment(store, draft);
+    const quality = BlessERP.flowerQuality?.normalize?.(assignment?.quality) || "";
+    draft.quality = quality;
+    if (!quality) {
+      const error = "La entrega seleccionada no posee quality canónica.";
+      setNotice(appState, error, "danger", false);
+      return Promise.resolve({ ok: false, confirmed: false, error });
+    }
+    if (!requiresConfirmedRemoteOperations()) {
+      const error = "La calidad de clasificación requiere confirmación de Supabase TEST; el guardado local no es autoridad.";
+      setNotice(appState, error, "danger", false);
+      return Promise.resolve({ ok: false, confirmed: false, error });
+    }
     return requiresConfirmedRemoteOperations()
       ? registerClassificationResultConfirmed(appState)
       : registerClassificationResultLegacy(appState);
   }
 
   function scanBunchLabelIntoInventory(appState, rawCode, options = {}) {
+    const store = ensureStore(appState);
+    const code = normalizeBunchLabelCode(rawCode);
+    const label = (store.labelBatches || []).find(item => normalizeBunchLabelCode(item.code) === code);
+    if (BlessERP.flowerQuality?.isValid?.(label?.quality) && !requiresConfirmedZebra()) {
+      const response = {
+        ok: false,
+        result: "SUPABASE_REQUERIDO",
+        code,
+        observation: "La etiqueta con calidad canónica solo puede ingresar mediante Supabase TEST."
+      };
+      store.ui.lastBunchIntakeResult = response;
+      setNotice(appState, response.observation, "danger", false, { toast: options.suppressToast !== true });
+      return Promise.resolve(response);
+    }
     return requiresConfirmedZebra()
       ? scanBunchLabelIntoInventoryConfirmed(appState, rawCode, options)
       : scanBunchLabelIntoInventoryLegacy(appState, rawCode, options);
@@ -4230,6 +4378,7 @@
     getStore,
     getUi,
     getYieldRegistrationGate,
+    classificationCommandWorkdayLineage,
     getYieldWorkdaySummary,
     getReceptionClassificationProgress,
     getReceptionQueue,

@@ -81,6 +81,7 @@
 
   function renderInvoice(context) {
     const { company, order, customer, brand, agency, airline, dae, metrics } = context;
+    const economics = utils.calculateOrderEconomics(order);
     const localSale = utils.isLocalOrder?.(order) || false;
     const transport = utils.normalizeTransportType?.(order.transportType) || String(order.transportType || "AEREO").trim().toUpperCase();
     const invoiceNumber = BlessERP.comercialInvoiceSequence?.visibleInvoiceNumber?.(order, "PENDIENTE") || "PENDIENTE";
@@ -120,6 +121,13 @@
         <td class="numeric">${utils.esc(utils.money(row.totalUsd))}</td>
       </tr>
     `).join("");
+    const amountTotalMarkup = economics.discountAmount > 0
+      ? `<dl class="commercial-invoice-amount-totals">
+          <div><dt>SUBTOTAL</dt><dd>${utils.esc(utils.money(economics.subtotal))}</dd></div>
+          <div><dt>DISCOUNT (${utils.esc(Number(economics.discountPercentage || 0).toFixed(2).replace(/\.00$/, ""))}%)</dt><dd>-${utils.esc(utils.money(economics.discountAmount))}</dd></div>
+          <div class="commercial-invoice-net-total"><dt>TOTAL</dt><dd>${utils.esc(utils.money(economics.netTotal))}</dd></div>
+        </dl>`
+      : `<strong>${utils.esc(utils.money(metrics.totalUsd))}</strong>`;
 
     return `
       <article class="doc-page commercial-invoice-letter">
@@ -193,10 +201,10 @@
           <tbody>${pieceMarkup || `<tr><td colspan="9">Sin detalle de cajas.</td></tr>`}</tbody>
         </table>
 
-        <section class="commercial-invoice-totals">
+        <section class="commercial-invoice-totals${economics.discountAmount > 0 ? " has-discount" : ""}">
           <div><strong>TOTAL</strong><span>${utils.esc(metrics.totalBoxes)}</span><span>${utils.esc(metrics.totalFulls.toFixed(2))}</span></div>
           <strong>${utils.esc(utils.number(metrics.totalStems))}</strong>
-          <strong>${utils.esc(utils.money(metrics.totalUsd))}</strong>
+          ${amountTotalMarkup}
         </section>
 
         <section class="commercial-invoice-bill">

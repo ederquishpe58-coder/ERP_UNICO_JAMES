@@ -48,10 +48,53 @@
     BlessERP.state.saveDb();
   }
 
+  function saveConfirmedCatalogCache() {
+    const saveLocalOnly = BlessERP.state?.saveDbLocalOnly;
+    if (typeof saveLocalOnly !== "function") return true;
+    return saveLocalOnly() !== false;
+  }
+
   function activeCompanyId(appState) {
     return BlessERP.services?.companyContext?.activeCompanyId?.()
       || BlessERP.companyCapabilities?.companyIdOf?.(appState?.db?.activeCompanyId)
       || "COMP-BLESS-FLOWER";
+  }
+
+  function bindCatalogCompany(record, appState) {
+    const companyId = activeCompanyId(appState);
+    record.companyId = companyId;
+    record.company_id = companyId;
+    return record;
+  }
+
+  async function persistCatalogRecord(appState, repository, record, label) {
+    if (!repository?.configured?.()) {
+      const message = `Supabase debe confirmar ${label}. No se guardó localmente.`;
+      setNotice(appState, message, "warning");
+      return { ok: false, message, mode: "REMOTE_REQUIRED" };
+    }
+    const result = await repository.save(record);
+    if (!result?.ok || result.confirmed !== true || result.status !== "SYNCED") {
+      const message = result?.message || `Supabase no confirmó ${label}.`;
+      setNotice(appState, message, "warning");
+      return { ok: false, message, mode: result?.mode || "REMOTE_NOT_CONFIRMED" };
+    }
+    return result;
+  }
+
+  async function removeCatalogRecord(appState, repository, record, label) {
+    if (!repository?.configured?.()) {
+      const message = `Supabase debe confirmar la eliminación de ${label}. No se modificó la caché.`;
+      setNotice(appState, message, "warning");
+      return { ok: false, message, mode: "REMOTE_REQUIRED" };
+    }
+    const result = await repository.remove(bindCatalogCompany({ ...record }, appState));
+    if (!result?.ok || result.confirmed !== true || result.status !== "SYNCED") {
+      const message = result?.message || `Supabase no confirmó la eliminación de ${label}.`;
+      setNotice(appState, message, "warning");
+      return { ok: false, message, mode: result?.mode || "REMOTE_NOT_CONFIRMED" };
+    }
+    return result;
   }
 
   function normalizePersonName(value) {
@@ -194,6 +237,8 @@
     appState.db.commercial = mergeMissing(base, appState.db.commercial || {});
     const store = appState.db.commercial;
 
+    const countriesUseCanonicalServerAuthority = BlessERP.syncEntityRegistry
+      ?.hasCanonicalServerEvidence?.(appState.db, "commercial_countries") === true;
     store.countryCatalog = (store.countryCatalog || []).map(data.createCountry);
     const referencedCountries = [
       ...(store.customerCatalog || []).map(item => item.country),
@@ -201,14 +246,16 @@
       ...(store.destinationCatalog || []).map(item => item.country),
       ...(store.daeCatalog || []).map(item => item.country)
     ].map(item => String(item || "").trim()).filter(Boolean);
-    referencedCountries.forEach(countryName => {
-      const exists = store.countryCatalog.some(item => item.name.toUpperCase() === countryName.toUpperCase());
-      if (!exists) store.countryCatalog.push(data.createCountry({
-        code: nextCatalogCode(store.countryCatalog, "PAIS"),
-        name: countryName,
-        status: "ACTIVO"
-      }));
-    });
+    if (!countriesUseCanonicalServerAuthority) {
+      referencedCountries.forEach(countryName => {
+        const exists = store.countryCatalog.some(item => item.name.toUpperCase() === countryName.toUpperCase());
+        if (!exists) store.countryCatalog.push(data.createCountry({
+          code: nextCatalogCode(store.countryCatalog, "PAIS"),
+          name: countryName,
+          status: "ACTIVO"
+        }));
+      });
+    }
     data.countries.splice(0, data.countries.length, ...store.countryCatalog.map(item => BlessERP.utils.clone(item)));
     const countryDraftIsNew = Boolean(store.ui.countryDraft?.id && !store.countryCatalog.some(item => item.id === store.ui.countryDraft.id));
     if (!store.countryCatalog.some(item => item.id === store.ui.selectedCountryId) && !countryDraftIsNew) {
@@ -620,6 +667,7 @@
     const store = ensureStore(appState);
     store.ui.selectedCountryId = "";
     store.ui.countryDraft = data.createCountry({
+      companyId: activeCompanyId(appState),
       code: nextCatalogCode(store.countryCatalog, "PAIS"),
       status: "ACTIVO"
     });
@@ -635,9 +683,9 @@
     return true;
   }
 
-  function saveCountry(appState) {
+  async function saveCountry(appState) {
     const store = ensureStore(appState);
-    const draft = data.createCountry(store.ui.countryDraft || {});
+    const draft = bindCatalogCompany(data.createCountry(store.ui.countryDraft || {}), appState);
     if (!draft.code) draft.code = nextCatalogCode(store.countryCatalog, "PAIS");
     if (!draft.name) {
       setNotice(appState, "Ingrese el nombre del pais.", "warning");
@@ -651,36 +699,48 @@
     }
     const existing = store.countryCatalog.find(item => item.id === draft.id);
     const previousName = existing?.name || draft.name;
-    if (existing) Object.assign(existing, draft);
-    else store.countryCatalog.unshift(draft);
-
     if (existing && previousName.toUpperCase() !== draft.name.toUpperCase()) {
+      const referenced = [
+        ...store.customerCatalog,
+        ...store.brandCatalog,
+        ...store.destinationCatalog,
+        ...store.daeCatalog
+      ].some(item => String(item?.country || "").trim().toUpperCase() === previousName.toUpperCase())
+        || store.orders.some(order => String(order.destinationCountry || "").trim().toUpperCase() === previousName.toUpperCase());
+      if (referenced) {
+        setNotice(appState, "No se puede renombrar un país ya utilizado. Actualice primero sus referencias o márquelo INACTIVO.", "warning");
+        return { ok: false, reason: "COUNTRY_IN_USE" };
+      }
+    }
+    const result = await persistCatalogRecord(appState, BlessERP.getCountryRepository?.(), draft, "el país");
+    if (!result.ok) return result;
+    const canonical = data.createCountry(result.record);
+    const existingIndex = store.countryCatalog.findIndex(item => item.id === canonical.id);
+    if (existingIndex >= 0) store.countryCatalog[existingIndex] = canonical;
+    else store.countryCatalog.unshift(canonical);
+    if (existing && previousName.toUpperCase() !== canonical.name.toUpperCase()) {
       const rename = item => {
-        if (String(item?.country || "").trim().toUpperCase() === previousName.toUpperCase()) item.country = draft.name;
+        if (String(item?.country || "").trim().toUpperCase() === previousName.toUpperCase()) item.country = canonical.name;
       };
+      // La edición se bloquea arriba cuando existen referencias persistidas.
+      // Este paso conserva coherentes borradores/cachés que se hayan abierto
+      // durante la confirmación remota, sin convertirlos en autoridad.
       store.customerCatalog.forEach(rename);
       store.brandCatalog.forEach(rename);
       store.destinationCatalog.forEach(rename);
       store.daeCatalog.forEach(rename);
-      store.orders.forEach(order => {
-        if (String(order.destinationCountry || "").trim().toUpperCase() === previousName.toUpperCase()) order.destinationCountry = draft.name;
-      });
       [store.ui.customerDraft, store.ui.brandDraft, store.ui.destinationDraft, store.ui.daeDraft].forEach(rename);
     }
-
     data.countries.splice(0, data.countries.length, ...store.countryCatalog.map(item => BlessERP.utils.clone(item)));
-    data.customers.splice(0, data.customers.length, ...store.customerCatalog.map(item => BlessERP.utils.clone(item)));
-    data.brands.splice(0, data.brands.length, ...store.brandCatalog.map(item => BlessERP.utils.clone(item)));
-    data.destinations.splice(0, data.destinations.length, ...store.destinationCatalog.map(item => BlessERP.utils.clone(item)));
-    data.daes.splice(0, data.daes.length, ...store.daeCatalog.map(item => BlessERP.utils.clone(item)));
     store.ui.selectedCountryId = "";
     store.ui.countryDraft = data.createCountry({
+      companyId: activeCompanyId(appState),
       code: nextCatalogCode(store.countryCatalog, "PAIS"),
       status: "ACTIVO"
     });
-    setNotice(appState, `Pais guardado: ${draft.name}.`, "success");
-    saveDb();
-    return { ok: true, country: draft, updated: Boolean(existing) };
+    setNotice(appState, `País guardado y confirmado por Supabase: ${canonical.name}.`, "success");
+    saveConfirmedCatalogCache();
+    return { ok: true, confirmed: true, country: canonical, updated: existingIndex >= 0 };
   }
 
   function selectCustomer(appState, customerId) {
@@ -718,9 +778,9 @@
     return true;
   }
 
-  function saveCustomer(appState) {
+  async function saveCustomer(appState) {
     const store = ensureStore(appState);
-    const draft = data.createCustomer(store.ui.customerDraft || {});
+    const draft = bindCatalogCompany(data.createCustomer(store.ui.customerDraft || {}), appState);
     let automaticIdentification = false;
     const country = findCatalogCountry(store, draft.country);
     if (!country) {
@@ -752,44 +812,48 @@
       setNotice(appState, duplicateCode ? "Ya existe un cliente con ese codigo." : "Ya existe un cliente con esa identificacion.", "warning");
       return { ok: false };
     }
-    const existing = store.customerCatalog.find(item => item.id === draft.id);
-    if (existing) Object.assign(existing, draft);
-    else store.customerCatalog.unshift(draft);
+    const result = await persistCatalogRecord(appState, BlessERP.getCustomerRepository?.(), draft, "el cliente");
+    if (!result.ok) return result;
+    const canonical = data.createCustomer(result.record);
+    const existingIndex = store.customerCatalog.findIndex(item => item.id === canonical.id);
+    if (existingIndex >= 0) store.customerCatalog[existingIndex] = canonical;
+    else store.customerCatalog.unshift(canonical);
     data.customers.splice(0, data.customers.length, ...store.customerCatalog.map(item => BlessERP.utils.clone(item)));
     store.ui.selectedCustomerId = "";
     store.ui.customerDraft = data.createCustomer({
-      companyId: draft.companyId || draft.company_id || activeCompanyId(appState),
+      companyId: activeCompanyId(appState),
       code: nextCatalogCode(store.customerCatalog, "CLI"),
       country: "ECUADOR",
       status: "ACTIVO"
     });
     setNotice(
       appState,
-      `Cliente guardado: ${draft.commercialName}.${automaticIdentification ? ` Identificacion exterior automatica: ${draft.identification}.` : ""}`,
+      `Cliente guardado y confirmado por Supabase: ${canonical.commercialName}.${automaticIdentification ? ` Identificación exterior automática: ${canonical.identification}.` : ""}`,
       "success"
     );
-    saveDb();
-    return { ok: true, customer: draft, updated: Boolean(existing) };
+    saveConfirmedCatalogCache();
+    return { ok: true, confirmed: true, customer: canonical, updated: existingIndex >= 0 };
   }
 
-  function deleteCustomer(appState, customerId) {
+  async function deleteCustomer(appState, customerId) {
     const store = ensureStore(appState);
     const customer = store.customerCatalog.find(item => item.id === customerId);
     if (!customer) return { ok: false, reason: "NOT_FOUND" };
     const usedByBrand = store.brandCatalog.some(item => item.customerId === customerId);
     const usedByOrder = store.orders.some(item => item.customerId === customerId && String(item.status || "").toUpperCase() !== "ANULADO");
-    if (usedByBrand || usedByOrder) {
-      setNotice(appState, `No se puede eliminar ${customer.legalName}: primero retire sus marcas o pedidos activos.`, "warning");
+    const usedByDae = store.daeCatalog.some(item => (item.customerIds || []).includes(customerId));
+    if (usedByBrand || usedByOrder || usedByDae) {
+      setNotice(appState, `No se puede eliminar ${customer.legalName}: primero retire sus marcas, DAEs o pedidos activos.`, "warning");
       return { ok: false, reason: "IN_USE" };
     }
+    const result = await removeCatalogRecord(appState, BlessERP.getCustomerRepository?.(), customer, "el cliente");
+    if (!result.ok) return result;
     store.customerCatalog = store.customerCatalog.filter(item => item.id !== customerId);
-    store.daeCatalog.forEach(dae => { dae.customerIds = (dae.customerIds || []).filter(id => id !== customerId); });
     data.customers.splice(0, data.customers.length, ...store.customerCatalog.map(item => BlessERP.utils.clone(item)));
-    data.daes.splice(0, data.daes.length, ...store.daeCatalog.map(item => BlessERP.utils.clone(item)));
     newCustomer(appState, customer.companyId || customer.company_id);
-    setNotice(appState, `Cliente eliminado: ${customer.legalName}.`, "success");
-    saveDb();
-    return { ok: true, customer };
+    setNotice(appState, `Cliente eliminado y confirmado por Supabase: ${customer.legalName}.`, "success");
+    saveConfirmedCatalogCache();
+    return { ok: true, confirmed: true, customer };
   }
 
   function getBrandCatalog(appState, companyId = "") {
@@ -857,9 +921,9 @@
     return true;
   }
 
-  function saveBrand(appState) {
+  async function saveBrand(appState) {
     const store = ensureStore(appState);
-    const draft = data.createBrand(store.ui.brandDraft || {});
+    const draft = bindCatalogCompany(data.createBrand(store.ui.brandDraft || {}), appState);
     const country = findCatalogCountry(store, draft.country || draft.destination);
     if (!country) {
       setNotice(appState, "Seleccione un pais registrado en el catalogo comercial.", "warning");
@@ -888,22 +952,25 @@
       setNotice(appState, "Ya existe una marca con ese codigo.", "warning");
       return { ok: false };
     }
-    const existing = store.brandCatalog.find(item => item.id === draft.id);
-    if (existing) Object.assign(existing, draft);
-    else store.brandCatalog.unshift(draft);
+    const result = await persistCatalogRecord(appState, BlessERP.getFinalBrandRepository?.(), draft, "el cliente final / marca");
+    if (!result.ok) return result;
+    const canonical = data.createBrand(result.record);
+    const existingIndex = store.brandCatalog.findIndex(item => item.id === canonical.id);
+    if (existingIndex >= 0) store.brandCatalog[existingIndex] = canonical;
+    else store.brandCatalog.unshift(canonical);
     data.brands.splice(0, data.brands.length, ...store.brandCatalog.map(item => BlessERP.utils.clone(item)));
     store.ui.selectedBrandId = "";
     store.ui.brandDraft = data.createBrand({
-      companyId: draft.companyId || draft.company_id || activeCompanyId(appState),
+      companyId: activeCompanyId(appState),
       code: nextCatalogCode(store.brandCatalog, "MAR"),
       status: "ACTIVO"
     });
-    setNotice(appState, `Marca guardada: ${draft.name}.`, "success");
-    saveDb();
-    return { ok: true, brand: draft, updated: Boolean(existing) };
+    setNotice(appState, `Marca guardada y confirmada por Supabase: ${canonical.name}.`, "success");
+    saveConfirmedCatalogCache();
+    return { ok: true, confirmed: true, brand: canonical, updated: existingIndex >= 0 };
   }
 
-  function deleteBrand(appState, brandId) {
+  async function deleteBrand(appState, brandId) {
     const store = ensureStore(appState);
     const brand = store.brandCatalog.find(item => item.id === brandId);
     if (!brand) return { ok: false, reason: "NOT_FOUND" };
@@ -912,12 +979,14 @@
       setNotice(appState, `No se puede eliminar ${brand.finalClientName}: tiene pedidos activos o históricos vigentes.`, "warning");
       return { ok: false, reason: "IN_USE" };
     }
+    const result = await removeCatalogRecord(appState, BlessERP.getFinalBrandRepository?.(), brand, "el cliente final / marca");
+    if (!result.ok) return result;
     store.brandCatalog = store.brandCatalog.filter(item => item.id !== brandId);
     data.brands.splice(0, data.brands.length, ...store.brandCatalog.map(item => BlessERP.utils.clone(item)));
     newBrand(appState, brand.companyId || brand.company_id);
-    setNotice(appState, `Cliente final eliminado: ${brand.finalClientName}.`, "success");
-    saveDb();
-    return { ok: true, brand };
+    setNotice(appState, `Cliente final eliminado y confirmado por Supabase: ${brand.finalClientName}.`, "success");
+    saveConfirmedCatalogCache();
+    return { ok: true, confirmed: true, brand };
   }
 
   function getAgencyCatalog(appState) {
@@ -938,6 +1007,7 @@
     const store = ensureStore(appState);
     store.ui.selectedAgencyId = "";
     store.ui.agencyDraft = data.createAgency({
+      companyId: activeCompanyId(appState),
       code: nextCatalogCode(store.agencyCatalog, "AG"),
       city: "Quito",
       status: "ACTIVA"
@@ -965,53 +1035,50 @@
     return true;
   }
 
-  function saveAgency(appState) {
+  async function saveAgency(appState) {
     const store = ensureStore(appState);
-    const draft = data.createAgency(store.ui.agencyDraft || {});
+    const draft = bindCatalogCompany(data.createAgency(store.ui.agencyDraft || {}), appState);
     if (!draft.code) draft.code = nextCatalogCode(store.agencyCatalog, "AG");
     const required = [draft.code, draft.name, draft.coldRoom, draft.city];
     if (required.some(value => !String(value || "").trim())) {
       setNotice(appState, "Complete agencia, cuarto frio principal y ciudad.", "warning");
-      return { ok: false };
+      return { ok: false, message: "Complete agencia, cuarto frío principal y ciudad." };
     }
     const duplicateCode = store.agencyCatalog.find(item => item.id !== draft.id && String(item.code).trim().toUpperCase() === String(draft.code).trim().toUpperCase());
     const duplicateName = store.agencyCatalog.find(item => item.id !== draft.id && String(item.name).trim().toUpperCase() === String(draft.name).trim().toUpperCase());
     if (duplicateCode || duplicateName) {
       setNotice(appState, duplicateCode ? "Ya existe una agencia con ese codigo." : "Ya existe una agencia con ese nombre.", "warning");
-      return { ok: false };
+      return { ok: false, message: duplicateCode ? "Ya existe una agencia con ese código." : "Ya existe una agencia con ese nombre." };
     }
-    const existing = store.agencyCatalog.find(item => item.id === draft.id);
-    if (existing) Object.assign(existing, draft);
-    else store.agencyCatalog.unshift(draft);
+    const repository = BlessERP.getCargoAgencyRepository?.();
+    if (!repository?.configured?.()) {
+      setNotice(appState, "Supabase debe confirmar la agencia. No se guardó localmente.", "warning");
+      return { ok: false, message: "Supabase debe confirmar la agencia." };
+    }
+    const result = await repository.save(draft);
+    if (!result?.ok || result.confirmed !== true || result.status !== "SYNCED") {
+      setNotice(appState, result?.message || "Supabase no confirmó la agencia.", "warning");
+      return { ok: false, message: result?.message || "Supabase no confirmó la agencia." };
+    }
+    const canonical = data.createAgency(result.record);
+    const existingIndex = store.agencyCatalog.findIndex(item => item.id === canonical.id);
+    if (existingIndex >= 0) store.agencyCatalog[existingIndex] = canonical;
+    else store.agencyCatalog.unshift(canonical);
     data.agencies.splice(0, data.agencies.length, ...store.agencyCatalog.map(item => BlessERP.utils.clone(item)));
-
-    store.brandCatalog.forEach(brand => {
-      if (brand.defaultAgencyId !== draft.id) return;
-      brand.agencyContact = draft.contact;
-      brand.agencyEmail = draft.email;
-      brand.agencyColdRoom = draft.coldRoom;
-      brand.agencyCity = draft.city;
-    });
-    data.brands.splice(0, data.brands.length, ...store.brandCatalog.map(item => BlessERP.utils.clone(item)));
-    if (store.ui.brandDraft?.defaultAgencyId === draft.id) {
-      store.ui.brandDraft.agencyContact = draft.contact;
-      store.ui.brandDraft.agencyEmail = draft.email;
-      store.ui.brandDraft.agencyColdRoom = draft.coldRoom;
-      store.ui.brandDraft.agencyCity = draft.city;
-    }
 
     store.ui.selectedAgencyId = "";
     store.ui.agencyDraft = data.createAgency({
+      companyId: activeCompanyId(appState),
       code: nextCatalogCode(store.agencyCatalog, "AG"),
       city: "Quito",
       status: "ACTIVA"
     });
-    setNotice(appState, `Agencia guardada: ${draft.name}.`, "success");
-    saveDb();
-    return { ok: true, agency: draft, updated: Boolean(existing) };
+    setNotice(appState, `Agencia guardada y confirmada por Supabase: ${canonical.name}.`, "success");
+    saveConfirmedCatalogCache();
+    return { ok: true, confirmed: true, agency: canonical, updated: existingIndex >= 0 };
   }
 
-  function deleteAgency(appState, agencyId) {
+  async function deleteAgency(appState, agencyId) {
     const store = ensureStore(appState);
     const agency = store.agencyCatalog.find(item => item.id === agencyId);
     if (!agency) return { ok: false, reason: "NOT_FOUND" };
@@ -1021,12 +1088,14 @@
       setNotice(appState, `No se puede eliminar ${agency.name}: está relacionada con clientes finales o pedidos.`, "warning");
       return { ok: false, reason: "IN_USE" };
     }
+    const result = await removeCatalogRecord(appState, BlessERP.getCargoAgencyRepository?.(), agency, "la agencia");
+    if (!result.ok) return result;
     store.agencyCatalog = store.agencyCatalog.filter(item => item.id !== agencyId);
     data.agencies.splice(0, data.agencies.length, ...store.agencyCatalog.map(item => BlessERP.utils.clone(item)));
     newAgency(appState);
-    setNotice(appState, `Agencia eliminada: ${agency.name}.`, "success");
-    saveDb();
-    return { ok: true, agency };
+    setNotice(appState, `Agencia eliminada y confirmada por Supabase: ${agency.name}.`, "success");
+    saveConfirmedCatalogCache();
+    return { ok: true, confirmed: true, agency };
   }
 
   function getAirlineCatalog(appState) {
@@ -1047,6 +1116,7 @@
     const store = ensureStore(appState);
     store.ui.selectedAirlineId = "";
     store.ui.airlineDraft = data.createAirline({
+      companyId: activeCompanyId(appState),
       code: `AIR-${String(store.airlineCatalog.length + 1).padStart(3, "0")}`,
       status: "ACTIVA"
     });
@@ -1058,42 +1128,54 @@
     const store = ensureStore(appState);
     const draft = store.ui.airlineDraft;
     if (!draft || !(field in draft)) return false;
-    draft[field] = field === "awbPrefix" ? String(value || "").replace(/\D/g, "").slice(0, 3) : String(value || "");
+    draft[field] = field === "awbPrefix" ? String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3) : String(value || "");
     return true;
   }
 
-  function saveAirline(appState) {
+  async function saveAirline(appState) {
     const store = ensureStore(appState);
-    const draft = data.createAirline(store.ui.airlineDraft || {});
+    const draft = bindCatalogCompany(data.createAirline(store.ui.airlineDraft || {}), appState);
     if (![draft.code, draft.name, draft.awbPrefix].every(value => String(value || "").trim())) {
       setNotice(appState, "Complete codigo, linea aerea y prefijo AWB.", "warning");
-      return { ok: false };
+      return { ok: false, message: "Complete código, línea aérea y prefijo AWB." };
     }
-    if (!/^\d{3}$/.test(draft.awbPrefix)) {
-      setNotice(appState, "El prefijo AWB debe contener exactamente 3 digitos.", "warning");
-      return { ok: false };
+    if (!/^[A-Z0-9]{3}$/.test(draft.awbPrefix)) {
+      setNotice(appState, "El prefijo AWB debe contener exactamente 3 caracteres alfanuméricos.", "warning");
+      return { ok: false, message: "El prefijo AWB debe contener exactamente 3 caracteres alfanuméricos." };
     }
     const duplicateCode = store.airlineCatalog.find(item => item.id !== draft.id && String(item.code).trim().toUpperCase() === String(draft.code).trim().toUpperCase());
     const duplicatePrefix = store.airlineCatalog.find(item => item.id !== draft.id && item.awbPrefix === draft.awbPrefix);
     if (duplicateCode || duplicatePrefix) {
       setNotice(appState, duplicateCode ? "Ya existe una linea aerea con ese codigo." : "Ya existe una linea aerea con ese prefijo AWB.", "warning");
-      return { ok: false };
+      return { ok: false, message: duplicateCode ? "Ya existe una línea aérea con ese código." : "Ya existe una línea aérea con ese prefijo AWB." };
     }
-    const existing = store.airlineCatalog.find(item => item.id === draft.id);
-    if (existing) Object.assign(existing, draft);
-    else store.airlineCatalog.unshift(draft);
+    const repository = BlessERP.getAirlineRepository?.();
+    if (!repository?.configured?.()) {
+      setNotice(appState, "Supabase debe confirmar la línea aérea. No se guardó localmente.", "warning");
+      return { ok: false, message: "Supabase debe confirmar la línea aérea." };
+    }
+    const result = await repository.save(draft);
+    if (!result?.ok || result.confirmed !== true || result.status !== "SYNCED") {
+      setNotice(appState, result?.message || "Supabase no confirmó la línea aérea.", "warning");
+      return { ok: false, message: result?.message || "Supabase no confirmó la línea aérea." };
+    }
+    const canonical = data.createAirline(result.record);
+    const existingIndex = store.airlineCatalog.findIndex(item => item.id === canonical.id);
+    if (existingIndex >= 0) store.airlineCatalog[existingIndex] = canonical;
+    else store.airlineCatalog.unshift(canonical);
     data.airlines.splice(0, data.airlines.length, ...store.airlineCatalog.map(item => BlessERP.utils.clone(item)));
     store.ui.selectedAirlineId = "";
     store.ui.airlineDraft = data.createAirline({
+      companyId: activeCompanyId(appState),
       code: `AIR-${String(store.airlineCatalog.length + 1).padStart(3, "0")}`,
       status: "ACTIVA"
     });
-    setNotice(appState, `Linea aerea guardada: ${draft.name}.`, "success");
-    saveDb();
-    return { ok: true, airline: draft, updated: Boolean(existing) };
+    setNotice(appState, `Línea aérea guardada y confirmada por Supabase: ${canonical.name}.`, "success");
+    saveConfirmedCatalogCache();
+    return { ok: true, confirmed: true, airline: canonical, updated: existingIndex >= 0 };
   }
 
-  function deleteAirline(appState, airlineId) {
+  async function deleteAirline(appState, airlineId) {
     const store = ensureStore(appState);
     const airline = store.airlineCatalog.find(item => item.id === airlineId);
     if (!airline) return { ok: false, reason: "NOT_FOUND" };
@@ -1103,14 +1185,16 @@
       setNotice(appState, `No se puede borrar ${airline.name}: esta usada en ${daeInUse ? "DAE" : "pedidos"}.`, "warning");
       return { ok: false, reason: "IN_USE" };
     }
+    const result = await removeCatalogRecord(appState, BlessERP.getAirlineRepository?.(), airline, "la línea aérea");
+    if (!result.ok) return result;
     store.airlineCatalog = store.airlineCatalog.filter(item => item.id !== airlineId);
     data.airlines.splice(0, data.airlines.length, ...store.airlineCatalog.map(item => BlessERP.utils.clone(item)));
     const next = store.airlineCatalog[0] || data.createAirline();
     store.ui.selectedAirlineId = next.id || "";
     store.ui.airlineDraft = data.createAirline(BlessERP.utils.clone(next));
-    setNotice(appState, `Linea aerea eliminada: ${airline.name}.`, "success");
-    saveDb();
-    return { ok: true, airline };
+    setNotice(appState, `Línea aérea eliminada y confirmada por Supabase: ${airline.name}.`, "success");
+    saveConfirmedCatalogCache();
+    return { ok: true, confirmed: true, airline };
   }
 
   function getDaeCatalog(appState, companyId = "") {
@@ -1187,9 +1271,9 @@
     return { ok: true };
   }
 
-  function saveDae(appState) {
+  async function saveDae(appState) {
     const store = ensureStore(appState);
-    const draft = data.createDae(store.ui.daeDraft || {});
+    const draft = bindCatalogCompany(data.createDae(store.ui.daeDraft || {}), appState);
     const validation = validateDaeDraft(store, draft);
     if (!validation.ok) {
       setNotice(appState, validation.message, "warning");
@@ -1204,30 +1288,27 @@
       setNotice(appState, "Ya existe una DAE con ese numero.", "warning");
       return { ok: false };
     }
-    const existing = store.daeCatalog.find(item => item.id === draft.id);
-    if (existing) Object.assign(existing, draft);
-    else store.daeCatalog.unshift(draft);
+    const result = await persistCatalogRecord(appState, BlessERP.getDaeRepository?.(), draft, "la DAE");
+    if (!result.ok) return result;
+    const canonical = data.createDae(result.record);
+    const existingIndex = store.daeCatalog.findIndex(item => item.id === canonical.id);
+    if (existingIndex >= 0) store.daeCatalog[existingIndex] = canonical;
+    else store.daeCatalog.unshift(canonical);
     data.daes.splice(0, data.daes.length, ...store.daeCatalog.map(item => BlessERP.utils.clone(item)));
-
-    store.orders.filter(order => order.daeNumber === draft.number).forEach(order => {
-      order.daeDestination = draft.destination;
-      order.daeExpirationDate = draft.expirationDate;
-      if (draft.airlineId) order.airlineId = draft.airlineId;
-    });
     store.ui.selectedDaeId = "";
     store.ui.daeDraft = data.createDae({
-      companyId: draft.companyId || draft.company_id || activeCompanyId(appState),
+      companyId: activeCompanyId(appState),
       number: "055-",
       status: "ACTIVA",
       airlineId: "",
       customerIds: []
     });
-    setNotice(appState, `DAE guardada: ${draft.number}.`, "success");
-    saveDb();
-    return { ok: true, dae: draft, updated: Boolean(existing) };
+    setNotice(appState, `DAE guardada y confirmada por Supabase: ${canonical.number}.`, "success");
+    saveConfirmedCatalogCache();
+    return { ok: true, confirmed: true, dae: canonical, updated: existingIndex >= 0 };
   }
 
-  function deleteDae(appState, daeId) {
+  async function deleteDae(appState, daeId) {
     const store = ensureStore(appState);
     const dae = store.daeCatalog.find(item => item.id === daeId);
     if (!dae) return { ok: false, reason: "NOT_FOUND" };
@@ -1236,15 +1317,17 @@
       setNotice(appState, `No se puede eliminar la DAE ${dae.number}: está usada en un pedido. Puede marcarla INACTIVA.`, "warning");
       return { ok: false, reason: "IN_USE" };
     }
+    const result = await removeCatalogRecord(appState, BlessERP.getDaeRepository?.(), dae, "la DAE");
+    if (!result.ok) return result;
     store.daeCatalog = store.daeCatalog.filter(item => item.id !== daeId);
     data.daes.splice(0, data.daes.length, ...store.daeCatalog.map(item => BlessERP.utils.clone(item)));
     newDae(appState, dae.companyId || dae.company_id);
-    setNotice(appState, `DAE eliminada: ${dae.number}.`, "success");
-    saveDb();
-    return { ok: true, dae };
+    setNotice(appState, `DAE eliminada y confirmada por Supabase: ${dae.number}.`, "success");
+    saveConfirmedCatalogCache();
+    return { ok: true, confirmed: true, dae };
   }
 
-  function deleteCountry(appState, countryId) {
+  async function deleteCountry(appState, countryId) {
     const store = ensureStore(appState);
     const country = store.countryCatalog.find(item => item.id === countryId);
     if (!country) return { ok: false, reason: "NOT_FOUND" };
@@ -1255,12 +1338,14 @@
       setNotice(appState, `No se puede eliminar ${country.name}: está relacionado con clientes o DAEs.`, "warning");
       return { ok: false, reason: "IN_USE" };
     }
+    const result = await removeCatalogRecord(appState, BlessERP.getCountryRepository?.(), country, "el país");
+    if (!result.ok) return result;
     store.countryCatalog = store.countryCatalog.filter(item => item.id !== countryId);
     data.countries.splice(0, data.countries.length, ...store.countryCatalog.map(item => BlessERP.utils.clone(item)));
     newCountry(appState);
-    setNotice(appState, `País eliminado: ${country.name}.`, "success");
-    saveDb();
-    return { ok: true, country };
+    setNotice(appState, `País eliminado y confirmado por Supabase: ${country.name}.`, "success");
+    saveConfirmedCatalogCache();
+    return { ok: true, confirmed: true, country };
   }
 
   function getDestinationCatalog(appState) {
@@ -1577,6 +1662,7 @@
       boxNumber: "numero de caja",
       boxType: "tipo de caja",
       variety: "variedad",
+      quality: "calidad",
       po: "PO",
       length: "longitud",
       lengthSelection: "medida",
@@ -2403,7 +2489,7 @@
         blockOrderEdit(appState, order, "El numero de una caja ya liberada no puede cambiarse. Agregue una caja nueva si necesita otra numeracion.");
         return;
       }
-      if (scans > 0 && ["boxNumber", "boxType", "variety", "length", "lengthSelection", "stemsPerBunch"].includes(field)) {
+      if (scans > 0 && ["boxNumber", "boxType", "variety", "quality", "length", "lengthSelection", "stemsPerBunch"].includes(field)) {
         blockOrderEdit(appState, order, `La linea ya tiene ${scans} ramo(s) leido(s). Bodega debe desasignarlos antes de cambiar tipo, variedad o medida.`);
         return;
       }
@@ -2425,6 +2511,8 @@
       if (!anyLength) line.length = utils.parseNumber(value, line.length || 60);
     } else if (["boxNumber", "length", "bunches", "stemsPerBunch", "unitPrice"].includes(field)) {
       line[field] = utils.parseNumber(value, field === "boxNumber" ? 1 : 0);
+    } else if (field === "quality") {
+      line.quality = BlessERP.flowerQuality?.normalize?.(value) || "";
     } else {
       line[field] = value;
     }
@@ -2461,6 +2549,7 @@
       boxNumber: nextBox,
       boxType: "HB",
       variety: "EXPLORER",
+      quality: "PREMIUM",
       length: 60,
       bunches: 1,
       stemsPerBunch: 25,
@@ -2547,6 +2636,7 @@
       boxNumber: numericBox,
       boxType: template.boxType || "HB",
       variety: template.variety || "EXPLORER",
+      quality: BlessERP.flowerQuality?.normalize?.(template.quality) || "PREMIUM",
       length: Number(template.length || 60),
       anyLength: Boolean(template.anyLength || (template.boxBuildMode === "MIXTO_ABIERTO" && template.mixedAnyLength !== false)),
       bunches: 1,
@@ -2854,6 +2944,12 @@
     const order = currentOrder(appState);
     if (!order) return { ok: false };
     const store = ensureStore(appState);
+    const invalidQualityLine = (order.lines || []).find(line => !BlessERP.flowerQuality?.isValid?.(line.quality));
+    if (invalidQualityLine) {
+      const error = `Caja ${invalidQualityLine.boxNumber || "-"}: seleccione calidad PREMIUM o TIPO B.`;
+      setNotice(appState, error, "warning");
+      return { ok: false, error };
+    }
     const deferIdentifiers = options.deferIdentifiers === true;
     if (!deferIdentifiers && (order.unsavedDraft || order.numberPending || !String(order.number || "").trim())) {
       order.number = nextOrderNumber(store.orders.filter(item => item.id !== order.id));
@@ -3888,6 +3984,7 @@
     }
     (order.lines || []).forEach(line => {
       if (!line.variety || Number(line.length) <= 0 || Number(line.bunches) <= 0 || Number(line.stemsPerBunch) <= 0) errors.push(`Caja ${line.boxNumber}: detalle incompleto.`);
+      if (!BlessERP.flowerQuality?.isValid?.(line.quality)) errors.push(`Caja ${line.boxNumber}: falta calidad PREMIUM o TIPO B.`);
       if (Number(line.unitPrice) <= 0) errors.push(`Caja ${line.boxNumber}: falta precio manual por tallo.`);
       if (Number(line.bunches) < scannedCount(line)) errors.push(`Caja ${line.boxNumber}: la cantidad no puede ser menor que los ramos leidos.`);
     });

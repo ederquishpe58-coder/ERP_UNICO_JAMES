@@ -85,6 +85,7 @@
     return (group?.lines || []).map(line => ({
       variety: line.variety || "-",
       length: Number(line.length || 0),
+      quality: BlessERP.flowerQuality?.preserve?.(line.quality) || "",
       bunches: Number(line.bunches || 0),
       stemsPerBunch: Number(line.stemsPerBunch || 0),
       totalStems: Number(line.totalStems || 0)
@@ -93,7 +94,7 @@
 
   function buildContentSummary(lines) {
     return (lines || [])
-      .map(line => `${line.variety} ${line.length} cm / ${utils.number(line.bunches)} ramo / ${utils.number(line.totalStems)} tallos`)
+      .map(line => `${line.variety} ${line.length} cm / CALIDAD: ${BlessERP.flowerQuality?.label?.(line.quality) || "SIN CALIDAD"} / ${utils.number(line.bunches)} ramo / ${utils.number(line.totalStems)} tallos`)
       .join(" / ");
   }
 

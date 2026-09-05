@@ -442,18 +442,21 @@ function drawTraditionalInvoice(pdf, {
     rowY += rowHeight;
   });
 
+  const providerRows = softwareProvider.billingSystemProviderEnabled
+    ? [["RUC PROVEEDOR:", softwareProvider.providerRuc]]
+    : [];
   const additionalRows = exportInvoice ? [
     ["CORREO CLIENTE:", extra["Correo cliente"] || buyer.email],
     ["GUIAS:", extra.Guias || extra.GUIAS || extra.AWB],
     ["PIEZAS:", extra.Piezas || extra.PIEZAS],
     ["MARCA / CLIENTE FINAL:", extra["Marca cliente"] || extra.Marca || extra.MARCA],
     ["DAE:", extra.DAE || extra.DAES || extra.Dae],
-    ["RUC PROVEEDOR:", extra["RUC Proveedor"] || softwareProvider.ruc]
+    ...providerRows
   ] : [
     ["DIRECCION:", extra.Direccion || extra.DIRECCION || buyer.address],
     ["TELEFONO:", extra.Telefono || extra.TELEFONO || buyer.phone],
     ["EMAIL:", extra["Correo cliente"] || extra.Email || extra.EMAIL || buyer.email],
-    ["RUC PROVEEDOR:", extra["RUC Proveedor"] || softwareProvider.ruc]
+    ...providerRows
   ];
   const additionalHeight = 28 + (additionalRows.length * 14);
   const requiredBottomHeight = Math.max(additionalHeight + 38, 126);
@@ -514,7 +517,8 @@ async function generateRidePdf(detail) {
     habitualExporterLegend: issuerExporterLegend(rawIssuer)
   };
   const buyer = document.buyer_snapshot || {};
-  const source = document.source_snapshot || {};
+  const source = structuredClone(document.source_snapshot || {});
+  source.additionalInformation = softwareProvider.mergeAdditionalInformation(source.additionalInformation || {});
   const recipient = document.document_type === "06" ? source.deliveryGuide?.recipient || {} : buyer;
   const barcodePng = await barcode(document.access_key);
   const printableLines = exportInvoiceLines(document, source, detail.lines || []);
@@ -649,22 +653,25 @@ async function generateRidePdf(detail) {
       if (y > 615) { pdf.addPage(); y = 52; }
       pdf.roundedRect(36, y, 523, 122, 4).strokeColor("#9EABBD").stroke();
       pdf.font("Helvetica-Bold").fontSize(8).text("INFORMACION ADICIONAL", 48, y + 9);
+      const providerRows = softwareProvider.billingSystemProviderEnabled
+        ? [["RUC PROVEEDOR", softwareProvider.providerRuc]]
+        : [];
       [
         ["CORREO CLIENTE", extra["Correo cliente"] || buyer.email],
         ["GUIAS", extra.Guias || extra.GUIAS || extra.GuiasExportacion],
         ["PIEZAS", extra.Piezas || extra.PIEZAS],
         ["MARCA / CLIENTE FINAL", extra["Marca cliente"] || extra.Marca || extra.MARCA],
         ["DAE", extra.DAE || extra.DAES || extra.Dae],
-        ["RUC PROVEEDOR", extra["RUC Proveedor"] || softwareProvider.ruc]
+        ...providerRows
       ].forEach(([label, value], index) => {
         labelValue(pdf, label, value || "-", 48, y + 25 + (index * 15), 499);
       });
       y += 134;
-    } else {
+    } else if (softwareProvider.billingSystemProviderEnabled) {
       if (y > 700) { pdf.addPage(); y = 52; }
       pdf.roundedRect(36, y, 523, 44, 4).strokeColor("#9EABBD").stroke();
       pdf.font("Helvetica-Bold").fontSize(8).text("INFORMACION ADICIONAL", 48, y + 8);
-      labelValue(pdf, "RUC PROVEEDOR", softwareProvider.ruc, 48, y + 22, 499);
+      labelValue(pdf, "RUC PROVEEDOR", softwareProvider.providerRuc, 48, y + 22, 499);
       y += 56;
     }
 

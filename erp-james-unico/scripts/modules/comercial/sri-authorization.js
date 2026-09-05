@@ -10,6 +10,11 @@
     status: "TODOS",
     documentType: "TODOS",
     salesScope: "TODOS",
+    transportScope: "TODOS",
+    daeScope: "TODOS",
+    dateFrom: "",
+    dateTo: "",
+    sortMode: "DATE_DESC",
     issueYear: String(new Date().getFullYear()),
     issueMonth: "",
     remoteDocuments: [],
@@ -114,6 +119,7 @@
   }
 
   function resetDocumentsEntry() {
+    resetDocumentListFilters();
     ui.issueMonth = "";
     ui.remoteDocuments = [];
     ui.configuration = null;
@@ -131,11 +137,53 @@
     ui.processErrors.clear();
   }
 
+  function resetDocumentListFilters() {
+    ui.search = "";
+    ui.status = "TODOS";
+    ui.documentType = "TODOS";
+    ui.salesScope = "TODOS";
+    ui.transportScope = "TODOS";
+    ui.daeScope = "TODOS";
+    ui.dateFrom = "";
+    ui.dateTo = "";
+    ui.sortMode = "DATE_DESC";
+    return currentDocumentListFilters();
+  }
+
+  function currentDocumentListFilters() {
+    return {
+      search: ui.search,
+      status: ui.status,
+      documentType: ui.documentType,
+      salesScope: ui.salesScope,
+      transportScope: ui.transportScope,
+      daeScope: ui.daeScope,
+      dateFrom: ui.dateFrom,
+      dateTo: ui.dateTo,
+      sortMode: ui.sortMode
+    };
+  }
+
   async function listCommercialSriDocuments(filters = {}) {
+    const pageSize = 200;
     const documentTypes = ["01", "04"];
-    const batches = await Promise.all(documentTypes.map(documentType => (
-      BlessERP.sriApi.list({ ...filters, documentType })
-    )));
+    const batches = await Promise.all(documentTypes.map(async documentType => {
+      const documents = [];
+      let offset = 0;
+      while (true) {
+        const page = await BlessERP.sriApi.list({
+          ...filters,
+          documentType,
+          limit: pageSize,
+          offset
+        });
+        const rows = Array.isArray(page) ? page : [];
+        documents.push(...rows);
+        if (rows.length < pageSize) break;
+        offset += rows.length;
+      }
+      return documents;
+    }));
     const byId = new Map();
     batches.flat().forEach(document => {
       if (document?.id) byId.set(String(document.id), document);
@@ -433,20 +481,78 @@
     ))];
   }
 
+  function normalizedTransport(value) {
+    return String(value || "").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+
+  function hasDae(row) {
+    return Boolean(String(row?.dae || "").trim());
+  }
+
+  function isMaritimeExportWithoutDae(row) {
+    return Boolean(row?.isExport)
+      && normalizedTransport(row?.transportType) === "MARITIMO"
+      && !hasDae(row);
+  }
+
+  function rowIssueDate(row) {
+    return String(row?.issueDate || "").slice(0, 10);
+  }
+
+  function rowSortDate(row) {
+    return rowIssueDate(row) || String(row?.orderDate || "").slice(0, 10);
+  }
+
+  function stableRowIdentity(row) {
+    return [row?.id, row?.documentNumber, row?.orderNumber].map(value => String(value || "")).join("|");
+  }
+
+  function compareRecent(left, right) {
+    return rowSortDate(right).localeCompare(rowSortDate(left))
+      || stableRowIdentity(left).localeCompare(stableRowIdentity(right));
+  }
+
+  function compareDocumentRows(left, right, sortMode = "DATE_DESC") {
+    if (sortMode === "DATE_ASC") {
+      return rowSortDate(left).localeCompare(rowSortDate(right))
+        || stableRowIdentity(left).localeCompare(stableRowIdentity(right));
+    }
+    if (sortMode === "DAE_MISSING_FIRST") {
+      const priorityDifference = Number(isMaritimeExportWithoutDae(right)) - Number(isMaritimeExportWithoutDae(left));
+      return priorityDifference || compareRecent(left, right);
+    }
+    if (sortMode === "VALUE_DESC") {
+      return Number(right?.total || 0) - Number(left?.total || 0) || compareRecent(left, right);
+    }
+    if (sortMode === "VALUE_ASC") {
+      return Number(left?.total || 0) - Number(right?.total || 0) || compareRecent(left, right);
+    }
+    return compareRecent(left, right);
+  }
+
+  function filterAndSortDocumentRows(all, filters, issueRange) {
+    const term = String(filters.search || "").trim().toLowerCase();
+    return all.filter(row => {
+      if (!issueRange) return false;
+      const issueDate = rowIssueDate(row);
+      if (!issueDate || issueDate < issueRange.from || issueDate > issueRange.to) return false;
+      if (filters.dateFrom && issueDate < filters.dateFrom) return false;
+      if (filters.dateTo && issueDate > filters.dateTo) return false;
+      if (filters.status !== "TODOS" && row.authorizationStatus !== filters.status) return false;
+      if (filters.documentType !== "TODOS" && row.documentType !== filters.documentType) return false;
+      if (!matchesSalesScope(row, filters.salesScope)) return false;
+      if (filters.transportScope !== "TODOS" && normalizedTransport(row.transportType) !== filters.transportScope) return false;
+      if (filters.daeScope === "CON_DAE" && !hasDae(row)) return false;
+      if (filters.daeScope === "SIN_DAE" && hasDae(row)) return false;
+      return !term || [row.customer, row.brand, row.dae, row.motherGuide, row.childGuide, row.guides, row.accessKey, row.documentNumber, row.orderNumber, row.authorizationStatus]
+        .join(" ").toLowerCase().includes(term);
+    }).sort((left, right) => compareDocumentRows(left, right, filters.sortMode));
+  }
+
   function rows(appState, sourceRows = null) {
     const all = sourceRows || allRows(appState);
     const issueRange = selectedIssueMonthRange();
-    const term = ui.search.trim().toLowerCase();
-    return all.filter(row => {
-      if (!issueRange) return false;
-      const issueDate = String(row.issueDate || "").slice(0, 10);
-      if (!issueDate || issueDate < issueRange.from || issueDate > issueRange.to) return false;
-      if (ui.status !== "TODOS" && row.authorizationStatus !== ui.status) return false;
-      if (ui.documentType !== "TODOS" && row.documentType !== ui.documentType) return false;
-      if (!matchesSalesScope(row)) return false;
-      return !term || [row.customer, row.brand, row.dae, row.motherGuide, row.childGuide, row.guides, row.accessKey, row.documentNumber, row.authorizationStatus]
-        .join(" ").toLowerCase().includes(term);
-    }).sort((a, b) => String(b.issueDate || b.orderDate).localeCompare(String(a.issueDate || a.orderDate)));
+    return filterAndSortDocumentRows(all, currentDocumentListFilters(), issueRange);
   }
 
   function badgeClass(status) {
@@ -520,7 +626,12 @@
     if (queueCore.isDiagnosticStatus?.(row.authorizationStatus)) {
       actions.push(`<button class="secondary-button" type="button" data-sri-diagnostic="${utils.esc(row.id)}">Ver error SRI</button>`);
     }
-    return actions.length ? `<div class="table-actions-inline sri-file-actions">${actions.join("")}</div>` : "";
+    return actions.length ? `
+      <details class="sri-row-actions-menu">
+        <summary>Acciones &#9662;</summary>
+        <div class="sri-row-actions-popover">${actions.join("")}</div>
+      </details>
+    ` : `<span class="sri-no-row-actions">-</span>`;
   }
 
   function renderAnnulmentModal() {
@@ -1043,7 +1154,13 @@
           <div class="compact-field sri-locked-company"><span>Empresa emisora</span><strong>${utils.esc(activeCompany.commercialName || "Empresa activa")}</strong><small>Fijada por la pestaña y el permiso del usuario</small></div>
           <label class="compact-field sri-document-search"><span>Buscar documento</span><input type="search" value="${utils.esc(ui.search)}" placeholder="Factura, cliente, DAE o guía" data-sri-list-search></label>
           <label class="compact-field"><span>Venta / comprobante</span><select data-sri-list-sales-scope><option value="TODOS" ${ui.salesScope === "TODOS" ? "selected" : ""}>TODOS</option><option value="LOCALES" ${ui.salesScope === "LOCALES" ? "selected" : ""}>VENTAS LOCALES</option><option value="EXPORTACIONES" ${ui.salesScope === "EXPORTACIONES" ? "selected" : ""}>EXPORTACIONES</option><option value="NOTAS_CREDITO" ${ui.salesScope === "NOTAS_CREDITO" ? "selected" : ""}>NOTAS DE CRÉDITO</option></select></label>
+          <label class="compact-field"><span>Transporte</span><select data-sri-list-transport><option value="TODOS" ${ui.transportScope === "TODOS" ? "selected" : ""}>TODOS</option><option value="AEREO" ${ui.transportScope === "AEREO" ? "selected" : ""}>AÉREO</option><option value="MARITIMO" ${ui.transportScope === "MARITIMO" ? "selected" : ""}>MARÍTIMO</option></select></label>
           <label class="compact-field"><span>Estado</span><select data-sri-list-status>${statuses.map(value => `<option value="${value}" ${ui.status === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
+          <label class="compact-field"><span>DAE</span><select data-sri-list-dae><option value="TODOS" ${ui.daeScope === "TODOS" ? "selected" : ""}>TODOS</option><option value="CON_DAE" ${ui.daeScope === "CON_DAE" ? "selected" : ""}>CON DAE</option><option value="SIN_DAE" ${ui.daeScope === "SIN_DAE" ? "selected" : ""}>SIN DAE</option></select></label>
+          <label class="compact-field"><span>Desde</span><input type="date" value="${utils.esc(ui.dateFrom)}" data-sri-list-date-from></label>
+          <label class="compact-field"><span>Hasta</span><input type="date" value="${utils.esc(ui.dateTo)}" data-sri-list-date-to></label>
+          <label class="compact-field sri-document-sort"><span>Ordenar por</span><select data-sri-list-sort><option value="DATE_DESC" ${ui.sortMode === "DATE_DESC" ? "selected" : ""}>MÁS RECIENTES</option><option value="DATE_ASC" ${ui.sortMode === "DATE_ASC" ? "selected" : ""}>MÁS ANTIGUOS</option><option value="DAE_MISSING_FIRST" ${ui.sortMode === "DAE_MISSING_FIRST" ? "selected" : ""}>SIN DAE PRIMERO</option><option value="VALUE_DESC" ${ui.sortMode === "VALUE_DESC" ? "selected" : ""}>MAYOR VALOR</option><option value="VALUE_ASC" ${ui.sortMode === "VALUE_ASC" ? "selected" : ""}>MENOR VALOR</option></select></label>
+          <button class="secondary-button sri-filter-clear" type="button" data-sri-list-clear>LIMPIAR</button>
           <button class="secondary-button" type="button" data-sri-list-refresh ${ui.loading ? "disabled" : ""}>${ui.loading ? "Actualizando..." : "Actualizar"}</button>
         </div>
         ${ui.error ? `<div class="inline-message warning">${utils.esc(ui.error)}</div>` : ""}
@@ -1063,13 +1180,13 @@
         </div>
         <div class="table-wrapper sri-document-table-wrap">
           <table class="data-table sri-document-table">
-            <thead><tr><th class="sri-select-column"><input type="checkbox" aria-label="Seleccionar documentos visibles" data-sri-select-visible-check ${allVisibleSelected ? "checked" : ""} ${!selectableVisible.length || ui.processing ? "disabled" : ""}></th><th>Fecha de emisión</th><th>Fecha de vuelo</th><th>Número de factura</th><th class="numeric">Valor</th><th>Cliente</th><th>Cliente final</th><th>DAE</th><th>Guía madre</th><th>Guía hija</th><th>Fecha de autorización</th></tr></thead>
+            <thead><tr><th class="sri-select-column"><input type="checkbox" aria-label="Seleccionar documentos visibles" data-sri-select-visible-check ${allVisibleSelected ? "checked" : ""} ${!selectableVisible.length || ui.processing ? "disabled" : ""}></th><th>Fecha de emisión</th><th>Fecha de vuelo</th><th>Comprobante</th><th class="numeric">Valor</th><th>Cliente</th><th>Cliente final</th><th>DAE</th><th>Guía madre</th><th>Guía hija</th><th>Fecha de autorización</th><th>Estado</th><th>Acciones</th></tr></thead>
             <tbody>${visibleRows.map(row => `
               <tr>
                 <td class="sri-select-column"><input type="checkbox" aria-label="Seleccionar ${utils.esc(row.documentNumber || row.orderNumber || row.customer)}" data-sri-row-select="${utils.esc(row.id)}" data-processable="${row.processable ? "1" : "0"}" data-authorized="${row.authorizationStatus === "AUTORIZADO" ? "1" : "0"}" ${ui.selectedIds.has(row.id) ? "checked" : ""} ${!row.selectable || ui.processing ? "disabled" : ""}></td>
                 <td><strong>${utils.esc(row.issueDate ? utils.dateLabel(row.issueDate) : "Pendiente")}</strong></td>
                 <td>${utils.esc(row.flightDate ? utils.dateLabel(row.flightDate) : "-")}</td>
-                <td><strong class="sri-document-number ${documentNumberStatusClass(row.authorizationStatus)}">${utils.esc(invoiceLastNine(row.documentNumber, row.accessKey))}</strong><small>${utils.esc(row.documentLabel || "FACTURA")} · ${utils.esc(row.transportType || "LOCAL")}</small>${row.authorizationStatus === "AUTORIZADO" ? "" : `<span class="status-badge ${badgeClass(row.authorizationStatus)}">${utils.esc(row.authorizationStatus)}</span>`}${renderDocumentInlineActions(row)}</td>
+                <td class="sri-document-identity"><strong class="sri-document-number ${documentNumberStatusClass(row.authorizationStatus)}">${utils.esc(invoiceLastNine(row.documentNumber, row.accessKey))}</strong><small>${utils.esc(row.documentLabel || "FACTURA")} · ${utils.esc(row.transportType || "LOCAL")}</small></td>
                 <td class="numeric"><strong>${utils.esc(utils.money(row.total))}</strong></td>
                 <td><strong>${utils.esc(row.customer || "-")}</strong></td>
                 <td>${utils.esc(row.brand || "-")}</td>
@@ -1077,7 +1194,9 @@
                 <td>${renderLogisticsField(row, "awb", row.motherGuide)}</td>
                 <td>${renderLogisticsField(row, "hawb", row.childGuide)}</td>
                 <td>${row.authorizedAt ? `<strong>${utils.esc(dateTimeLabel(row.authorizedAt))}</strong>` : "-"}</td>
-              </tr>`).join("") || `<tr><td colspan="11"><div class="empty-state"><strong>Sin documentos</strong><span>No existen registros con los filtros seleccionados.</span></div></td></tr>`}</tbody>
+                <td><span class="status-badge ${badgeClass(row.authorizationStatus)}">${utils.esc(row.authorizationStatus)}</span></td>
+                <td class="sri-row-actions-cell">${renderDocumentInlineActions(row)}</td>
+              </tr>`).join("") || `<tr><td colspan="13"><div class="empty-state"><strong>Sin documentos</strong><span>No existen registros con los filtros seleccionados.</span></div></td></tr>`}</tbody>
           </table>
         </div>
         ${BlessERP.performance?.renderPager?.(pagination) || ""}
@@ -2325,6 +2444,17 @@
     container.querySelector("[data-sri-list-status]")?.addEventListener("change", event => { ui.status = event.target.value; BlessERP.performance?.resetPage?.("commercial-sri-documents"); rerender(container, appState); });
     container.querySelector("[data-sri-list-document-type]")?.addEventListener("change", event => { ui.documentType = event.target.value; BlessERP.performance?.resetPage?.("commercial-sri-documents"); rerender(container, appState); });
     container.querySelector("[data-sri-list-sales-scope]")?.addEventListener("change", event => { ui.salesScope = event.target.value; BlessERP.performance?.resetPage?.("commercial-sri-documents"); rerender(container, appState); });
+    container.querySelector("[data-sri-list-transport]")?.addEventListener("change", event => { ui.transportScope = event.target.value; BlessERP.performance?.resetPage?.("commercial-sri-documents"); rerender(container, appState); });
+    container.querySelector("[data-sri-list-dae]")?.addEventListener("change", event => { ui.daeScope = event.target.value; BlessERP.performance?.resetPage?.("commercial-sri-documents"); rerender(container, appState); });
+    container.querySelector("[data-sri-list-date-from]")?.addEventListener("change", event => { ui.dateFrom = event.target.value; BlessERP.performance?.resetPage?.("commercial-sri-documents"); rerender(container, appState); });
+    container.querySelector("[data-sri-list-date-to]")?.addEventListener("change", event => { ui.dateTo = event.target.value; BlessERP.performance?.resetPage?.("commercial-sri-documents"); rerender(container, appState); });
+    container.querySelector("[data-sri-list-sort]")?.addEventListener("change", event => { ui.sortMode = event.target.value; BlessERP.performance?.resetPage?.("commercial-sri-documents"); rerender(container, appState); });
+    container.querySelector("[data-sri-list-clear]")?.addEventListener("click", () => {
+      window.clearTimeout(searchTimer);
+      resetDocumentListFilters();
+      BlessERP.performance?.resetPage?.("commercial-sri-documents");
+      rerender(container, appState);
+    });
     container.querySelector("[data-sri-list-refresh]")?.addEventListener("click", () => refresh(container, appState));
     container.querySelector("[data-sri-senae-date-from]")?.addEventListener("change", event => { ui.senaeDateFrom = event.target.value; });
     container.querySelector("[data-sri-senae-date-to]")?.addEventListener("change", event => { ui.senaeDateTo = event.target.value; });
@@ -2428,8 +2558,16 @@
     invoiceLastNine,
     guideValues,
     matchesSalesScope,
+    normalizedTransport,
+    hasDae,
+    isMaritimeExportWithoutDae,
+    compareDocumentRows,
+    filterAndSortDocumentRows,
+    listCommercialSriDocuments,
     selectedIssueMonthRange,
     resetDocumentsEntry,
+    resetDocumentListFilters,
+    currentDocumentListFilters,
     sourceOrderIssueDate,
     authorizeSelected,
     openCreditNote,

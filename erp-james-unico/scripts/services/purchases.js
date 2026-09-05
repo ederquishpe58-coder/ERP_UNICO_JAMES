@@ -2131,8 +2131,10 @@
     if (!authorizedXml) errors.push("Debe pegar o cargar el XML autorizado devuelto por el SRI.");
     if (authorizedXml && !authorizedXml.includes(accessKey)) errors.push("El XML autorizado no contiene la clave de acceso preparada.");
     if (authorizedXml && !authorizedXml.includes(authorizationNumber)) errors.push("El XML autorizado no contiene el numero de autorizacion registrado.");
-    if (authorizedXml && BlessERP.softwareProvider && !BlessERP.softwareProvider.hasRequiredRucField(authorizedXml)) {
-      errors.push(`El XML autorizado no contiene el campo adicional obligatorio RUC Proveedor ${BlessERP.softwareProvider.ruc}.`);
+    if (authorizedXml
+      && BlessERP.softwareProvider?.billingSystemProviderEnabled
+      && !BlessERP.softwareProvider.hasExpectedProviderField(authorizedXml)) {
+      errors.push(`El XML autorizado no contiene el campo adicional obligatorio RUC Proveedor ${BlessERP.softwareProvider.providerRuc}.`);
     }
     return { errors: [...new Set(errors)], accessKey, authorizationNumber, authorizedAt, authorizedXml };
   }

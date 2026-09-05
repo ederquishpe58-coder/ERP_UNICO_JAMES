@@ -126,8 +126,8 @@
     const minimumRows = 6;
     const blankRows = Array.from({ length: Math.max(0, minimumRows - content.length) }, () => null);
     return [...content, ...blankRows].map(line => line
-      ? `<tr><td>${utils.esc(String(line.variety || "-").toUpperCase())}</td><td>${utils.esc(line.length)} cm</td><td>${utils.esc(utils.number(line.bunches))}</td><td>${utils.esc(utils.number(line.totalStems))}</td></tr>`
-      : `<tr class="customs-product-empty-row"><td>&nbsp;</td><td></td><td></td><td></td></tr>`
+      ? `<tr><td>${utils.esc(String(line.variety || "-").toUpperCase())}</td><td>${utils.esc(line.length)} cm</td><td>${utils.esc(BlessERP.flowerQuality?.label?.(line.quality) || "SIN CALIDAD")}</td><td>${utils.esc(utils.number(line.bunches))}</td><td>${utils.esc(utils.number(line.totalStems))}</td></tr>`
+      : `<tr class="customs-product-empty-row"><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>`
     ).join("");
   }
 
@@ -240,9 +240,9 @@
 
                 <div class="customs-products-space">
                   <table class="customs-products-table ${row.contenido_lineas.length > 6 ? "is-dense" : ""}">
-                    <thead><tr><th>PRODUCTO/VARIETY</th><th>GRADE</th><th>BUNCH</th><th>STEMS</th></tr></thead>
+                    <thead><tr><th>PRODUCTO/VARIETY</th><th>GRADE</th><th>CALIDAD</th><th>BUNCH</th><th>STEMS</th></tr></thead>
                     <tbody>${renderProductRows(row)}</tbody>
-                    <tfoot><tr><td colspan="2">TOTAL BUNCHS / STEMS</td><td>${utils.esc(utils.number(row.total_ramos))}</td><td>${utils.esc(utils.number(row.total_tallos))}</td></tr></tfoot>
+                    <tfoot><tr><td colspan="3">TOTAL BUNCHS / STEMS</td><td>${utils.esc(utils.number(row.total_ramos))}</td><td>${utils.esc(utils.number(row.total_tallos))}</td></tr></tfoot>
                   </table>
                 </div>
 

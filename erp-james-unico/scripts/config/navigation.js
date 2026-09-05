@@ -117,7 +117,23 @@
           title: "Parámetros de Operaciones Poscosecha",
           description: "Catalogos maestros de proveedores, personal, variedades, longitudes, tipos de tallo y etiquetas.",
           integrationRisk: "Los registros usados deben conservar historial y desactivarse en lugar de eliminarse.",
-          checklist: ["Proveedores", "Clasificadores y embonchadores", "Variedades y longitudes", "Tipos de tallo y etiqueta"]
+          checklist: ["Fincas / Bloques", "Clasificadores y embonchadores", "Variedades y longitudes", "Tipos de tallo y etiqueta"]
+        }),
+        operationsRoute({
+          id: "operations-farms-blocks",
+          label: "Fincas / Bloques",
+          title: "Fincas y bloques de Poscosecha",
+          description: "Catálogo canónico de fincas y bloques utilizados por Recepción y la trazabilidad operativa.",
+          integrationRisk: "Cada bloque debe conservar su finca, company scope e historial canónico.",
+          checklist: ["Fincas activas", "Bloques únicos", "Consulta server-side", "Gestión capability-aware"]
+        }),
+        operationsRoute({
+          id: "operations-varieties",
+          label: "Variedades",
+          title: "Variedades de Poscosecha",
+          description: "Catálogo canónico de variedades utilizado por Recepción, Clasificación, Etiquetas y Comercial.",
+          integrationRisk: "Las variedades persistidas en Supabase son la autoridad y deben conservar referencias históricas.",
+          checklist: ["Variedades activas", "Códigos canónicos", "Consulta server-side", "Gestión capability-aware"]
         }),
         operationsRoute({
           id: "operations-reception",

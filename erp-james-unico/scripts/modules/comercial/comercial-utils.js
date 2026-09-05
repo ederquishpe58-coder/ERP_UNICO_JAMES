@@ -22,7 +22,6 @@
 
   function applyLocalOrderDefaults(order) {
     if (!order || !isLocalOrder(order)) return order;
-    order.brandId = "";
     order.destination = "ECUADOR";
     order.destinationCountry = "ECUADOR";
     order.destinationModifiedManual = false;
@@ -101,9 +100,15 @@
     return String(value || "").replace(/\D/g, "").slice(0, 11);
   }
 
+  function getAwbPrefix(value) {
+    const compact = String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    return compact.slice(0, 3);
+  }
+
   function normalizeAwb(value) {
-    const digits = getAwbDigits(value);
-    return digits.length > 3 ? `${digits.slice(0, 3)}-${digits.slice(3)}` : digits;
+    const compact = String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 11);
+    if (compact.length <= 3) return compact;
+    return `${compact.slice(0, 3)}-${compact.slice(3)}`;
   }
 
   function normalizeTransportType(value) {
@@ -125,22 +130,16 @@
 
   function isAirMawbReference(value) {
     const reference = normalizeLogisticsReference(value);
-    return /^[0-9\s-]+$/.test(reference) && getAwbDigits(reference).length === 11;
+    return /^[A-Z0-9]{3}-?[0-9]{8}$/.test(reference);
   }
 
   function isMaritimeMotherGuide(value) {
-    return /^MAR-[A-Z0-9][A-Z0-9 .\/-]*$/.test(normalizeLogisticsReference(value));
+    const reference = normalizeLogisticsReference(value);
+    return reference.length >= 1 && reference.length <= 14 && /^[A-Z0-9-]+$/.test(reference);
   }
 
-  function normalizeMaritimeMotherGuide(value, options = {}) {
-    const ensurePrefix = options.ensurePrefix === true;
-    const reference = normalizeLogisticsReference(value);
-    if (!reference || isAirMawbReference(reference)) return ensurePrefix ? "MAR-" : "";
-    const suffix = reference.startsWith("MAR-")
-      ? reference.slice(4)
-      : reference.replace(/^MAR(?:\s*-\s*)?/, "");
-    const normalizedSuffix = suffix.replace(/^[\s-]+/, "");
-    return normalizedSuffix ? `MAR-${normalizedSuffix}` : "MAR-";
+  function normalizeMaritimeMotherGuide(value) {
+    return normalizeLogisticsReference(value);
   }
 
   function normalizeTransportReferences(transportType, values = {}) {
@@ -148,7 +147,7 @@
     const motherSource = values.awb ?? values.mawb ?? values.motherGuide ?? "";
     const childSource = values.hawb ?? values.childGuide ?? "";
     const awb = transport === "AEREO"
-      ? (isMaritimeMotherGuide(motherSource) ? "" : normalizeAwb(motherSource))
+      ? normalizeAwb(motherSource)
       : transport === "MARITIMO"
         ? normalizeMaritimeMotherGuide(motherSource)
         : normalizeLogisticsReference(motherSource);
@@ -170,10 +169,7 @@
     const currentChildGuide = order.hawb ?? order.childGuide ?? "";
 
     if (transport === "MARITIMO") {
-      const motherGuide = normalizeMaritimeMotherGuide(
-        transitioned && previousTransport === "AEREO" ? "" : currentMotherGuide,
-        { ensurePrefix: options.ensureMaritimePrefix === true }
-      );
+      const motherGuide = normalizeMaritimeMotherGuide(transitioned && previousTransport === "AEREO" ? "" : currentMotherGuide);
       normalized.transportType = "maritimo";
       normalized.awb = motherGuide;
       normalized.hawb = normalizeLogisticsReference(currentChildGuide);
@@ -182,10 +178,9 @@
       if (Object.prototype.hasOwnProperty.call(normalized, "airline")) normalized.airline = "";
       if (Object.prototype.hasOwnProperty.call(normalized, "airlineName")) normalized.airlineName = "";
     } else if (transport === "AEREO") {
-      const maritimeReference = isMaritimeMotherGuide(currentMotherGuide);
       const motherGuide = transitioned && previousTransport === "MARITIMO"
         ? ""
-        : maritimeReference ? "" : normalizeAwb(currentMotherGuide);
+        : normalizeAwb(currentMotherGuide);
       normalized.transportType = "aereo";
       normalized.awb = motherGuide;
       normalized.hawb = normalizeLogisticsReference(currentChildGuide);
@@ -209,7 +204,7 @@
   }
 
   function isValidAirMawb(value) {
-    return getAwbDigits(value).length === 11;
+    return isAirMawbReference(value);
   }
 
   function getGuideCharacters(value) {
@@ -221,10 +216,10 @@
   }
 
   function findAirlineByAwb(value, appState) {
-    const prefix = getAwbDigits(value).slice(0, 3);
+    const prefix = getAwbPrefix(value);
     if (prefix.length !== 3) return null;
     return getAirlineCatalog(appState).find(item =>
-      String(item.awbPrefix || "").padStart(3, "0") === prefix
+      String(item.awbPrefix || "").trim().toUpperCase() === prefix
       && String(item.status || "ACTIVA").toUpperCase() !== "INACTIVA"
     ) || null;
   }
@@ -269,6 +264,7 @@
       availability_id: availabilityId,
       variety: item.variedad || item.variety || "",
       variedad: item.variedad || item.variety || "",
+      quality: BlessERP.flowerQuality?.preserve?.(item.quality) || "",
       length: parseNumber(item.longitud ?? item.length, 0),
       longitud: parseNumber(item.longitud ?? item.length, 0),
       stemsPerBunch: parseNumber(item.tallos_por_ramo ?? item.stemsPerBunch, 0),
@@ -440,7 +436,7 @@
     if (source.__syncVersion != null) draft.__syncVersion = Number(source.__syncVersion || 0);
     if (source.__syncUpdatedAt != null) draft.__syncUpdatedAt = String(source.__syncUpdatedAt || "");
 
-    Object.assign(draft, normalizeOrderTransportPayload(draft, { ensureMaritimePrefix: true }));
+    Object.assign(draft, normalizeOrderTransportPayload(draft));
     return draft;
   }
 
@@ -596,6 +592,59 @@
       byVariety,
       byBoxType
     };
+  }
+
+  function roundMoney(value) {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) throw new TypeError("El valor monetario no es válido.");
+    return Math.round((amount + Number.EPSILON) * 100) / 100;
+  }
+
+  function normalizeDiscountPercentage(value) {
+    if (value === null || value === undefined || String(value).trim() === "") return 0;
+    const percentage = Number(value);
+    if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) {
+      throw new RangeError("El descuento debe ser un número entre 0 y 100.");
+    }
+    return percentage;
+  }
+
+  function calculateOrderEconomics(order = {}) {
+    const subtotal = roundMoney(getOrderMetrics(order).totalUsd);
+    const discountPercentage = normalizeDiscountPercentage(order.discountPercentage ?? order.discount_percentage);
+    const discountAmount = roundMoney(subtotal * discountPercentage / 100);
+    const taxAmount = roundMoney(order.taxAmount ?? order.tax_amount ?? 0);
+    const netTotal = roundMoney(subtotal - discountAmount + taxAmount);
+    return { subtotal, discountPercentage, discountAmount, taxAmount, netTotal };
+  }
+
+  function allocateOrderDiscount(order = {}, rawAmounts = []) {
+    const economics = calculateOrderEconomics(order);
+    const amounts = (rawAmounts || []).map(value => {
+      const amount = Number(value);
+      if (!Number.isFinite(amount)) throw new TypeError("El importe de línea no es válido.");
+      return amount;
+    });
+    if (roundMoney(amounts.reduce((sum, value) => sum + value, 0)) !== economics.subtotal) {
+      throw new RangeError("Las líneas no coinciden con el subtotal canónico del pedido.");
+    }
+    let assignedGross = 0;
+    let assignedDiscount = 0;
+    return amounts.map((rawAmount, index) => {
+      const grossAmount = index === amounts.length - 1
+        ? roundMoney(economics.subtotal - assignedGross)
+        : roundMoney(rawAmount);
+      const discountAmount = index === amounts.length - 1
+        ? roundMoney(economics.discountAmount - assignedDiscount)
+        : roundMoney(economics.subtotal ? (economics.discountAmount * grossAmount / economics.subtotal) : 0);
+      assignedGross = roundMoney(assignedGross + grossAmount);
+      assignedDiscount = roundMoney(assignedDiscount + discountAmount);
+      return {
+        grossAmount,
+        discountAmount,
+        netAmount: roundMoney(grossAmount - discountAmount)
+      };
+    });
   }
 
   function getEstimatedMaterials(order) {
@@ -777,6 +826,7 @@
     if (!order.issuedAt) errors.push("Falta fecha emision.");
     if (!order.flightDate) errors.push("Falta fecha vuelo.");
     if (!metrics.lines.length) errors.push("Falta detalle de cajas.");
+    if (metrics.lines.some(line => !BlessERP.flowerQuality?.isValid?.(line.quality))) errors.push("Cada línea debe tener calidad PREMIUM o TIPO B.");
     if (metrics.totalUsd <= 0) errors.push("Total USD cero.");
     if (metrics.lines.some(line => Number(line.unitPrice || 0) <= 0)) errors.push("Falta precio unitario.");
     if (order.daeExpirationDate && order.flightDate && order.flightDate > order.daeExpirationDate) {
@@ -899,12 +949,15 @@
     getCompatibleDaesForOrder,
     getEstimatedMaterials,
     getOrderMetrics,
+    calculateOrderEconomics,
+    allocateOrderDiscount,
     getReservationSummary,
     getReservationUsageSummary,
     getValidationState,
     isReservationActive,
     isLocalOrder,
     getAwbDigits,
+    getAwbPrefix,
     getGuideCharacters,
     isAirMawbReference,
     isMaritimeMotherGuide,
@@ -915,6 +968,7 @@
     normalizeTransportReferences,
     normalizeTransportType,
     normalizeAwb,
+    normalizeDiscountPercentage,
     normalizeHawb,
     isDaeExpired,
     isDaeNearExpiry,
@@ -924,6 +978,7 @@
     normalizeText,
     number,
     parseNumber,
+    roundMoney,
     applyManualDae,
     autoAssignDae
   };

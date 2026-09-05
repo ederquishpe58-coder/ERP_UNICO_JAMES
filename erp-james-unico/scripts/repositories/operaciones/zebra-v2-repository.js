@@ -120,6 +120,11 @@
     }
   }
 
+  function operationErrorMessage(error, fallback) {
+    const message = String(error?.message || "").trim();
+    return message || fallback;
+  }
+
   async function rpc(name, parameters, options = {}) {
     const companyId = activeCompanyUuid();
     const operationId = String(options.operationId || uuid());
@@ -164,7 +169,7 @@
         mode: "SUPABASE_ERROR",
         operationId,
         error,
-        message: error.message || "Supabase rechazó la operación Zebra."
+        message: operationErrorMessage(error, "Supabase rechazó la operación Zebra.")
       };
     }
 

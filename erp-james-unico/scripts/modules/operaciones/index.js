@@ -1079,6 +1079,23 @@
     container.addEventListener("change", event => {
       if (!isOperationsRoute()) return;
 
+      const receptionQualityCheckbox = event.target.closest("[data-ops-reception-tipo-b]");
+      if (receptionQualityCheckbox) {
+        const draft = stateApi.getUi(appState).receptionItemDraft;
+        draft.quality = BlessERP.flowerQuality.fromTipoB(receptionQualityCheckbox.checked);
+        rerender();
+        return;
+      }
+
+      const classifierQualityCheckbox = event.target.closest("[data-ops-classifier-tipo-b]");
+      if (classifierQualityCheckbox) {
+        const quality = BlessERP.flowerQuality.fromTipoB(classifierQualityCheckbox.checked);
+        const draft = stateApi.beginClassificationAssignmentSearch(appState);
+        draft.quality = quality;
+        rerender();
+        return;
+      }
+
       const searchFirstField = event.target.closest("[data-ops-search-field]");
       if (searchFirstField) {
         BlessERP.operacionesReceptionClassificationSearch?.setFilter?.(
@@ -1817,20 +1834,23 @@
       }
 
       if (action.dataset.opsAction === "yield-workday-start") {
-        const result = stateApi.updateYieldWorkday(appState, "START");
-        if (result.ok) BlessERP.layout.toast("Jornada laboral iniciada");
+        action.disabled = true;
+        const result = await stateApi.updateYieldWorkday(appState, "START");
+        if (result.ok && result.confirmed) BlessERP.layout.toast("Jornada laboral iniciada y confirmada en Supabase");
         rerender();
         return;
       }
       if (action.dataset.opsAction === "yield-workday-pause") {
-        const result = stateApi.updateYieldWorkday(appState, "PAUSE");
-        if (result.ok) BlessERP.layout.toast("Jornada laboral pausada");
+        action.disabled = true;
+        const result = await stateApi.updateYieldWorkday(appState, "PAUSE");
+        if (result.ok && result.confirmed) BlessERP.layout.toast("Jornada laboral pausada y confirmada en Supabase");
         rerender();
         return;
       }
       if (action.dataset.opsAction === "yield-workday-resume") {
-        const result = stateApi.updateYieldWorkday(appState, "RESUME");
-        if (result.ok) BlessERP.layout.toast("Jornada laboral reanudada");
+        action.disabled = true;
+        const result = await stateApi.updateYieldWorkday(appState, "RESUME");
+        if (result.ok && result.confirmed) BlessERP.layout.toast("Jornada laboral reanudada y confirmada en Supabase");
         rerender();
         return;
       }
@@ -1838,8 +1858,9 @@
         const summary = stateApi.getYieldWorkdaySummary(appState);
         const confirmed = window.confirm(`Se finalizara la jornada con ${utils.number(summary.totalBunches)} ramos y ${utils.number(summary.totalMeshes)} mallas. Esta accion cierra definitivamente la jornada. ¿Deseas continuar?`);
         if (!confirmed) return;
-        const result = stateApi.updateYieldWorkday(appState, "FINISH");
-        if (result.ok) BlessERP.layout.toast("Jornada finalizada y resumen guardado");
+        action.disabled = true;
+        const result = await stateApi.updateYieldWorkday(appState, "FINISH");
+        if (result.ok && result.confirmed) BlessERP.layout.toast("Jornada finalizada y confirmada en Supabase");
         rerender();
         return;
       }

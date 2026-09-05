@@ -90,6 +90,14 @@
     return rows.length ? rows.sort((left, right) => left.localeCompare(right, "es")).join(" + ") : fallback;
   }
 
+  function qualityDisplay(value) {
+    const quality = String(value ?? "").trim().toUpperCase();
+    if (quality === "TIPO_B") return "TIPO B";
+    if (quality === "PREMIUM") return "PREMIUM";
+    if (quality === "EXPORTACION") return "EXPORTACION";
+    return quality;
+  }
+
   function scanInventory(line, indexes) {
     const scans = Array.isArray(line.scannedBunches) ? line.scannedBunches : [];
     const inventoryRows = scans
@@ -142,24 +150,64 @@
     return { known: false, unitCost: 0, source: "COSTO PENDIENTE" };
   }
 
-  function lineRows(appState, companyId, orders) {
+  function fallbackDiscountAllocation(order, grossAmounts) {
+    const percentage = Number(order?.discountPercentage ?? order?.discount_percentage ?? 0);
+    const grossTotal = round(grossAmounts.reduce((sum, amount) => sum + Number(amount || 0), 0), 2);
+    const discountTotal = round(grossTotal * percentage / 100, 2);
+    let allocatedGross = 0;
+    let allocatedDiscount = 0;
+    return grossAmounts.map((amount, index) => {
+      const last = index === grossAmounts.length - 1;
+      const grossAmount = last ? round(grossTotal - allocatedGross, 2) : round(amount, 2);
+      const discountAmount = last
+        ? round(discountTotal - allocatedDiscount, 2)
+        : round(grossTotal ? discountTotal * grossAmount / grossTotal : 0, 2);
+      allocatedGross = round(allocatedGross + grossAmount, 2);
+      allocatedDiscount = round(allocatedDiscount + discountAmount, 2);
+      return { grossAmount, discountAmount, netAmount: round(grossAmount - discountAmount, 2) };
+    });
+  }
+
+  function allocatedOrderRevenue(order, grossAmounts, officialRevenue) {
+    let allocations;
+    try {
+      allocations = BlessERP.comercialUtils?.allocateOrderDiscount?.(order, grossAmounts);
+    } catch {
+      allocations = null;
+    }
+    if (!Array.isArray(allocations) || allocations.length !== grossAmounts.length) {
+      allocations = fallbackDiscountAllocation(order, grossAmounts);
+    }
+    const hasOfficialRevenue = officialRevenue !== null && officialRevenue !== undefined && Number.isFinite(Number(officialRevenue));
+    if (!hasOfficialRevenue || !allocations.length) return allocations;
+    const targetNet = round(officialRevenue, 2);
+    const currentNet = round(allocations.reduce((sum, row) => sum + Number(row.netAmount || 0), 0), 2);
+    const remainder = round(targetNet - currentNet, 2);
+    if (remainder) {
+      const last = allocations.at(-1);
+      last.netAmount = round(last.netAmount + remainder, 2);
+      last.discountAmount = round(last.grossAmount - last.netAmount, 2);
+    }
+    return allocations;
+  }
+
+  function lineRows(appState, companyId, orders, financialRows = []) {
     const catalogs = activeCatalogs(appState, companyId);
     const indexes = inventoryIndexes(appState);
+    const officialByOrder = new Map(financialRows.map(row => [String(row.order_id || row.orderId || ""), row]));
     return orders.flatMap(order => {
       const customer = catalogs.customers.get(String(order.customerId || "")) || {};
       const brand = catalogs.brands.get(String(order.brandId || "")) || {};
-      return (order.lines || []).map(rawLine => {
+      const rows = (order.lines || []).map(rawLine => {
         const metricsLine = BlessERP.comercialUtils?.getOrderMetrics?.({ lines: [rawLine] })?.lines?.[0] || rawLine;
         const inventory = scanInventory(rawLine, indexes);
         const plannedStems = Number(metricsLine.totalStems || (Number(rawLine.bunches || 0) * Number(rawLine.stemsPerBunch || 0)));
         const stems = inventory.actualStems > 0 ? inventory.actualStems : plannedStems;
         const bunches = inventory.scans.length || Number(rawLine.bunches || 0);
         const saleUnitPrice = round(rawLine.unitPrice, 4);
-        const saleTotal = round(stems * saleUnitPrice, 2);
+        const grossSaleTotal = round(stems * saleUnitPrice, 2);
         const cost = costForLine(rawLine);
         const costTotal = cost.known ? round(stems * cost.unitCost, 2) : null;
-        const grossMargin = cost.known ? round(saleTotal - costTotal, 2) : null;
-        const marginPercent = cost.known && saleTotal > 0 ? round((grossMargin / saleTotal) * 100, 2) : null;
         return {
           companyId,
           order,
@@ -167,19 +215,33 @@
           customer,
           brand,
           inventory,
+          quality: String(rawLine.quality ?? "").trim(),
           bunches,
           stems,
           quantitySource: inventory.actualStems > 0 ? "ACTUAL ESCANEADO" : "PLAN DEL PEDIDO",
           saleUnitPrice,
-          saleTotal,
+          grossSaleTotal,
+          saleDiscount: 0,
+          saleTotal: grossSaleTotal,
           costKnown: cost.known,
           costUnitPrice: cost.known ? cost.unitCost : null,
           costTotal,
-          grossMargin,
-          marginPercent,
+          grossMargin: null,
+          marginPercent: null,
           costSource: cost.source
         };
       });
+      const official = officialByOrder.get(String(order.id || ""));
+      const allocations = allocatedOrderRevenue(order, rows.map(row => row.grossSaleTotal), official?.revenue);
+      rows.forEach((row, index) => {
+        const allocation = allocations[index] || { grossAmount: row.grossSaleTotal, discountAmount: 0, netAmount: row.grossSaleTotal };
+        row.grossSaleTotal = allocation.grossAmount;
+        row.saleDiscount = allocation.discountAmount;
+        row.saleTotal = allocation.netAmount;
+        row.grossMargin = row.costKnown ? round(row.saleTotal - row.costTotal, 2) : null;
+        row.marginPercent = row.costKnown && row.saleTotal > 0 ? round((row.grossMargin / row.saleTotal) * 100, 2) : null;
+      });
+      return rows;
     });
   }
 
@@ -257,14 +319,15 @@
       .filter(order => !selected.size || selected.has(String(order.id)))
       .filter(order => options.includeAnnulled === true || String(order.status || "").toUpperCase() !== "ANULADO")
       .sort((left, right) => String(left.issuedAt || "").localeCompare(String(right.issuedAt || "")) || String(left.number || "").localeCompare(String(right.number || "")));
-    const rows = lineRows(appState, companyId, orders);
+    const financialRows = options.financialRows || [];
+    const rows = lineRows(appState, companyId, orders, financialRows);
     const period = reportPeriod(rows);
     return {
       companyId,
       identity,
       orders,
       rows,
-      summary: orderSummary(rows, options.financialRows || []),
+      summary: orderSummary(rows, financialRows),
       ...period,
       generatedAt: new Date().toISOString(),
       validation: validateReport({ companyId, orders, rows })
@@ -294,7 +357,7 @@
       "Empresa", "RUC", "Pedido", "Estado pedido", "PO", "Factura / secuencial", "Estado SRI",
       "Fecha pedido", "Fecha venta / salida", "Cliente", "Marca / cliente final", "Pais", "Destino",
       "Vendedor ID", "Vendedor", "Transporte", "DAE", "AWB", "HAWB", "Caja", "Tipo caja",
-      "Variedad", "Medida cm", "Ramos", "Tallos por ramo", "Total tallos", "Origen cantidad",
+      "Variedad", "Medida cm", "QUALITY", "Ramos", "Tallos por ramo", "Total tallos", "Origen cantidad",
       "Precio venta por tallo", "Venta total", "Costo por tallo", "Costo total", "Margen bruto",
       "Margen %", "Estado costeo", "Origen costo", "Proveedor", "Bloque", "Etiquetas escaneadas",
       "Moneda", "Observacion"
@@ -323,6 +386,7 @@
       row.line.boxType || "",
       row.inventory.varieties,
       Number(row.line.length || 0),
+      qualityDisplay(row.quality),
       Number(row.bunches || 0),
       Number(row.line.stemsPerBunch || 0),
       Number(row.stems || 0),
@@ -409,13 +473,13 @@
       headers: detailHeaders,
       rows: detailRows,
       totals: [
-        "TOTAL", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+        "TOTAL", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
         report.rows.reduce((sum, row) => sum + row.bunches, 0), "",
         report.rows.reduce((sum, row) => sum + row.stems, 0), "", "",
         round(report.rows.reduce((sum, row) => sum + row.saleTotal, 0), 2), "",
         report.rows.every(row => row.costKnown) ? round(report.rows.reduce((sum, row) => sum + row.costTotal, 0), 2) : "",
         report.rows.every(row => row.costKnown) ? round(report.rows.reduce((sum, row) => sum + row.grossMargin, 0), 2) : "",
-        "", "", "", "", "", "", "", "", ""
+        "", "", "", "", "", "", "", ""
       ]
     }];
   }

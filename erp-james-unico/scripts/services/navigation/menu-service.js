@@ -231,7 +231,9 @@
     "operations-availability",
     "operations-yields",
     "operations-labels",
-    "operations-parameters"
+    "operations-parameters",
+    "operations-farms-blocks",
+    "operations-varieties"
   ]);
 
   function resolveOperationsDefaultRoute(db = BlessERP.state?.state?.db) {

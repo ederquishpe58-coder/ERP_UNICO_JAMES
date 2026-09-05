@@ -1,13 +1,114 @@
 const { randomUUID } = require("node:crypto");
+const { XMLParser } = require("fast-xml-parser");
 const { generateAccountingForDocument } = require("./accounting-service.cjs");
 const { loadArtifact, sha256, storeArtifact } = require("./artifact-store.cjs");
 const { dbError, getDocumentDetail, transition } = require("./document-service.cjs");
-const { SriTransportError, SriValidationError } = require("./errors.cjs");
+const { SriError, SriTransportError, SriValidationError } = require("./errors.cjs");
 const { generateRidePdf } = require("./ride.cjs");
 const { diagnosticMessage, recoveryPolicy } = require("./recovery-policy.cjs");
 const { TEST_ENDPOINTS, queryAuthorization, sendForReception } = require("./sri-soap.cjs");
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const AUTHORIZED_XML_PARSER = new XMLParser({
+  ignoreAttributes: false,
+  parseTagValue: false,
+  removeNSPrefix: true,
+  trimValues: true
+});
+
+function canonicalText(value) {
+  return String(value ?? "").trim();
+}
+
+function accessKeyIdentity(accessKey) {
+  const value = canonicalText(accessKey);
+  if (!/^\d{49}$/.test(value)) return null;
+  return {
+    accessKey: value,
+    documentType: value.slice(8, 10),
+    ruc: value.slice(10, 23),
+    establishment: value.slice(24, 27),
+    emissionPoint: value.slice(27, 30),
+    sequential: value.slice(30, 39)
+  };
+}
+
+function authorizedXmlIdentity(xml) {
+  if (!canonicalText(xml)) return null;
+  let parsed;
+  try {
+    parsed = AUTHORIZED_XML_PARSER.parse(String(xml));
+  } catch (error) {
+    return { parseError: error?.message || "INVALID_XML" };
+  }
+  const root = parsed?.factura || parsed?.notaCredito || parsed?.comprobanteRetencion || parsed?.guiaRemision;
+  const info = root?.infoTributaria;
+  if (!info || typeof info !== "object") return { parseError: "SRI_AUTHORIZED_XML_IDENTITY_NOT_FOUND" };
+  return {
+    accessKey: canonicalText(info.claveAcceso),
+    documentType: canonicalText(info.codDoc),
+    ruc: canonicalText(info.ruc),
+    establishment: canonicalText(info.estab),
+    emissionPoint: canonicalText(info.ptoEmi),
+    sequential: canonicalText(info.secuencial)
+  };
+}
+
+function validateAuthorizationIdentity(document, result) {
+  const sequentialText = canonicalText(document.sequential_text);
+  const expected = {
+    accessKey: canonicalText(document.access_key),
+    documentType: canonicalText(document.document_type),
+    ruc: canonicalText(document.issuer_snapshot?.ruc),
+    establishment: canonicalText(document.establishment_code),
+    emissionPoint: canonicalText(document.emission_point_code),
+    sequential: sequentialText ? sequentialText.padStart(9, "0") : ""
+  };
+  const responseIdentity = accessKeyIdentity(result.accessKey);
+  const mismatches = [];
+  const compare = (source, field, actual) => {
+    if (!expected[field] || !actual || expected[field] !== actual) {
+      mismatches.push({ source, field, expected: expected[field] || null, actual: actual || null });
+    }
+  };
+
+  compare("authorization_response", "accessKey", canonicalText(result.accessKey));
+  if (!responseIdentity) {
+    mismatches.push({ source: "authorization_response", field: "accessKeyFormat", expected: "49_DIGITS", actual: canonicalText(result.accessKey) || null });
+  } else {
+    ["documentType", "ruc", "establishment", "emissionPoint", "sequential"].forEach(field => {
+      compare("authorization_access_key", field, responseIdentity[field]);
+    });
+  }
+
+  if (canonicalText(result.authorizedXml)) {
+    const xmlIdentity = authorizedXmlIdentity(result.authorizedXml);
+    if (xmlIdentity?.parseError) {
+      mismatches.push({ source: "authorized_xml", field: "identity", expected: "VALID_CANONICAL_IDENTITY", actual: xmlIdentity.parseError });
+    } else {
+      ["accessKey", "documentType", "ruc", "establishment", "emissionPoint", "sequential"].forEach(field => {
+        compare("authorized_xml", field, xmlIdentity?.[field]);
+      });
+    }
+  }
+
+  if (mismatches.length) {
+    throw new SriError("La autorización devuelta por el SRI no corresponde al comprobante consultado.", {
+      code: "SRI_AUTHORIZATION_IDENTITY_MISMATCH",
+      httpStatus: 409,
+      retryable: false,
+      details: { mismatches }
+    });
+  }
+  return true;
+}
+
+function hasSriIdentifier(messages, expectedIdentifier) {
+  return (Array.isArray(messages) ? messages : []).some(message => {
+    const match = canonicalText(message?.identifier).match(/\d+/);
+    return match?.[0] === String(expectedIdentifier);
+  });
+}
 
 function retryDelaySeconds(settings, attemptNumber) {
   const initial = Number(settings.retry_initial_seconds || 30);
@@ -214,14 +315,40 @@ async function scheduleFailure(client, settings, document, job, attempt, error, 
   return { document: current, retryable, nextAttempt };
 }
 
+async function failAuthorizationAttemptWithoutDocumentMutation(client, job, attempt, error) {
+  await finishAttempt(client, attempt, {
+    status: "FAILED",
+    retryable: false,
+    error_class: error.code || error.name,
+    error_message: error.message
+  });
+  dbError(await client.from("sri_transmissions").update({
+    status: "FAILED",
+    next_attempt_at: null,
+    error_class: error.code || error.name,
+    error_message: error.message,
+    finished_at: new Date().toISOString()
+  }).eq("id", job.id).eq("status", "PROCESSING"), "Cierre seguro de consulta SRI");
+}
+
+async function normalizeTechnicalRecoveryStatus(client, document, actorUserId) {
+  let current = document;
+  if (current.status === "ERROR_ENVIO") {
+    current = await transition(client, current, "PENDIENTE_REINTENTO", actorUserId, "Autorización SRI confirmada tras resultado incierto");
+  }
+  if (current.status === "PENDIENTE_REINTENTO") {
+    current = await transition(client, current, "ENVIADO_SRI", actorUserId, "Autorización SRI consultada con la misma clave");
+  }
+  return current;
+}
+
 async function processAuthorization(client, settings, document, actorUserId, options = {}) {
   let current = document;
   const recoveryQuery = options.recoveryQuery === true;
   const recoverySourceStatus = ["DEVUELTO", "NO_AUTORIZADO"].includes(current.status);
-  if (current.status === "PENDIENTE_REINTENTO") {
-    current = await transition(client, current, "ENVIADO_SRI", actorUserId, "Reintento de consulta de autorizacion");
-  }
-  if (!["RECIBIDO_SRI", "ENVIADO_SRI"].includes(current.status) && !(recoveryQuery && recoverySourceStatus)) {
+  const technicalRecoveryStatus = ["ERROR_ENVIO", "PENDIENTE_REINTENTO"].includes(current.status);
+  if (!["RECIBIDO_SRI", "ENVIADO_SRI"].includes(current.status)
+      && !(recoveryQuery && (recoverySourceStatus || technicalRecoveryStatus))) {
     throw new SriValidationError(`No se puede consultar autorizacion desde ${current.status}.`);
   }
   let job = await ensureJob(client, current, settings, "AUTHORIZATION_QUERY");
@@ -234,6 +361,10 @@ async function processAuthorization(client, settings, document, actorUserId, opt
       timeoutMs: options.timeoutMs,
       fetchImpl: options.fetchImpl
     });
+    validateAuthorizationIdentity(current, result);
+    if (technicalRecoveryStatus && (result.authorized || ["NO AUTORIZADO", "NO_AUTORIZADO"].includes(result.state))) {
+      current = await normalizeTechnicalRecoveryStatus(client, current, actorUserId);
+    }
     const persisted = await persistResponse(
       client, current, job, "AUTHORIZATION", "AUTHORIZATION_RESPONSE",
       result.rawXml, result, result.messages, actorUserId
@@ -284,6 +415,10 @@ async function processAuthorization(client, settings, document, actorUserId, opt
       details: { state: result.state, documentCount: result.documentCount }
     });
   } catch (error) {
+    if (error?.code === "SRI_AUTHORIZATION_IDENTITY_MISMATCH") {
+      await failAuthorizationAttemptWithoutDocumentMutation(client, job, attempt, error);
+      throw error;
+    }
     await scheduleFailure(client, settings, current, job, attempt, error, actorUserId);
     throw error;
   }
@@ -326,6 +461,15 @@ async function processReception(client, settings, document, actorUserId, options
       return processAuthorization(client, settings, current, actorUserId, options);
     }
     if (result.returned) {
+      if (hasSriIdentifier(result.messages, "43")) {
+        await finishAttempt(client, attempt, { status: "SUCCEEDED", response_sha256: persisted.hash, http_status: 200 });
+        await completeJob(client, job);
+        return processAuthorization(client, settings, current, actorUserId, {
+          ...options,
+          force: true,
+          recoveryQuery: true
+        });
+      }
       const returnedReason = diagnosticMessage(result.messages?.[0] || {}, { last_error: "SRI devolvio el comprobante" });
       await transition(client, current, "DEVUELTO", actorUserId, returnedReason || "SRI devolvio el comprobante", result.messages);
       await finishAttempt(client, attempt, { status: "SUCCEEDED", response_sha256: persisted.hash, http_status: 200 });
@@ -342,6 +486,15 @@ async function processReception(client, settings, document, actorUserId, options
 async function transmitDocument(client, companyId, documentId, actorUserId, options = {}) {
   const detail = await getDocumentDetail(client, companyId, documentId);
   const document = detail.document;
+  const policy = recoveryPolicy(detail);
+  if (policy.action === "QUERY_AUTHORIZATION") {
+    const settings = await settingsFor(client, companyId);
+    return processAuthorization(client, settings, document, actorUserId, {
+      ...options,
+      force: true,
+      recoveryQuery: true
+    });
+  }
   if (["AUTORIZADO", "NO_AUTORIZADO", "DEVUELTO", "ANULADO"].includes(document.status)) return detail;
   const settings = await settingsFor(client, companyId);
   const authorizationJob = detail.transmissions.find(job =>
@@ -394,5 +547,9 @@ module.exports = {
   queryDocumentStatus,
   prepareDocumentCorrection,
   processReception,
-  processAuthorization
+  processAuthorization,
+  accessKeyIdentity,
+  authorizedXmlIdentity,
+  validateAuthorizationIdentity,
+  hasSriIdentifier
 };

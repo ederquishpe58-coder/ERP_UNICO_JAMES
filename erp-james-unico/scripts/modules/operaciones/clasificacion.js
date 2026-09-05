@@ -216,14 +216,23 @@
       Number(right.pending) - Number(left.pending)
       || String(left.block || "").localeCompare(String(right.block || ""))
     ));
-    const assignmentVarieties = [...new Set(receptionItems.filter(item => normalize(item.block) === normalize(assignmentDraft.block)).map(item => item.variety))];
-    const selectedReceptionItem = receptionItems.find(item => normalize(item.block) === normalize(assignmentDraft.block) && normalize(item.variety) === normalize(assignmentDraft.variety));
+    const assignmentQuality = BlessERP.flowerQuality.normalize(assignmentDraft.quality) || "PREMIUM";
+    const assignmentVarieties = [...new Set(receptionItems.filter(item => (
+      normalize(item.block) === normalize(assignmentDraft.block)
+      && BlessERP.flowerQuality.normalize(item.quality) === assignmentQuality
+    )).map(item => item.variety))];
+    const selectedReceptionItem = receptionItems.find(item => (
+      normalize(item.block) === normalize(assignmentDraft.block)
+      && normalize(item.variety) === normalize(assignmentDraft.variety)
+      && BlessERP.flowerQuality.normalize(item.quality) === assignmentQuality
+    ));
     const compatibleReceptionItems = selectedReceptionItem
       ? receptionItems.filter(item => (
           normalize(item.block) === normalize(selectedReceptionItem.block)
           && normalize(item.supplier) === normalize(selectedReceptionItem.supplier)
           && normalize(item.variety) === normalize(selectedReceptionItem.variety)
           && normalize(item.stemType || "LARGO") === normalize(selectedReceptionItem.stemType || "LARGO")
+          && BlessERP.flowerQuality.normalize(item.quality) === assignmentQuality
           && utils.parseNumber(item.stemsPerMesh) === utils.parseNumber(selectedReceptionItem.stemsPerMesh)
         ))
       : [];
@@ -256,9 +265,10 @@
             <label class="compact-inline-field"><span>Proveedor reconocido</span><input readonly data-ops-classification-supplier-display value="${utils.esc(assignmentDraft.supplier || "Seleccione un bloque")}"></label>
             <label class="compact-inline-field"><span>Variedad</span><select data-ops-bind="classificationAssignmentDraft" data-field="variety">${valueOptions(assignmentVarieties, assignmentDraft.variety)}</select></label>
             <label class="compact-inline-field"><span>Clasificador</span><select data-ops-bind="classificationAssignmentDraft" data-field="classifier">${store.catalogs.classifiers.map(item => `<option ${item === assignmentDraft.classifier ? "selected" : ""}>${utils.esc(item)}</option>`).join("")}</select></label>
+            <label class="compact-inline-field ops-quality-checkbox"><span>Calidad: ${utils.esc(BlessERP.flowerQuality.label(assignmentQuality))}</span><span class="ops-quality-checkbox-control"><input type="checkbox" data-ops-classifier-tipo-b ${BlessERP.flowerQuality.isTipoB(assignmentQuality) ? "checked" : ""}> TIPO B</span><small>Filtra y consume únicamente recepciones de esta calidad.</small></label>
             <label class="compact-inline-field"><span>Numero de mallas</span><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-ops-numeric-only value="${utils.esc(assignmentDraft.meshCount)}" data-ops-bind="classificationAssignmentDraft" data-field="meshCount"></label>
             <label class="compact-inline-field"><span>Tallos extras</span><input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-ops-numeric-only value="${utils.esc(assignmentDraft.extraStems)}" data-ops-bind="classificationAssignmentDraft" data-field="extraStems"></label>
-            <label class="compact-inline-field ops-classification-availability"><span>Disponible acumulado</span><input readonly value="${utils.esc(selectedReceptionItem ? `${accumulatedAvailableMeshes} mallas + ${accumulatedAvailableExtras} tallos (${compatibleReceptionCount} recepcion(es))` : "Sin saldo compatible")}"><small>Se aplica por orden de llegada.</small></label>
+            <label class="compact-inline-field ops-classification-availability"><span>Disponible acumulado</span><input readonly value="${utils.esc(selectedReceptionItem ? `${accumulatedAvailableStems} tallos · ${accumulatedAvailableMeshes} mallas + ${accumulatedAvailableExtras} extras (${compatibleReceptionCount} recepcion(es))` : "Sin saldo compatible")}"><small>Se aplica por orden de llegada y sin mezclar quality.</small></label>
           </div>
           <div class="table-actions-inline"><button class="primary-button" data-ops-action="classification-assignment-save">Registrar entrega</button><button class="secondary-button" data-ops-action="classification-assignment-reset">Limpiar</button></div>
         </article>

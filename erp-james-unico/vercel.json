@@ -1,0 +1,36 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "installCommand": "npm install",
+  "rewrites": [
+    { "source": "/crear-contrasena", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(index.html|service-worker.js|scripts/config/runtime-env.js)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0" }
+      ]
+    },
+    {
+      "source": "/",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }
+      ]
+    }
+  ],
+  "functions": {
+    "api/sri.js": {
+      "includeFiles": "{docs/sri/official/**,scripts/assets/**,node_modules/xmllint-wasm/xmllint.wasm}",
+      "maxDuration": 60
+    },
+    "api/sri-retry.js": {
+      "includeFiles": "{docs/sri/official/**,scripts/assets/**,node_modules/xmllint-wasm/xmllint.wasm}",
+      "maxDuration": 60
+    },
+    "api/admin-users.js": {
+      "maxDuration": 30
+    }
+  }
+}

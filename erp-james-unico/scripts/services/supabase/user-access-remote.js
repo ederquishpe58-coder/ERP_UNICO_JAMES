@@ -138,7 +138,8 @@
         ]
       };
     }
-    const result = await request({ action: "upsert", user: payloadFor(user, options) });
+    const action = user.cloudManaged ? "update_access" : "create_user";
+    const result = await request({ action, user: payloadFor(user, options) });
     if (!result.ok) return result;
     return {
       ok: true,

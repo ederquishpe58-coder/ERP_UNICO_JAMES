@@ -20,6 +20,7 @@
           supplierList,
           suppliers: supplierList.join(" + ") || "-",
           variety: item.variety || "-",
+          quality: BlessERP.flowerQuality?.preserve?.(item.quality) || "",
           buncher: item.buncher || "-",
           length: Number(item.length || 0),
           stems: Number(item.stemsPerBunch || item.stems || 0),
@@ -40,7 +41,7 @@
       if (filters.variety && item.variety !== filters.variety) return false;
       if (filters.buncher && item.buncher !== filters.buncher) return false;
       if (!search) return true;
-      const searchable = [item.labelCode, item.blocks, item.suppliers, item.variety, item.buncher, item.length, item.stems]
+      const searchable = [item.labelCode, item.blocks, item.suppliers, item.variety, item.quality, BlessERP.flowerQuality?.label?.(item.quality), item.buncher, item.length, item.stems]
         .map(value => String(value || "").toUpperCase())
         .join(" ");
       return searchable.includes(search);
@@ -121,6 +122,7 @@
                 <th>C&oacute;digo de etiqueta</th>
                 <th>Bloques</th>
                 <th>Variedad</th>
+                <th>Calidad</th>
                 <th>Embonchador</th>
                 <th>Medida</th>
                 <th>N&uacute;mero de tallos</th>
@@ -134,13 +136,14 @@
                   <td><strong>${utils.esc(item.labelCode)}</strong></td>
                   <td>${utils.esc(item.blocks)}</td>
                   <td>${utils.esc(item.variety)}</td>
+                  <td><strong>${utils.esc(BlessERP.flowerQuality?.label?.(item.quality) || "SIN CALIDAD")}</strong></td>
                   <td>${utils.esc(item.buncher)}</td>
                   <td>${utils.esc(utils.number(item.length))} cm</td>
                   <td>${utils.esc(utils.number(item.stems))}</td>
                   <td>${utils.esc(formatAdmissionDate(item.admittedAt))}</td>
                   <td><span class="status-badge ${utils.badgeClass(item.state)}">${utils.esc(item.state)}</span></td>
                 </tr>
-              `).join("") || `<tr><td colspan="8"><div class="empty-inline">${filtersActive ? "No existen ramos que coincidan con los filtros seleccionados." : "No existen ramos ingresados por esc&aacute;ner."}</div></td></tr>`}
+              `).join("") || `<tr><td colspan="9"><div class="empty-inline">${filtersActive ? "No existen ramos que coincidan con los filtros seleccionados." : "No existen ramos ingresados por esc&aacute;ner."}</div></td></tr>`}
             </tbody>
           </table>
         </div>

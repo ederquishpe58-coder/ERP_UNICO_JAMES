@@ -1,89 +1,160 @@
 (function(){
   const BlessERP = window.BlessERP = window.BlessERP || {};
-  let membershipCache = null;
+  const ENTITY = "operations_yield_workday";
+  const HISTORY_ENTITY = "operations_yield_workday_history";
+  const RECORD_ID = ENTITY;
+
+  function activeCompanyUuid() {
+    const access = BlessERP.authAccess?.activeAccess?.();
+    return String(
+      access?.activeCompany?.id
+      || BlessERP.state?.state?.db?.authAccess?.activeCompanyUuid
+      || ""
+    ).trim();
+  }
 
   function isEnabled() {
-    return Boolean(BlessERP.canUseSupabaseModule?.("operations")?.enabled && BlessERP.getSupabaseClient?.());
+    const config = BlessERP.getEnvConfig?.() || {};
+    return Boolean(
+      config.supabaseEnabled
+      && config.authEnabled
+      && config.operationsSupabaseEnabled
+      && activeCompanyUuid()
+      && BlessERP.getSupabaseClient?.()
+      && window.location?.protocol !== "file:"
+    );
   }
 
-  async function companyContext(client) {
-    if (membershipCache) return membershipCache;
-    const { data: userResult, error: userError } = await client.auth.getUser();
-    if (userError || !userResult?.user?.id) throw new Error("No existe una sesion Supabase autenticada para sincronizar la jornada.");
-    const { data, error } = await client
-      .from("sri_company_memberships")
-      .select("company_id")
-      .eq("auth_user_id", userResult.user.id)
-      .eq("active", true)
-      .limit(1)
+  function uuid() {
+    return BlessERP.offlineSync?.createOperationId?.()
+      || globalThis.crypto?.randomUUID?.()
+      || "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, character => {
+        const random = Math.random() * 16 | 0;
+        return (character === "x" ? random : (random & 0x3 | 0x8)).toString(16);
+      });
+  }
+
+  function serializable(entity, value) {
+    return BlessERP.syncEntityRegistry?.serializableRecord?.(value || {}, entity)
+      || JSON.parse(JSON.stringify(value || {}));
+  }
+
+  async function fetchRecord(entity, recordId) {
+    const companyId = activeCompanyUuid();
+    if (!isEnabled() || !companyId) throw new Error("La jornada canónica requiere una sesión Supabase y una empresa activa.");
+    const { data, error } = await BlessERP.getSupabaseClient()
+      .from("erp_entity_records")
+      .select("id,company_id,entity,record_id,payload,version,created_at,updated_at,created_by,updated_by,device_id,last_operation_id,deleted_at")
+      .eq("company_id", companyId)
+      .eq("entity", entity)
+      .eq("record_id", recordId)
+      .is("deleted_at", null)
       .maybeSingle();
     if (error) throw error;
-    if (!data?.company_id) throw new Error("El usuario no tiene una empresa habilitada en Supabase.");
-    membershipCache = { companyId: data.company_id, userId: userResult.user.id };
-    return membershipCache;
+    return data || null;
   }
 
-  function toIso(value) {
-    const normalized = String(value || "").trim();
-    if (!normalized) return null;
-    const date = new Date(normalized.includes("T") ? normalized : normalized.replace(" ", "T"));
-    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  async function applyCanonicalRecord(serverRecord, source) {
+    if (!serverRecord) return null;
+    const applied = await BlessERP.offlineSync?.applyRemoteRecord?.(serverRecord, {
+      source,
+      force: true,
+      forceServer: true,
+      ignoreRecordHold: true,
+      ignoreEditGuard: true
+    });
+    if (applied && applied.ok === false) {
+      throw new Error("Supabase confirmó la jornada, pero no se pudo hidratar la caché canónica.");
+    }
+    return {
+      ...serializable(serverRecord.entity, serverRecord.payload),
+      __syncVersion: Number(serverRecord.version || 1),
+      __syncUpdatedAt: String(serverRecord.updated_at || ""),
+      __syncUpdatedBy: String(serverRecord.updated_by || ""),
+      __syncDeviceId: String(serverRecord.device_id || ""),
+      __syncOperationId: String(serverRecord.last_operation_id || "")
+    };
   }
 
-  async function sync(workday) {
-    if (!isEnabled()) return { ok: true, skipped: true, mode: "LOCAL" };
-    const client = BlessERP.getSupabaseClient();
+  function clearMissingSingleton() {
+    const operations = BlessERP.state?.state?.db?.operations;
+    if (!operations) return;
+    operations.yieldWorkday = BlessERP.operacionesData?.createYieldWorkday?.() || null;
+    BlessERP.state?.saveDbLocalOnly?.();
+  }
+
+  async function hydrate() {
+    if (!isEnabled()) return { ok: false, confirmed: false, mode: "REMOTE_REQUIRED", message: "La jornada canónica no está disponible." };
     try {
-      const context = await companyContext(client);
-      const summary = workday.summary || {};
-      const payload = {
-        company_id: context.companyId,
-        client_ref: workday.id,
-        work_date: workday.date,
-        status: workday.status,
-        started_at: toIso(workday.startedAt),
-        paused_at: toIso(workday.pausedAt),
-        resumed_at: toIso(workday.resumedAt),
-        ended_at: toIso(workday.endedAt),
-        total_paused_seconds: Math.round((summary.pausedDurationMs || workday.totalPausedMs || 0) / 1000),
-        active_seconds: Math.round((summary.activeDurationMs || 0) / 1000),
-        summary,
-        started_by: context.userId,
-        closed_by: workday.status === "FINALIZADA" ? context.userId : null
-      };
-      const { data, error } = await client
-        .from("operations_workdays")
-        .upsert(payload, { onConflict: "company_id,client_ref" })
-        .select("id")
-        .single();
-      if (error) throw error;
-
-      if (Array.isArray(workday.pauses)) {
-        const { error: deleteError } = await client
-          .from("operations_workday_pauses")
-          .delete()
-          .eq("company_id", context.companyId)
-          .eq("workday_id", data.id);
-        if (deleteError) throw deleteError;
-        if (workday.pauses.length) {
-          const pauses = workday.pauses.map((pause, index) => ({
-            company_id: context.companyId,
-            workday_id: data.id,
-            sequence_number: index + 1,
-            paused_at: toIso(pause.pausedAt),
-            resumed_at: toIso(pause.resumedAt),
-            duration_seconds: Math.round((pause.durationMs || 0) / 1000),
-            created_by: context.userId
-          }));
-          const { error: pauseError } = await client.from("operations_workday_pauses").insert(pauses);
-          if (pauseError) throw pauseError;
-        }
+      const serverRecord = await fetchRecord(ENTITY, RECORD_ID);
+      if (!serverRecord) {
+        clearMissingSingleton();
+        return { ok: true, confirmed: true, mode: "SUPABASE_EMPTY", workday: null, serverRecord: null };
       }
-      return { ok: true, skipped: false, cloudId: data.id };
+      const workday = await applyCanonicalRecord(serverRecord, "WORKDAY_CANONICAL_HYDRATION");
+      return { ok: true, confirmed: true, mode: "SUPABASE_CANONICAL", workday, serverRecord };
     } catch (error) {
-      return { ok: false, skipped: false, error: error?.message || String(error) };
+      return { ok: false, confirmed: false, mode: "SUPABASE_ERROR", error, message: error?.message || String(error) };
     }
   }
 
-  BlessERP.operationsWorkdayCloudSync = { isEnabled, sync };
+  async function persistEntity(entity, recordId, value) {
+    const companyId = activeCompanyUuid();
+    if (!isEnabled() || !companyId) {
+      return { ok: false, confirmed: false, mode: "REMOTE_REQUIRED", message: "Supabase debe confirmar la jornada antes de actualizar la UI." };
+    }
+    try {
+      const current = await fetchRecord(entity, recordId);
+      const payload = serializable(entity, value);
+      const basePayload = current?.payload || {};
+      const operationId = uuid();
+      const deviceId = String(await BlessERP.offlineSync?.getDeviceId?.() || `WEB-${operationId.slice(0, 12)}`);
+      const fieldChanges = BlessERP.offlineSync?.buildOperationFieldChanges?.(entity, basePayload, payload) || [];
+      const { data, error } = await BlessERP.getSupabaseClient().rpc("erp_apply_offline_operation", {
+        p_operation_id: operationId,
+        p_company_id: companyId,
+        p_device_id: deviceId,
+        p_entity: entity,
+        p_action: current ? "UPDATE" : "INSERT",
+        p_record_id: recordId,
+        p_payload: payload,
+        p_base_payload: basePayload,
+        p_field_changes: fieldChanges,
+        p_base_version: Math.max(0, Number(current?.version || 0)),
+        p_local_created_at: new Date().toISOString()
+      });
+      if (error) throw error;
+      const result = Array.isArray(data) ? data[0] : data;
+      if (result?.conflict === true || String(result?.status || "").toUpperCase() === "CONFLICT") {
+        return { ok: false, confirmed: false, mode: "VERSION_CONFLICT", operationId, message: "La jornada cambió en otra sesión. Recargue y vuelva a intentar." };
+      }
+      const serverRecord = result?.server_record || await fetchRecord(entity, recordId);
+      if (!serverRecord) throw new Error("Supabase confirmó la operación sin devolver la jornada canónica.");
+      const record = await applyCanonicalRecord(serverRecord, "WORKDAY_SERVER_CONFIRMATION");
+      return { ok: true, confirmed: true, mode: "SUPABASE_TRANSACTION_CONFIRMED", operationId, record, serverRecord };
+    } catch (error) {
+      return { ok: false, confirmed: false, mode: "SUPABASE_ERROR", error, message: error?.message || String(error) };
+    }
+  }
+
+  async function persist(workday) {
+    const result = await persistEntity(ENTITY, RECORD_ID, workday);
+    return { ...result, workday: result.record || null };
+  }
+
+  async function persistHistory(workday) {
+    const recordId = String(workday?.id || "").trim();
+    if (!recordId) return { ok: false, confirmed: false, mode: "INVALID_HISTORY", message: "La jornada finalizada no tiene UUID." };
+    const result = await persistEntity(HISTORY_ENTITY, recordId, workday);
+    return { ...result, workday: result.record || null };
+  }
+
+  BlessERP.operationsWorkdayCloudSync = Object.freeze({
+    canonicalEntity: ENTITY,
+    hydrate,
+    isEnabled,
+    persist,
+    persistHistory,
+    sync: persist
+  });
 })();

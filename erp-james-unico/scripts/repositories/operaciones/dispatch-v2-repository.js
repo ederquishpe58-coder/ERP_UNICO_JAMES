@@ -121,7 +121,8 @@
   }
 
   async function command(rpcName, parameters, options = {}) {
-    const companyId = activeCompanyUuid();
+    const operatorCompanyId = activeCompanyUuid();
+    const companyId = String(options.sellingCompanyId || operatorCompanyId || "").trim();
     const operationId = String(options.operationId || uuid());
     if (!configured() || !companyId) {
       return {
@@ -168,9 +169,10 @@
       records, serverTime: String(result.serverTime || ""), result: result.result || {} };
   }
 
-  async function validateReady(orderId) {
-    const companyId = activeCompanyUuid();
-    if (!configured() || !companyId) return { ok: false, ready: false, mode: remoteRequired() ? "REMOTE_REQUIRED" : "LOCAL_ONLY" };
+  async function validateReady(orderId, options = {}) {
+    const operatorCompanyId = activeCompanyUuid();
+    const companyId = String(options.sellingCompanyId || operatorCompanyId || "").trim();
+    if (!configured() || !operatorCompanyId || !companyId) return { ok: false, ready: false, mode: remoteRequired() ? "REMOTE_REQUIRED" : "LOCAL_ONLY" };
     const backend = await probeBackend();
     if (!backend.ok || !canExecute()) {
       return { ok: false, ready: false, mode: backend.status || "BACKEND_UNAVAILABLE", error: backend.error, message: backend.message };

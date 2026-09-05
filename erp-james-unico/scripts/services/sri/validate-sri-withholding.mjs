@@ -78,7 +78,7 @@ assert.match(unsignedXml, /<comprobanteRetencion[^>]+version="2\.0\.0"/);
 assert.match(unsignedXml, /<codDoc>07<\/codDoc>/);
 assert.match(unsignedXml, /<codigoRetencion>312<\/codigoRetencion>/);
 assert.match(unsignedXml, /<codigoRetencion>1<\/codigoRetencion>/);
-assert.match(unsignedXml, /<campoAdicional nombre="RUC Proveedor">1754767067001<\/campoAdicional>/);
+assert.doesNotMatch(unsignedXml, /<campoAdicional nombre="RUC Proveedor">/);
 const unsignedReport = await assertOfficialXsd({ documentType: "07", version: "2.0.0", xml: unsignedXml });
 
 assert.throws(

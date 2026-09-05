@@ -116,12 +116,12 @@
   function bindCustomersPage(container, appState) {
     const stateApi = BlessERP.comercialState;
     container.querySelector("[data-customer-new]")?.addEventListener("click", () => { stateApi.newCustomer(appState); BlessERP.layout.renderPage(); });
-    container.querySelector("[data-customer-save]")?.addEventListener("click", () => { stateApi.saveCustomer(appState); BlessERP.layout.renderPage(); });
+    container.querySelector("[data-customer-save]")?.addEventListener("click", async () => { await stateApi.saveCustomer(appState); BlessERP.layout.renderPage(); });
     container.querySelectorAll("[data-customer-select]").forEach(button => button.addEventListener("click", () => { stateApi.selectCustomer(appState, button.dataset.customerSelect); BlessERP.layout.renderPage(); }));
-    container.querySelectorAll("[data-customer-delete]").forEach(button => button.addEventListener("click", () => {
+    container.querySelectorAll("[data-customer-delete]").forEach(button => button.addEventListener("click", async () => {
       const customer = stateApi.getCustomerCatalog(appState).find(item => item.id === button.dataset.customerDelete);
       if (window.confirm && !window.confirm(`Eliminar el cliente ${customer?.legalName || "seleccionado"}?`)) return;
-      stateApi.deleteCustomer(appState, button.dataset.customerDelete);
+      await stateApi.deleteCustomer(appState, button.dataset.customerDelete);
       BlessERP.layout.renderPage();
     }));
     container.querySelectorAll("[data-customer-field]").forEach(field => {
@@ -208,12 +208,12 @@
   function bindBrandsPage(container, appState) {
     const stateApi = BlessERP.comercialState;
     container.querySelector("[data-brand-new]")?.addEventListener("click", () => { stateApi.newBrand(appState); BlessERP.layout.renderPage(); });
-    container.querySelector("[data-brand-save]")?.addEventListener("click", () => { stateApi.saveBrand(appState); BlessERP.layout.renderPage(); });
+    container.querySelector("[data-brand-save]")?.addEventListener("click", async () => { await stateApi.saveBrand(appState); BlessERP.layout.renderPage(); });
     container.querySelectorAll("[data-brand-select]").forEach(button => button.addEventListener("click", () => { stateApi.selectBrand(appState, button.dataset.brandSelect); BlessERP.layout.renderPage(); }));
-    container.querySelectorAll("[data-brand-delete]").forEach(button => button.addEventListener("click", () => {
+    container.querySelectorAll("[data-brand-delete]").forEach(button => button.addEventListener("click", async () => {
       const brand = stateApi.getBrandCatalog(appState).find(item => item.id === button.dataset.brandDelete);
       if (window.confirm && !window.confirm(`Eliminar el cliente final ${brand?.finalClientName || "seleccionado"}?`)) return;
-      stateApi.deleteBrand(appState, button.dataset.brandDelete);
+      await stateApi.deleteBrand(appState, button.dataset.brandDelete);
       BlessERP.layout.renderPage();
     }));
     container.querySelectorAll("[data-brand-field]").forEach(field => {
@@ -274,12 +274,12 @@
   function bindAgenciesPage(container, appState) {
     const stateApi = BlessERP.comercialState;
     container.querySelector("[data-agency-new]")?.addEventListener("click", () => { stateApi.newAgency(appState); BlessERP.layout.renderPage(); });
-    container.querySelector("[data-agency-save]")?.addEventListener("click", () => { stateApi.saveAgency(appState); BlessERP.layout.renderPage(); });
+    container.querySelector("[data-agency-save]")?.addEventListener("click", async () => { await stateApi.saveAgency(appState); BlessERP.layout.renderPage(); });
     container.querySelectorAll("[data-agency-select]").forEach(button => button.addEventListener("click", () => { stateApi.selectAgency(appState, button.dataset.agencySelect); BlessERP.layout.renderPage(); }));
-    container.querySelectorAll("[data-agency-delete]").forEach(button => button.addEventListener("click", () => {
+    container.querySelectorAll("[data-agency-delete]").forEach(button => button.addEventListener("click", async () => {
       const agency = stateApi.getAgencyCatalog(appState).find(item => item.id === button.dataset.agencyDelete);
       if (window.confirm && !window.confirm(`Eliminar la agencia ${agency?.name || "seleccionada"}?`)) return;
-      stateApi.deleteAgency(appState, button.dataset.agencyDelete);
+      await stateApi.deleteAgency(appState, button.dataset.agencyDelete);
       BlessERP.layout.renderPage();
     }));
     container.querySelectorAll("[data-agency-field]").forEach(field => {
@@ -339,12 +339,12 @@
   function bindCountriesPage(container, appState) {
     const stateApi = BlessERP.comercialState;
     container.querySelector("[data-country-new]")?.addEventListener("click", () => { stateApi.newCountry(appState); BlessERP.layout.renderPage(); });
-    container.querySelector("[data-country-save]")?.addEventListener("click", () => { stateApi.saveCountry(appState); BlessERP.layout.renderPage(); });
+    container.querySelector("[data-country-save]")?.addEventListener("click", async () => { await stateApi.saveCountry(appState); BlessERP.layout.renderPage(); });
     container.querySelectorAll("[data-country-select]").forEach(button => button.addEventListener("click", () => { stateApi.selectCountry(appState, button.dataset.countrySelect); BlessERP.layout.renderPage(); }));
-    container.querySelectorAll("[data-country-delete]").forEach(button => button.addEventListener("click", () => {
+    container.querySelectorAll("[data-country-delete]").forEach(button => button.addEventListener("click", async () => {
       const country = stateApi.getCountryCatalog(appState).find(item => item.id === button.dataset.countryDelete);
       if (window.confirm && !window.confirm(`Eliminar el país ${country?.name || "seleccionado"}?`)) return;
-      stateApi.deleteCountry(appState, button.dataset.countryDelete);
+      await stateApi.deleteCountry(appState, button.dataset.countryDelete);
       BlessERP.layout.renderPage();
     }));
     container.querySelectorAll("[data-country-field]").forEach(field => {
@@ -462,12 +462,12 @@
   function bindDaesPage(container, appState) {
     const stateApi = BlessERP.comercialState;
     container.querySelector("[data-dae-new]")?.addEventListener("click", () => { stateApi.newDae(appState); BlessERP.layout.renderPage(); });
-    container.querySelector("[data-dae-save]")?.addEventListener("click", () => { stateApi.saveDae(appState); BlessERP.layout.renderPage(); });
+    container.querySelector("[data-dae-save]")?.addEventListener("click", async () => { await stateApi.saveDae(appState); BlessERP.layout.renderPage(); });
     container.querySelectorAll("[data-dae-select]").forEach(button => button.addEventListener("click", () => { stateApi.selectDae(appState, button.dataset.daeSelect); BlessERP.layout.renderPage(); }));
-    container.querySelectorAll("[data-dae-delete]").forEach(button => button.addEventListener("click", () => {
+    container.querySelectorAll("[data-dae-delete]").forEach(button => button.addEventListener("click", async () => {
       const dae = stateApi.getDaeCatalog(appState).find(item => item.id === button.dataset.daeDelete);
       if (window.confirm && !window.confirm(`Eliminar la DAE ${dae?.number || "seleccionada"}?`)) return;
-      stateApi.deleteDae(appState, button.dataset.daeDelete);
+      await stateApi.deleteDae(appState, button.dataset.daeDelete);
       BlessERP.layout.renderPage();
     }));
     container.querySelectorAll("[data-dae-customer]").forEach(field => field.addEventListener("change", () => stateApi.toggleDaeCustomer(appState, field.dataset.daeCustomer, field.checked)));
@@ -532,12 +532,12 @@
   function bindAirlinesPage(container, appState) {
     const stateApi = BlessERP.comercialState;
     container.querySelector("[data-airline-new]")?.addEventListener("click", () => { stateApi.newAirline(appState); BlessERP.layout.renderPage(); });
-    container.querySelector("[data-airline-save]")?.addEventListener("click", () => { stateApi.saveAirline(appState); BlessERP.layout.renderPage(); });
+    container.querySelector("[data-airline-save]")?.addEventListener("click", async () => { await stateApi.saveAirline(appState); BlessERP.layout.renderPage(); });
     container.querySelectorAll("[data-airline-select]").forEach(button => button.addEventListener("click", () => { stateApi.selectAirline(appState, button.dataset.airlineSelect); BlessERP.layout.renderPage(); }));
-    container.querySelectorAll("[data-airline-delete]").forEach(button => button.addEventListener("click", () => {
+    container.querySelectorAll("[data-airline-delete]").forEach(button => button.addEventListener("click", async () => {
       const airline = stateApi.getAirlineCatalog(appState).find(item => item.id === button.dataset.airlineDelete);
       if (window.confirm && !window.confirm(`Borrar la linea aerea ${airline?.name || "seleccionada"}?`)) return;
-      stateApi.deleteAirline(appState, button.dataset.airlineDelete);
+      await stateApi.deleteAirline(appState, button.dataset.airlineDelete);
       BlessERP.layout.renderPage();
     }));
     container.querySelectorAll("[data-airline-field]").forEach(field => {

@@ -542,6 +542,16 @@
     return `<button type="button" data-ops-action="inventory-supplier-report-sort" data-sort-field="${field}" aria-label="Ordenar por ${label}">${label}${mark}</button>`;
   }
 
+  function supplierQualityTypeLabel(value) {
+    if (typeof value !== "string") return "";
+    const quality = value.trim();
+    if (!quality) return "";
+    if (quality === "PREMIUM") return "EXPORTACION";
+    if (quality === "TIPO_B") return "TIPO B";
+    if (quality === "EXPORTACION") return "EXPORTACION";
+    return quality;
+  }
+
   function renderSupplierClassificationReport(appState) {
     const utils = BlessERP.operacionesUtils;
     const report = supplierReportState;
@@ -591,6 +601,7 @@
               <th>${sortHeading("Proveedor", "supplier", sort)}</th>
               <th>Bloque</th>
               <th>${sortHeading("Variedad", "variety", sort)}</th>
+              <th>TIPO</th>
               ${SUPPLIER_REPORT_LENGTHS.map(length => `<th>${length} cm</th>`).join("")}
               <th>${sortHeading("Nacional / rechazo", "nationalStems", sort)}</th>
               <th>${sortHeading("Ingreso f&iacute;sico", "exportedStems", sort)}</th>
@@ -602,13 +613,14 @@
               <td><strong>${utils.esc(item.supplier)}</strong></td>
               <td>${utils.esc(item.block || "SIN BLOQUE")}</td>
               <td>${utils.esc(item.variety)}</td>
+              <td>${utils.esc(supplierQualityTypeLabel(item.quality))}</td>
               ${SUPPLIER_REPORT_LENGTHS.map(length => `<td>${utils.esc(utils.number(item[`length${length}`]))}</td>`).join("")}
               <td>${utils.esc(utils.number(item.nationalStems))}</td>
               <td><strong>${utils.esc(utils.number(item.exportedStems))}</strong></td>
               <td><strong>${utils.esc(utils.number(item.classifiedStems))}</strong></td>
               <td class="${item.mismatch ? "ops-report-mismatch" : ""}">${utils.esc(utils.number(item.mismatch))}</td>
-            </tr>`).join("") || `<tr><td colspan="18"><div class="empty-inline">${utils.esc(emptyMessage)}</div></td></tr>`}</tbody>
-            ${report.queried && report.total ? `<tfoot><tr><th colspan="4">TOTALES DEL FILTRO</th>${SUPPLIER_REPORT_LENGTHS.map(length => `<th>${utils.esc(utils.number(report.totals[`length${length}`]))}</th>`).join("")}<th>${utils.esc(utils.number(report.totals.nationalStems))}</th><th>${utils.esc(utils.number(report.totals.exportedStems))}</th><th>${utils.esc(utils.number(report.totals.classifiedStems))}</th><th>${utils.esc(utils.number(report.totals.mismatch))}</th></tr></tfoot>` : ""}
+            </tr>`).join("") || `<tr><td colspan="19"><div class="empty-inline">${utils.esc(emptyMessage)}</div></td></tr>`}</tbody>
+            ${report.queried && report.total ? `<tfoot><tr><th colspan="5">TOTALES DEL FILTRO</th>${SUPPLIER_REPORT_LENGTHS.map(length => `<th>${utils.esc(utils.number(report.totals[`length${length}`]))}</th>`).join("")}<th>${utils.esc(utils.number(report.totals.nationalStems))}</th><th>${utils.esc(utils.number(report.totals.exportedStems))}</th><th>${utils.esc(utils.number(report.totals.classifiedStems))}</th><th>${utils.esc(utils.number(report.totals.mismatch))}</th></tr></tfoot>` : ""}
           </table>
         </div>
         ${report.queried ? `<div class="ops-search-first-pager"><span>Mostrando ${start}–${end} de ${report.total} · Página ${report.page}/${report.totalPages}</span><div class="table-actions-inline"><button class="secondary-button" data-ops-action="inventory-supplier-report-page" data-page="${report.page - 1}" ${report.page <= 1 ? "disabled" : ""}>Anterior</button><button class="secondary-button" data-ops-action="inventory-supplier-report-page" data-page="${report.page + 1}" ${report.page >= report.totalPages ? "disabled" : ""}>Siguiente</button></div></div>` : ""}
@@ -630,18 +642,20 @@
       "Proveedor",
       "Bloque",
       "Variedad",
+      "TIPO",
       ...SUPPLIER_REPORT_LENGTHS.map(length => `${length} cm`),
       "Nacional / rechazo",
       "Ingreso fisico confirmado",
       "Tallos entregados a clasificacion",
       "Desfase"
     ];
-    const widths = [14, 30, 18, 25, ...SUPPLIER_REPORT_LENGTHS.map(() => 10), 18, 24, 30, 14];
+    const widths = [14, 30, 18, 25, 16, ...SUPPLIER_REPORT_LENGTHS.map(() => 10), 18, 24, 30, 14];
     const toSheetRow = item => [
       excelDateTime(item.date),
       item.supplier,
       item.block || "SIN BLOQUE",
       item.variety,
+      supplierQualityTypeLabel(item.quality),
       ...SUPPLIER_REPORT_LENGTHS.map(length => item[`length${length}`]),
       item.nationalStems,
       item.exportedStems,
@@ -650,6 +664,7 @@
     ];
     const totalsRow = totals => [
       "TOTAL",
+      "",
       "",
       "",
       "",
@@ -751,6 +766,7 @@
     aggregateSupplierClassificationRows,
     sortSupplierClassificationRows,
     supplierClassificationTotals,
+    supplierQualityTypeLabel,
     getSupplierClassificationReport,
     openSupplierReport,
     closeSupplierReport,

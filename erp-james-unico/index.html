@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#0f5132">
   <title>JAEDER SYSTEMS</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css?v=20260822-zebra-intake-fifo-1">
-  <link rel="stylesheet" href="styles/print.css?v=20260729-ruc-proveedor-2">
+  <link rel="stylesheet" href="styles.css?v=20260903-history-discount-p1-1">
+  <link rel="stylesheet" href="styles/print.css?v=20260903-final-four-p1-1">
 <link rel="stylesheet" href="styles/payroll.css?v=20260821-payroll-manual-role-v2-1">
   <link rel="stylesheet" href="styles/payroll-print.css?v=20260723-payroll-1">
 </head>
@@ -81,6 +81,7 @@
   <script src="scripts/config/software-provider.js?v=20260730-jaeder-systems-1"></script>
   <script src="scripts/vendor/supabase.js"></script>
   <script src="scripts/core/utils.js"></script>
+  <script src="scripts/core/flower-quality.js?v=20260902-quality-zebra-uat-1"></script>
 <script src="scripts/core/performance.js?v=20260814-history-server-page-1"></script>
   <script src="scripts/core/module-loader.js?v=20260817-export-shipments-hidden-1"></script>
   <script src="scripts/core/accounting-rules.js?v=20260718-accounting-balance-2"></script>
@@ -107,13 +108,13 @@
   <script src="scripts/services/security/capability-runtime.js?v=20260826-u2c2a-shadow-1"></script>
   <script src="scripts/services/supabase/user-access-remote.js?v=20260807-cloud-directory-1"></script>
   <script src="scripts/services/supabase/cloud-state-sync.js?v=20260808-auto-sync-1"></script>
-  <script src="scripts/services/sync/entity-registry.js?v=20260816-v2-004-006-frontend-1"></script>
+  <script src="scripts/services/sync/entity-registry.js?v=20260904-master-data-p0-1"></script>
   <script src="scripts/services/sync/sync-instrumentation.js?v=20260823-cont-d-phase-2"></script>
   <script src="scripts/services/sync/indexeddb-store.js?v=20260731-offline-sync-1"></script>
-  <script src="scripts/services/sync/incremental-sync.js?v=20260825-active-domain-eviction-1"></script>
+  <script src="scripts/services/sync/incremental-sync.js?v=20260904-master-data-p0-1"></script>
   <script src="scripts/services/sync/realtime-sync.js?v=20260808-performance-2"></script>
   <script src="scripts/services/sync/domain-loader.js?v=20260825-commercial-workspace-1"></script>
-  <script src="scripts/services/supabase/operations-workday-sync.js"></script>
+  <script src="scripts/services/supabase/operations-workday-sync.js?v=20260902-canonical-workday-p0-1"></script>
   <script src="scripts/services/sri/sri-api-client.js?v=20260813-retention-sri-1"></script>
   <script src="scripts/services/supabase/repository-base.js?v=20260724-company-tabs-1"></script>
   <script src="scripts/services/supabase/feature-flag-guard.js?v=20260724-company-tabs-1"></script>
@@ -133,6 +134,7 @@
   <script src="scripts/repositories/comercial/dae-repository.js"></script>
   <script src="scripts/repositories/comercial/cargo-agency-repository.js"></script>
   <script src="scripts/repositories/comercial/airline-repository.js"></script>
+  <script src="scripts/repositories/comercial/commercial-master-data-repository.js?v=20260905-imperio-hydration-p1-1"></script>
   <script src="scripts/repositories/comercial/export-product-repository.js"></script>
   <script src="scripts/repositories/operaciones/flower-availability-repository.js"></script>
   <script src="scripts/repositories/operaciones/flower-reservation-repository.js"></script>
@@ -145,11 +147,11 @@
 <script src="scripts/repositories/operaciones/operations-v2-repository.js?v=20260816-v2-004-006-frontend-1"></script>
 <script src="scripts/repositories/operaciones/reception-classification-query-repository.js?v=20260822-search-first-1"></script>
 <script src="scripts/repositories/operaciones/supplier-inventory-report-query-repository.js?v=20260822-search-first-1"></script>
-  <script src="scripts/repositories/operaciones/zebra-v2-repository.js?v=20260822-zebra-intake-fifo-1"></script>
+  <script src="scripts/repositories/operaciones/zebra-v2-repository.js?v=20260902-quality-two-circuits-1"></script>
   <script src="scripts/repositories/operaciones/postharvest-parameter-query-repository.js?v=20260822-search-first-1"></script>
   <script src="scripts/repositories/operaciones/variety-image-repository.js?v=20260816-variety-images-1"></script>
   <script src="scripts/repositories/operaciones/warehouse-v2-repository.js?v=20260816-v2-004-006-frontend-1"></script>
-  <script src="scripts/repositories/operaciones/local-destination-v2-repository.js?v=20260816-local-destination-v2-1"></script>
+  <script src="scripts/repositories/operaciones/local-destination-v2-repository.js?v=20260902-quality-two-circuits-1"></script>
   <script src="scripts/repositories/operaciones/dispatch-v2-repository.js?v=20260815-dispatch-v2-1"></script>
   <script src="scripts/repositories/comercial/export-shipment-v2-repository.js?v=20260815-export-v2-1"></script>
   <script src="scripts/repositories/operaciones/bunch-label-repository.js"></script>
@@ -160,7 +162,7 @@
   <script src="scripts/repositories/contabilidad/chart-of-accounts-repository.js"></script>
   <script src="scripts/repositories/contabilidad/journal-entry-repository.js"></script>
   <script src="scripts/repositories/contabilidad/journal-entry-line-repository.js"></script>
-  <script src="scripts/repositories/contabilidad/financial-v2-repository.js?v=20260815-financial-v2-1"></script>
+  <script src="scripts/repositories/contabilidad/financial-v2-repository.js?v=20260903-profitability-report-p1-1"></script>
 <script src="scripts/repositories/contabilidad/supplier-finance-v2-repository.js?v=20260815-supplier-finance-v2-1"></script>
 <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="purchases" src="scripts/repositories/contabilidad/purchase-withholding-v2-repository.js?v=20260823-purchase-withholding-search-first-1"></script>
 <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="purchases" src="scripts/repositories/contabilidad/purchase-invoice-read-v2-repository.js?v=20260823-purchase-invoices-search-first-1"></script>
@@ -214,7 +216,7 @@
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="reports" src="scripts/services/reports.js?v=20260808-performance-2"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="tax" src="scripts/services/ats.js?v=20260808-performance-2"></script>
   <script src="scripts/shared/code128.js?v=20260802-zebra-barcode-proportion-1"></script>
-  <script src="scripts/services/label-pdf.js?v=20260817-history-print-performance-2"></script>
+  <script src="scripts/services/label-pdf.js?v=20260902-quality-zebra-uat-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="foundation" src="scripts/modules/part2-foundation.js?v=20260724-company-tabs-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="settings" src="scripts/modules/part2-settings.js?v=20260807-cloud-directory-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="settings" src="scripts/modules/part2-synchronization.js?v=20260808-auto-sync-1"></script>
@@ -243,12 +245,12 @@
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="inventory" src="scripts/modules/part2-inventory.js"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="reports" src="scripts/modules/part2-reports.js?v=20260823-accounting-bank-report-1"></script>
     <script src="scripts/modules/comercial/invoice-sequence-core.js?v=20260807-sale-point-rule-1"></script>
-  <script src="scripts/modules/comercial/sri-order-queue-core.js?v=20260811-principal-customer-1"></script>
-    <script src="scripts/modules/comercial/comercial-data.js?v=20260813-future-reservations-1"></script>
+  <script src="scripts/modules/comercial/sri-order-queue-core.js?v=20260903-history-discount-p1-1"></script>
+    <script src="scripts/modules/comercial/comercial-data.js?v=20260904-master-data-p0-1"></script>
   <script src="scripts/modules/comercial/comercial-utils.js?v=20260823-air-sea-normalization-1"></script>
   <script src="scripts/modules/comercial/comercial-workflow.js?v=20260802-no-packing-list-1"></script>
-  <script src="scripts/modules/comercial/order-box-builder.js"></script>
-  <script src="scripts/modules/comercial/comercial-state.js?v=20260814-order-new-shortcut-5"></script>
+  <script src="scripts/modules/comercial/order-box-builder.js?v=20260902-quality-two-circuits-1"></script>
+  <script src="scripts/modules/comercial/comercial-state.js?v=20260904-master-data-p0-1"></script>
 <script src="scripts/modules/comercial/intercompany-service.js?v=20260813-future-reservations-1"></script>
   <script src="scripts/modules/comercial/flow-v2/commercial-flow-core.js?v=20260823-air-sea-normalization-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-order-tracking commercial-history-print commercial-coordination-print" src="scripts/modules/comercial/route-sheet-model.js?v=20260823-cargo-agency-route-sheet-1"></script>
@@ -257,7 +259,7 @@
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-dashboard" src="scripts/modules/comercial/accounting-preview/journal-preview.js"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-dashboard" src="scripts/modules/comercial/accounting-preview/sales-accounting-preview.js"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-dashboard" src="scripts/modules/comercial/accounting-preview/index.js"></script>
-  <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-catalogs" src="scripts/modules/comercial/catalogos-comerciales.js?v=20260814-commercial-performance-1"></script>
+  <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-catalogs" src="scripts/modules/comercial/catalogos-comerciales.js?v=20260904-master-data-p0-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-export commercial-history-print commercial-history-print-core commercial-coordination-print commercial-sri-print" src="scripts/modules/comercial/print/print-utils.js?v=20260730-logo-transparent-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-history-print commercial-history-print-labels commercial-coordination-print commercial-sri-print" src="scripts/modules/comercial/labels/box-labels-data.js?v=20260802-no-packing-list-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-history-print commercial-history-print-labels commercial-coordination-print commercial-sri-print" src="scripts/modules/comercial/labels/customs-code-utils.js"></script>
@@ -269,9 +271,9 @@
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial" src="scripts/modules/comercial/bodega-empaque/packaging-calculator.js"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial" src="scripts/modules/comercial/bodega-empaque/packaging-requirements-view.js?v=20260723-print-center-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial" src="scripts/modules/comercial/bodega-empaque/index.js"></script>
-<script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-history-print commercial-history-print-client commercial-coordination-print commercial-sri-print" src="scripts/modules/comercial/print/client-invoice-utils.js?v=20260814-history-print-performance-1"></script>
-  <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-history-print commercial-history-print-client commercial-coordination-print commercial-sri-print" src="scripts/modules/comercial/print/commercial-invoice-client-print.js?v=20260814-history-print-performance-1"></script>
-<script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-history-print commercial-history-print-invoice commercial-coordination-print commercial-sri-print" src="scripts/modules/comercial/print/invoice-carguera-print.js?v=20260812-local-external-supply-1"></script>
+<script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-history-print commercial-history-print-client commercial-coordination-print commercial-sri-print" src="scripts/modules/comercial/print/client-invoice-utils.js?v=20260903-history-discount-p1-1"></script>
+  <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-history-print commercial-history-print-client commercial-coordination-print commercial-sri-print" src="scripts/modules/comercial/print/commercial-invoice-client-print.js?v=20260903-history-discount-p1-1"></script>
+<script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-history-print commercial-history-print-invoice commercial-coordination-print commercial-sri-print" src="scripts/modules/comercial/print/invoice-carguera-print.js?v=20260903-commercial-discount-p1-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-export commercial-history-print commercial-coordination-print commercial-sri-print" src="scripts/modules/comercial/print/packing-list-print.js"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-history-print commercial-coordination-print commercial-sri-print" src="scripts/modules/comercial/print/hoja-ruta-print.js?v=20260813-route-performance-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-history-print commercial-coordination-print commercial-sri-print" src="scripts/modules/comercial/print/master-packing-print.js"></script>
@@ -282,20 +284,20 @@
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-export commercial-history-print commercial-history-print-core commercial-coordination-print commercial-sri-print" src="scripts/modules/comercial/print/index.js?v=20260817-history-print-performance-2"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial" src="scripts/modules/comercial/invoice-carguera.js"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial" src="scripts/modules/comercial/centro-impresion.js?v=20260802-no-packing-list-1"></script>
-  <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-po commercial-order commercial-order-tracking commercial-history commercial-availability operations operations-dispatch" src="scripts/modules/comercial/flow-v2/commercial-flow-ui.js?v=20260823-air-sea-normalization-1"></script>
+  <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-po commercial-order commercial-order-tracking commercial-history commercial-availability operations operations-dispatch" src="scripts/modules/comercial/flow-v2/commercial-flow-ui.js?v=20260903-history-discount-p1-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial-export" src="scripts/modules/comercial/flow-v2/export-shipment-ui.js?v=20260815-export-v2-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-day-orders" src="scripts/modules/comercial/ordenes-dia.js?v=20260814-commercial-performance-2"></script>
-  <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial-senae" src="scripts/repositories/comercial/senae-liquidation-v2-repository.js?v=20260823-senae-v2-1"></script>
-  <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-sri commercial-senae" src="scripts/modules/comercial/sri-authorization.js?v=20260823-senae-v2-1"></script>
+  <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial-senae" src="scripts/repositories/comercial/senae-liquidation-v2-repository.js?v=20260903-senae-commerce-type-p1-1"></script>
+  <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-sri commercial-senae" src="scripts/modules/comercial/sri-authorization.js?v=20260902-sri-list-filters-p1-1"></script>
 <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="commercial commercial-dashboard commercial-day-orders commercial-po commercial-catalogs commercial-order commercial-order-tracking commercial-export commercial-history commercial-availability commercial-sri commercial-senae reports-commercial" src="scripts/modules/comercial/index.js?v=20260814-order-tab-isolation-1"></script>
-  <script src="scripts/modules/operaciones/operaciones-data.js?v=20260809-classifier-numeric-2"></script>
+  <script src="scripts/modules/operaciones/operaciones-data.js?v=20260902-quality-two-circuits-1"></script>
   <script src="scripts/modules/operaciones/bunch-label-codec.js?v=20260802-zebra-code-v2-1"></script>
   <script src="scripts/modules/operaciones/code-utils-demo.js"></script>
   <script src="scripts/modules/operaciones/scanner-hid-adapter-demo.js"></script>
   <script src="scripts/modules/operaciones/operaciones-utils.js?v=20260808-floating-notices-1"></script>
   <script src="scripts/modules/operaciones/workday-core.js"></script>
   <script src="scripts/modules/operaciones/rendimientos-utils.js"></script>
-  <script src="scripts/modules/operaciones/operaciones-state.js?v=20260822-zebra-intake-fifo-1"></script>
+  <script src="scripts/modules/operaciones/operaciones-state.js?v=20260902-classification-workday-p1-1"></script>
   <script src="scripts/modules/operaciones/disponibilidad-service-demo.js?v=20260731-cancel-release-1"></script>
   <script src="scripts/modules/operaciones/availability-policy.js?v=20260813-future-reservations-1"></script>
   <script src="scripts/modules/operaciones/availability-pieces.js?v=20260822-availability-copy-1"></script>
@@ -306,10 +308,10 @@
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations" src="scripts/modules/operaciones/panel-operativo.js?v=20260716-remove-warehouse-scanner-1"></script>
 <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations" src="scripts/modules/operaciones/parametros-poscosecha.js?v=20260822-search-first-1"></script>
 <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations" src="scripts/modules/operaciones/reception-classification-search.js?v=20260822-search-first-1"></script>
-<script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations" src="scripts/modules/operaciones/recepcion-flor.js?v=20260822-search-first-1"></script>
-<script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations" src="scripts/modules/operaciones/clasificacion.js?v=20260822-search-first-1"></script>
+<script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations" src="scripts/modules/operaciones/recepcion-flor.js?v=20260902-quality-two-circuits-1"></script>
+<script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations" src="scripts/modules/operaciones/clasificacion.js?v=20260902-quality-two-circuits-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations" src="scripts/services/zebra-browser-print.js?v=20260801-zebra-zpl-1"></script>
-  <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations" src="scripts/modules/operaciones/etiquetas-ramos.js?v=20260809-zebra-manual-copies-1"></script>
+  <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations" src="scripts/modules/operaciones/etiquetas-ramos.js?v=20260902-quality-two-circuits-1"></script>
 <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations purchases portfolios commercial-history-xlsx reports-commercial-xlsx commercial-senae-xlsx" src="scripts/modules/operaciones/ramos-report-xlsx.js?v=20260823-senae-v2-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="banks portfolios" src="scripts/services/bank-statement-xlsx.js?v=20260810-opening-balances-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="portfolios" src="scripts/services/opening-balances-xlsx.js?v=20260810-opening-balances-1"></script>
@@ -328,7 +330,7 @@
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations" src="scripts/modules/operaciones/rendimientos.js"></script>
 <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations" src="scripts/modules/operaciones/pantalla-rendimientos.js"></script>
     <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations operations-dispatch" src="scripts/modules/comercial/flow-v2/cold-room-ui.js?v=20260819-cold-room-hid-fifo-1"></script>
-<script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations operations-dispatch" src="scripts/modules/operaciones/index.js?v=20260822-supplier-report-search-first-1"></script>
+<script type="application/x-jaeder-lazy" data-jaeder-lazy-group="operations operations-dispatch" src="scripts/modules/operaciones/index.js?v=20260902-canonical-workday-p0-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="payroll" src="scripts/modules/payroll/payroll-commissions.js?v=20260723-payroll-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="payroll" src="scripts/modules/payroll/payroll-engine.js?v=20260730-performance-precision-1"></script>
   <script type="application/x-jaeder-lazy" data-jaeder-lazy-group="payroll" src="scripts/modules/payroll/payroll-accounting.js?v=20260723-payroll-1"></script>

@@ -21,6 +21,7 @@
     STALE_OPERATION: "STALE_OPERATION",
     INVALID_OPERATION_ID: "INVALID_OPERATION_ID",
     DERIVED_FIELD_ONLY: "DERIVED_FIELD_ONLY",
+    EXPLICIT_SERVER_AUTHORITY: "EXPLICIT_SERVER_AUTHORITY",
     SERVER_ALREADY_APPLIED: "SERVER_ALREADY_APPLIED"
   });
   const registry = () => BlessERP.syncEntityRegistry;
@@ -235,6 +236,9 @@
   }
 
   function replayGate(operation, syncContext = context(), at = Date.now()) {
+    if (registry()?.descriptor?.(operation?.entity)?.syncMode === "EXPLICIT_COMMERCIAL_MASTER_DATA") {
+      return { ok: false, reason: QUARANTINE_REASONS.EXPLICIT_SERVER_AUTHORITY };
+    }
     if (isDerivedOnlyOperation(operation)) {
       return { ok: false, reason: QUARANTINE_REASONS.DERIVED_FIELD_ONLY };
     }
@@ -732,7 +736,8 @@
         const pending = syncContext.companyId
           ? await store().findPendingForRecord(syncContext.companyId, descriptor.entity, recordId)
           : null;
-        if (pending && pending.status !== "synced") {
+        const explicitServerAuthority = descriptor.syncMode === "EXPLICIT_COMMERCIAL_MASTER_DATA";
+        if (!explicitServerAuthority && pending && pending.status !== "synced") {
           preservedPending += 1;
           continue;
         }

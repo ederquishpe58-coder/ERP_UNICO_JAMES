@@ -62,7 +62,7 @@
 
   function buildHourlyWorkerRows(items, options) {
     const grouped = new Map();
-    const workdayHours = 8;
+    const workdayHours = Math.max(1, Math.round(parseNumber(options.workdayHours, 8)));
     const startHour = Number.isFinite(options.startHour) ? options.startHour : 7;
     (items || []).forEach(item => {
       const worker = String(options.worker(item) || "SIN ASIGNAR").trim() || "SIN ASIGNAR";
@@ -94,6 +94,7 @@
 
   function buildClassifierHourlyPerformance(store, options = {}) {
     const workday = getVisibleWorkday(store);
+    const settings = store.yieldSettings || {};
     return buildHourlyWorkerRows(scopeRowsToWorkday(store.meshProcessingRecords || [], store, options), {
       worker: item => item.classifier,
       employeeId: item => item.classifier_employee_id || item.classifierEmployeeId || item.employee_id || item.employeeId,
@@ -101,12 +102,14 @@
       date: item => item.date,
       quantity: item => item.meshCount,
       startHour: workdayStartHour(workday),
-      hourlyGoal: 33,
-      dailyGoal: 264
+      workdayHours: parseNumber(settings.workdayHours, 8),
+      hourlyGoal: parseNumber(settings.classifierHourlyGoal, 33),
+      dailyGoal: parseNumber(settings.classifierDailyGoal, 264)
     });
   }
 
   function buildBuncherHourlyPerformance(store, options = {}) {
+    const settings = store.yieldSettings || {};
     const inventoryRows = store.roseInventory || [];
     const scannedEntries = scopeRowsToWorkday(store.bunchEntries || [], store, options).filter(entry => {
       const inventory = inventoryRows.find(item => item.inventoryId === entry.inventoryId || item.sourceBunchEntryId === entry.id);
@@ -120,13 +123,15 @@
       date: item => item.date,
       quantity: () => 1,
       startHour: workdayStartHour(workday),
-      hourlyGoal: 25,
-      dailyGoal: 200
+      workdayHours: parseNumber(settings.workdayHours, 8),
+      hourlyGoal: parseNumber(settings.buncherHourlyGoal, 25),
+      dailyGoal: parseNumber(settings.buncherDailyGoal, 200)
     });
   }
 
   function buildProductionScreenRanking(store, mode) {
     const isClassifier = mode === "classifiers";
+    const settings = store.yieldSettings || {};
     const inventoryRows = store.roseInventory || [];
     const allSourceRows = isClassifier
       ? (store.meshProcessingRecords || [])
@@ -175,13 +180,18 @@
       grouped.set(key, current);
     });
 
-    const dailyGoal = isClassifier ? 264 : 200;
+    const dailyGoal = isClassifier
+      ? parseNumber(settings.classifierDailyGoal, 264)
+      : parseNumber(settings.buncherDailyGoal, 200);
+    const hourlyGoal = isClassifier
+      ? parseNumber(settings.classifierHourlyGoal, 33)
+      : parseNumber(settings.buncherHourlyGoal, 25);
     const activeHours = workdayActiveHours(workday);
     return {
       date: latestDate,
       mode,
       dailyGoal,
-      hourlyGoal: isClassifier ? 33 : 25,
+      hourlyGoal,
       rows: [...grouped.values()]
         .map(item => ({
           ...item,

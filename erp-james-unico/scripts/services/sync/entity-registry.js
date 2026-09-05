@@ -77,6 +77,15 @@
     "payroll_v2_events"
   ]);
 
+  const COMMERCIAL_MASTER_DATA_ENTITIES = new Set([
+    "commercial_customers",
+    "commercial_brands",
+    "commercial_agencies",
+    "commercial_airlines",
+    "commercial_countries",
+    "commercial_dae"
+  ]);
+
   const PRELOAD_CLASS = Object.freeze({
     REQUIRED: "A_REQUIRED",
     DOMAIN: "B_DOMAIN_LAZY",
@@ -100,6 +109,7 @@
   // los consume y los reportes históricos usan sus RPC/read-models.
   const REQUIRED_PRELOAD_ENTITIES = new Set([
     "company_settings",
+    "operations_yield_workday",
     "accounting_chart_accounts",
     "accounting_tax_parameters",
     "accounting_retention_parameters",
@@ -357,6 +367,7 @@
     kind,
     preloadClass: preloadClassForEntity(entity),
     domain: DOMAIN_BY_ENTITY.get(entity) || "",
+    canonicalAuthority: COMMERCIAL_MASTER_DATA_ENTITIES.has(entity),
     derivedFields: DERIVED_FIELDS_BY_ENTITY[entity] || Object.freeze([]),
     loadStrategy: REQUIRED_PRELOAD_ENTITIES.has(entity)
       ? "BOOTSTRAP"
@@ -372,6 +383,8 @@
     // incremental registro por registro; excluirlos aquí dejaba PO, etiquetas,
     // inventario y escaneos únicamente en el navegador.
     syncMode: entity === "commercial_orders" ? "EXPLICIT_FLOW_V2"
+      : COMMERCIAL_MASTER_DATA_ENTITIES.has(entity)
+        ? "EXPLICIT_COMMERCIAL_MASTER_DATA"
       : OPERATIONS_V2_ENTITIES.has(entity)
         ? "EXPLICIT_OPERATIONS_V2"
         : ZEBRA_V2_ENTITIES.has(entity)
@@ -641,6 +654,10 @@
       : descriptorOrEntity;
     const syncMode = String(descriptor?.syncMode || "");
     if (syncMode === "EXPLICIT_FLOW_V2") return true;
+    if (syncMode === "EXPLICIT_COMMERCIAL_MASTER_DATA") {
+      return BlessERP.getEnvConfig?.().commercialCatalogsSupabaseEnabled === true
+        && BlessERP.getCommercialMasterDataRepository?.(descriptor.entity)?.canExecute?.() === true;
+    }
     if (syncMode === "EXPLICIT_OPERATIONS_V2") {
       return BlessERP.getEnvConfig?.().operationsV2CaptureEnabled === true
         && BlessERP.getOperationsV2Repository?.()?.canExecute?.() === true;
@@ -697,6 +714,7 @@
     // El flag V2 bloquea la captura legacy desde el primer snapshot. Si el
     // health-check falla, la UI no declara V2 activo ni cae a legacy; tampoco
     // permite que una caché antigua se convierta en una escritura incremental.
+    if (syncMode === "EXPLICIT_COMMERCIAL_MASTER_DATA") return config.commercialCatalogsSupabaseEnabled === true;
     if (syncMode === "EXPLICIT_OPERATIONS_V2") return config.operationsV2CaptureEnabled === true;
     if (syncMode === "EXPLICIT_ZEBRA_V2") return config.zebraV2CaptureEnabled === true;
     if (syncMode === "EXPLICIT_DESTINATION_V2") return config.zebraV2CaptureEnabled === true && config.warehouseV2CaptureEnabled === true;
@@ -708,6 +726,11 @@
     if (syncMode === "EXPLICIT_TREASURY_V2") return config.treasuryV2CaptureEnabled === true;
     if (syncMode === "EXPLICIT_PAYROLL_V2") return config.payrollV2CaptureEnabled === true;
     return false;
+  }
+
+  function hasCanonicalServerEvidence(db, entity) {
+    const descriptor = BY_ENTITY.get(String(entity || ""));
+    return Boolean(descriptor?.canonicalAuthority === true && isExplicitCaptureReady(descriptor));
   }
 
   function applyServerRecord(db, serverRecord, options = {}) {
@@ -791,6 +814,7 @@
     isSyncEligibleRecord,
     recordSyncMeta,
     compareServerRecord,
+    hasCanonicalServerEvidence,
     isExplicitCaptureReady,
     shouldSkipIncrementalCapture,
     snapshot,

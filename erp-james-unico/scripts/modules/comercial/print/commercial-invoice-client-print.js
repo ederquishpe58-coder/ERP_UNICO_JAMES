@@ -116,7 +116,7 @@
   function renderDocument(context, options = {}) {
     const documentData = context.preparedClientInvoiceData
       || invoiceUtils.buildDocumentData(context.order, context.appState, options);
-    const { order, customer, brand, agency, airline, metrics, invoiceNumber } = documentData;
+    const { order, customer, brand, agency, airline, metrics, economics, invoiceNumber } = documentData;
     const localSale = utils.isLocalOrder?.(order) || false;
     const consignee = localSale ? customer : brand;
     const logoUrl = printUtils.companyLogoUrl(context.company);
@@ -137,8 +137,10 @@
             <td class="center client-detail-box-cell" rowspan="${group.lines.length}">${utils.esc(group.boxNumber)}</td>
             <td class="center client-detail-box-cell" rowspan="${group.lines.length}">${utils.esc(group.boxType || "-")}</td>
           ` : ""}
+          <td>${utils.esc(line.po || order.generalPo || "-")}</td>
           <td>${utils.esc(line.variety || "-")}</td>
           <td class="center">${utils.esc(line.length || "-")}</td>
+          <td class="center">${utils.esc(BlessERP.flowerQuality?.label?.(line.quality) || "SIN CALIDAD")}</td>
           <td class="center">${utils.esc(utils.number(line.bunches))}</td>
           <td class="center">${utils.esc(utils.number(line.stemsPerBunch))}</td>
           <td class="center">${utils.esc(utils.number(line.totalStems))}</td>
@@ -147,6 +149,13 @@
         </tr>
       `;
     })).join("");
+    const totalsRows = economics.discountAmount > 0
+      ? `
+        <tr class="client-invoice-subtotal-row"><td colspan="6"><strong>SUBTOTAL</strong></td><td class="center"><strong>${utils.esc(utils.number(metrics.totalBunches))}</strong></td><td></td><td class="center"><strong>${utils.esc(utils.number(metrics.totalStems))}</strong></td><td></td><td class="numeric"><strong>${utils.esc(compactDecimal(economics.subtotal, 2))}</strong></td></tr>
+        <tr class="client-invoice-discount-row"><td colspan="10"><strong>DESCUENTO (${utils.esc(compactDecimal(economics.discountPercentage, 2))}%)</strong></td><td class="numeric"><strong>-${utils.esc(compactDecimal(economics.discountAmount, 2))}</strong></td></tr>
+        <tr class="client-invoice-final-total-row"><td colspan="10"><strong>TOTAL FINAL</strong></td><td class="numeric"><strong>${utils.esc(compactDecimal(economics.netTotal, 2))}</strong></td></tr>
+      `
+      : `<tr><td colspan="6"><strong>TOTAL</strong></td><td class="center"><strong>${utils.esc(utils.number(metrics.totalBunches))}</strong></td><td></td><td class="center"><strong>${utils.esc(utils.number(metrics.totalStems))}</strong></td><td></td><td class="numeric"><strong>${utils.esc(compactDecimal(metrics.totalUsd, 2))}</strong></td></tr>`;
 
     return `
       <article class="doc-page invoice-a4-page client-invoice-a4">
@@ -182,11 +191,11 @@
         </section>
 
         <table class="invoice-a4-table client-detail-table">
-          <thead><tr><th>BOXES<br>CAJAS</th><th>TYPE<br>TIPO</th><th>DESCRIPTION<br>DESCRIPCION</th><th>LENGTH<br>LONGITUD</th><th>BUNCH<br>RAMO</th><th>STEM<br>TALLO</th><th>T. STEMS<br>T. TALLOS</th><th>PRICE<br>PRECIO</th><th>TOTAL</th></tr></thead>
+          <thead><tr><th>BOXES<br>CAJAS</th><th>TYPE<br>TIPO</th><th>PO</th><th>DESCRIPTION<br>VARIEDAD</th><th>LENGTH<br>MEDIDA</th><th>QUALITY<br>CALIDAD</th><th>BUNCH<br>RAMO</th><th>STEM<br>TALLO</th><th>T. STEMS<br>T. TALLOS</th><th>PRICE<br>PRECIO</th><th>TOTAL</th></tr></thead>
           <tbody>
-            ${detailRows || `<tr><td colspan="9">Sin detalle comercial disponible.</td></tr>`}
+            ${detailRows || `<tr><td colspan="11">Sin detalle comercial disponible.</td></tr>`}
           </tbody>
-          <tfoot><tr><td colspan="4"><strong>TOTAL</strong></td><td class="center"><strong>${utils.esc(utils.number(metrics.totalBunches))}</strong></td><td></td><td class="center"><strong>${utils.esc(utils.number(metrics.totalStems))}</strong></td><td></td><td class="numeric"><strong>${utils.esc(compactDecimal(metrics.totalUsd, 2))}</strong></td></tr></tfoot>
+          <tfoot>${totalsRows}</tfoot>
         </table>
 
         <footer class="client-invoice-footer">
@@ -256,7 +265,7 @@
           <div class="info-row"><strong>Pedido activo</strong><span>${utils.esc(order?.number || "-")}</span></div>
           <div class="info-row"><strong>Numero invoice</strong><span>${utils.esc(documentData.invoiceNumber)}</span></div>
           <div class="info-row"><strong>Estado documento</strong><span>${utils.esc(documentData.validation.state)}</span></div>
-          <div class="info-row"><strong>Total USD</strong><span>${utils.esc(utils.money(documentData.metrics.totalUsd))}</span></div>
+          <div class="info-row"><strong>Total USD</strong><span>${utils.esc(utils.money(documentData.economics.netTotal))}</span></div>
         </div>
         ${renderControls(appState)}
         ${BlessERP.comercialPrint.renderDocumentIssues(report)}

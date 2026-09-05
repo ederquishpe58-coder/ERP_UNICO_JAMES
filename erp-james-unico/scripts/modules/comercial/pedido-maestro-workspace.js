@@ -31,6 +31,10 @@
     return `<option value="${anyValue}" ${anyLength ? "selected" : ""}>CUALQUIER MEDIDA</option>${lengths.map(length => `<option value="${utils.esc(length)}" ${!anyLength && Number(length) === Number(selectedLength) ? "selected" : ""}>${utils.esc(length)} cm</option>`).join("")}`;
   }
 
+  function qualityOptions(value) {
+    return BlessERP.flowerQuality?.options?.(value, { placeholder: "Seleccione calidad" }) || '<option value="">Seleccione calidad</option>';
+  }
+
   function statusBadge(utils, value, fallback = "PENDIENTE") {
     const status = normalize(value) || fallback;
     return `<span class="status-badge ${utils.badgeClass(status)}">${utils.esc(status)}</span>`;
@@ -67,6 +71,7 @@
         <div class="master-order-range-grid master-builder-range-grid">
           ${commonFields}
           <label class="compact-field master-range-variety"><span>Variedad</span><select data-commercial-range-field="variety" ${disabled(!linesEditable)}>${varieties.map(variety => `<option value="${utils.esc(variety)}" ${variety === draft.variety ? "selected" : ""}>${utils.esc(variety)}</option>`).join("")}</select></label>
+          <label class="compact-field"><span>Calidad</span><select data-commercial-range-field="quality" ${disabled(!linesEditable)}>${qualityOptions(draft.quality)}</select></label>
           <label class="compact-field"><span>Medida</span><select data-commercial-range-field="lengthSelection" ${disabled(!linesEditable)}>${renderLengthOptions(lengths, draft.length, draft.anyLength, utils)}</select></label>
           <label class="compact-field"><span>Ramos/caja</span><input type="number" min="1" step="1" value="${utils.esc(draft.bunches || 1)}" data-commercial-range-field="bunches" ${disabled(!linesEditable)}></label>
           <label class="compact-field"><span>Tallos/ramo</span><input type="number" min="1" step="1" value="${utils.esc(draft.stemsPerBunch || 25)}" data-commercial-range-field="stemsPerBunch" ${disabled(!linesEditable)}></label>
@@ -79,10 +84,11 @@
     if (draft.mode === modes.MANUAL_MIX) {
       modeContent = `
         <div class="master-order-range-grid master-builder-common-grid">${commonFields}</div>
-        <div class="compact-table-wrap master-mix-items"><table class="compact-table"><thead><tr><th>Item</th><th>Variedad</th><th>Medida</th><th>Ramos</th><th>Tallos/ramo</th><th>Precio/tallo</th><th>Accion</th></tr></thead><tbody>
+        <div class="compact-table-wrap master-mix-items"><table class="compact-table"><thead><tr><th>Item</th><th>Variedad</th><th>Calidad</th><th>Medida</th><th>Ramos</th><th>Tallos/ramo</th><th>Precio/tallo</th><th>Accion</th></tr></thead><tbody>
           ${draft.manualItems.map((item, index) => `<tr>
             <td><strong>${index + 1}</strong></td>
             <td><select data-commercial-mix-item-field="${utils.esc(item.id)}|variety" ${disabled(!linesEditable)}>${varieties.map(variety => `<option value="${utils.esc(variety)}" ${variety === item.variety ? "selected" : ""}>${utils.esc(variety)}</option>`).join("")}</select></td>
+            <td><select data-commercial-mix-item-field="${utils.esc(item.id)}|quality" ${disabled(!linesEditable)}>${qualityOptions(item.quality)}</select></td>
             <td><select data-commercial-mix-item-field="${utils.esc(item.id)}|lengthSelection" ${disabled(!linesEditable)}>${renderLengthOptions(lengths, item.length, item.anyLength, utils)}</select></td>
             <td><input type="number" min="1" step="1" value="${utils.esc(item.bunches)}" data-commercial-mix-item-field="${utils.esc(item.id)}|bunches" ${disabled(!linesEditable)}></td>
             <td><input type="number" min="1" step="1" value="${utils.esc(item.stemsPerBunch)}" data-commercial-mix-item-field="${utils.esc(item.id)}|stemsPerBunch" ${disabled(!linesEditable)}></td>
@@ -98,6 +104,7 @@
       modeContent = `
         <div class="master-order-range-grid master-builder-open-grid">
           ${commonFields}
+          <label class="compact-field"><span>Calidad</span><select data-commercial-range-field="quality" ${disabled(!linesEditable)}>${qualityOptions(draft.quality)}</select></label>
           <label class="compact-field"><span>Medida</span><select data-commercial-range-field="lengthSelection" ${disabled(!linesEditable)}>${renderLengthOptions(lengths, draft.length, draft.anyLength, utils)}</select></label>
           <label class="compact-field"><span>Ramos/caja</span><input type="number" min="1" step="1" value="${utils.esc(draft.bunches || 1)}" data-commercial-range-field="bunches" ${disabled(!linesEditable)}></label>
           <label class="compact-field"><span>Tallos/ramo</span><input type="number" min="1" step="1" value="${utils.esc(draft.stemsPerBunch || 25)}" data-commercial-range-field="stemsPerBunch" ${disabled(!linesEditable)}></label>
@@ -382,6 +389,7 @@
           <td class="master-box-number-cell"><strong>${utils.esc(box.boxNumber)}</strong><input type="hidden" value="${utils.esc(line.boxNumber)}" data-commercial-line-field="${utils.esc(line.id)}|boxNumber" ${disabled(boxNumberLocked)}></td>
           <td><select data-commercial-line-field="${utils.esc(line.id)}|boxType" ${disabled(structuralLocked)}>${boxTypeOptions(line.boxType)}</select></td>
           <td><select data-commercial-line-field="${utils.esc(line.id)}|variety" ${disabled(structuralLocked || line.boxBuildMode === "MIXTO_ABIERTO")}>${varietyOptions(line.variety)}</select>${line.boxBuildMode === "MIXTO_ABIERTO" && line.mixedExcludedVarieties?.length ? `<small class="warn-text">Excluye: ${utils.esc(line.mixedExcludedVarieties.join(", "))}</small>` : ""}</td>
+          <td><select data-commercial-line-field="${utils.esc(line.id)}|quality" ${disabled(structuralLocked)}>${qualityOptions(line.quality)}</select></td>
           <td><input value="${utils.esc(line.po || "")}" data-commercial-line-field="${utils.esc(line.id)}|po" ${disabled(!linesEditable)}></td>
           <td><select data-commercial-line-field="${utils.esc(line.id)}|lengthSelection" ${disabled(structuralLocked)}>${lengthOptions(line)}</select></td>
           <td><input type="number" min="${Math.max(1, scanned)}" step="1" value="${utils.esc(line.bunches)}" data-commercial-line-field="${utils.esc(line.id)}|bunches" ${disabled(!linesEditable)}></td>
@@ -402,7 +410,7 @@
           </div>
         </div>
         <div data-commercial-box-builder-panel ${builderExpanded ? "" : "hidden"}>${renderBoxBuilder(order, rangeDraft, nextRangeBox, boxTypes, varieties, lengths, linesEditable, utils)}</div>
-        ${boxes.length ? `<div class="compact-table-wrap master-order-grid-wrap"><table class="compact-table master-order-entry-table"><colgroup><col class="master-col-box"><col class="master-col-type"><col class="master-col-variety"><col class="master-col-po"><col class="master-col-measure"><col class="master-col-quantity"><col class="master-col-stems"><col class="master-col-price"><col class="master-col-actions"></colgroup><thead><tr><th>Caja</th><th>Tipo</th><th>Variedad</th><th>PO</th><th>Medida</th><th>Ramos</th><th>Tallos/ramo</th><th>Precio/tallo</th><th>Acciones</th></tr></thead><tbody>${boxRows}</tbody></table><small class="master-order-keyboard-help">Teclado: Tab / Shift+Tab y Enter avanzan; flechas recorren filas y columnas. En campos de texto, izquierda/derecha mueven de celda al llegar al borde.</small></div>` : `<div class="master-order-empty"><strong>El pedido no tiene cajas.</strong><span>Use el botón Tipo de caja de la cabecera y elija Rango igual, Mixto manual o Mixto abierto.</span></div>`}
+        ${boxes.length ? `<div class="compact-table-wrap master-order-grid-wrap"><table class="compact-table master-order-entry-table"><colgroup><col class="master-col-box"><col class="master-col-type"><col class="master-col-variety"><col><col class="master-col-po"><col class="master-col-measure"><col class="master-col-quantity"><col class="master-col-stems"><col class="master-col-price"><col class="master-col-actions"></colgroup><thead><tr><th>Caja</th><th>Tipo</th><th>Variedad</th><th>Calidad</th><th>PO</th><th>Medida</th><th>Ramos</th><th>Tallos/ramo</th><th>Precio/tallo</th><th>Acciones</th></tr></thead><tbody>${boxRows}</tbody></table><small class="master-order-keyboard-help">Teclado: Tab / Shift+Tab y Enter avanzan; flechas recorren filas y columnas. En campos de texto, izquierda/derecha mueven de celda al llegar al borde.</small></div>` : `<div class="master-order-empty"><strong>El pedido no tiene cajas.</strong><span>Use el botón Tipo de caja de la cabecera y elija Rango igual, Mixto manual o Mixto abierto.</span></div>`}
         <div class="master-order-totals"><span data-commercial-grid-total="boxes">${utils.number(metrics.totalBoxes)} cajas</span><span data-commercial-grid-total="fulls">${utils.number(metrics.totalFulls.toFixed(3))} fulls</span><span data-commercial-grid-total="bunches">${utils.number(metrics.totalBunches)} ramos</span><span data-commercial-grid-total="stems">${utils.number(metrics.totalStems)} tallos</span><strong data-commercial-grid-total="usd">${utils.money(metrics.totalUsd)}</strong></div>
       </section>
     `;

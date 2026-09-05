@@ -42,11 +42,13 @@
     (lines || []).forEach(line => {
       const po = String(line.po || order.generalPo || "").trim();
       const boxType = String(line.boxType || "").trim().toUpperCase() || "-";
-      const key = [boxType, line.variety, line.length, line.stemsPerBunch, Number(line.unitPrice || 0).toFixed(4), po].join("|");
+      const quality = BlessERP.flowerQuality?.preserve?.(line.quality) || "";
+      const key = [boxType, line.variety, line.length, quality, line.stemsPerBunch, Number(line.unitPrice || 0).toFixed(4), po].join("|");
       if (!groups.has(key)) {
         groups.set(key, {
           type: boxType,
           description: line.variety,
+          quality,
           length: line.length,
           bunches: 0,
           stemsPerBunch: line.stemsPerBunch,
@@ -74,6 +76,7 @@
         item: index + 1,
         type: row.type,
         description: row.description,
+        quality: row.quality,
         length: row.length,
         bunches: row.bunches,
         stemsPerBunch: row.stemsPerBunch,
@@ -90,6 +93,7 @@
       item: index + 1,
       type: String(line.boxType || "").trim().toUpperCase() || "-",
       description: `Caja ${line.boxNumber} ${line.boxType} · ${line.variety}`,
+      quality: BlessERP.flowerQuality?.preserve?.(line.quality) || "",
       length: line.length,
       bunches: Number(line.bunches || 0),
       stemsPerBunch: Number(line.stemsPerBunch || 0),
@@ -174,6 +178,7 @@
     const customer = prepared?.customer || utils.findCustomer(normalizedOrder.customerId);
     const brand = prepared?.brand || utils.findBrand(normalizedOrder.brandId);
     const metrics = prepared?.metrics || getInvoiceMetrics(normalizedOrder);
+    const economics = prepared?.economics || utils.calculateOrderEconomics(normalizedOrder);
     const validation = prepared?.validation || validatePrepared(normalizedOrder, options, customer, brand, metrics);
 
     return {
@@ -192,7 +197,10 @@
       total_fulls: metrics.totalFulls,
       total_ramos: metrics.totalBunches,
       total_tallos: metrics.totalStems,
-      total_usd: metrics.totalUsd,
+      subtotal_bruto_usd: economics.subtotal,
+      descuento_porcentaje: economics.discountPercentage,
+      descuento_usd: economics.discountAmount,
+      total_usd: economics.netTotal,
       estado: validation.state,
       es_sri: false,
       sri_estado_futuro: "pendiente",
@@ -208,6 +216,7 @@
     const agency = utils.findAgency(normalizedOrder.agencyId);
     const airline = utils.findAirline(normalizedOrder.airlineId);
     const metrics = getInvoiceMetrics(normalizedOrder);
+    const economics = utils.calculateOrderEconomics(normalizedOrder);
     const rows = buildRows(normalizedOrder, options, metrics);
     const validation = validatePrepared(normalizedOrder, options, customer, brand, metrics);
     const contract = buildContract(normalizedOrder, appState, options, {
@@ -216,6 +225,7 @@
       customer,
       brand,
       metrics,
+      economics,
       validation
     });
 
@@ -227,6 +237,7 @@
       agency,
       airline,
       metrics,
+      economics,
       rows,
       validation,
       contract,

@@ -249,43 +249,29 @@ async function listUsers(client, actorUser, company) {
   return [...linked, ...unlinked];
 }
 
-async function resolveTargetUser(client, input) {
+async function existingTargetUser(client, input) {
   const existingId = uuidOrNull(input.id || input.userId);
+  if (!existingId) throw new Error("El UUID Auth canónico es obligatorio para actualizar accesos.");
+  if (String(input.password || "").trim()) {
+    throw new Error("La contraseña no puede modificarse desde la administración de accesos.");
+  }
+  const { data, error } = await client.auth.admin.getUserById(existingId);
+  if (error || !data?.user) throw new Error("El usuario de Supabase Auth no existe.");
+  return {
+    user: data.user,
+    invited: false,
+    linkedExisting: true,
+    passwordUpdated: false,
+    authMutations: 0
+  };
+}
+
+async function createTargetUser(client, input) {
   const username = normalizedUsername(input.username || input.code);
   const authEmail = authEmailForUsername(username);
   const contactEmail = String(input.email || "").trim().toLowerCase();
   const requestedPassword = validatedPassword(input.password, { required: false });
-  if (existingId) {
-    const { data, error } = await client.auth.admin.getUserById(existingId);
-    if (error || !data?.user) throw new Error("El usuario de Supabase Auth no existe.");
-    const updates = {};
-    if (input.preserveAuthEmail !== true && authEmail !== data.user.email) updates.email = authEmail;
-    updates.user_metadata = {
-      ...(data.user.user_metadata || {}),
-      display_name: String(input.fullName || input.name || data.user.email || username).trim(),
-      contact_email: contactEmail
-    };
-    if (requestedPassword) {
-      updates.password = requestedPassword;
-      updates.email_confirm = true;
-    }
-    if (Object.keys(updates).length) {
-      const updated = await client.auth.admin.updateUserById(existingId, updates);
-      if (updated.error) throw updated.error;
-      return {
-        user: updated.data.user,
-        invited: false,
-        linkedExisting: input.preserveAuthEmail === true,
-        passwordUpdated: Boolean(requestedPassword)
-      };
-    }
-    return {
-      user: data.user,
-      invited: false,
-      linkedExisting: input.preserveAuthEmail === true,
-      passwordUpdated: false
-    };
-  }
+  if (uuidOrNull(input.id || input.userId)) throw new Error("CREATE_USER_NO_ADMITE_AUTH_UUID_EXISTENTE");
   const authUsers = await authUsersById(client);
   const existingUser = [...authUsers.values()].find(user =>
     String(user.email || "").trim().toLowerCase() === authEmail
@@ -347,7 +333,7 @@ function normalizedPermission(permission) {
   };
 }
 
-async function upsertUser(client, actorUser, input) {
+async function saveUserAccess(client, actorUser, input, options = {}) {
   const companyInputs = Array.isArray(input.companies) ? input.companies : [];
   if (!companyInputs.length) throw new Error("Debe indicar al menos una empresa para el usuario.");
   const resolvedCompanies = [];
@@ -359,7 +345,9 @@ async function upsertUser(client, actorUser, input) {
     resolvedCompanies.push({ ...row, company, role });
   }
 
-  const resolvedTarget = await resolveTargetUser(client, input);
+  const resolvedTarget = options.createIdentity === true
+    ? await createTargetUser(client, input)
+    : await existingTargetUser(client, input);
   const target = resolvedTarget.user;
   const displayName = String(input.fullName || input.name || target.email || "Usuario").trim();
   const isActive = String(input.status || "activo").toLowerCase() === "activo";
@@ -515,15 +503,19 @@ module.exports = async function handler(request, response) {
     }
     if (request.method !== "POST") return send(response, 405, { ok: false, error: "Método no permitido." });
     const body = bodyOf(request);
-    if (body?.user && typeof body.user === "object" && !body.user.id) {
+    const action = String(body.action || "").toLowerCase();
+    if (action === "create_user" && body?.user && typeof body.user === "object") {
       body.user.inviteRedirectTo = inviteRedirectUrl(request, body.user.inviteRedirectTo);
     }
-    const action = String(body.action || "upsert").toLowerCase();
     const data = action === "revoke"
       ? await revokeUser(client, currentActor, body.user || {})
       : (action === "delete"
         ? await deleteUser(client, currentActor, body.user || {})
-        : await upsertUser(client, currentActor, body.user || {}));
+        : (action === "create_user"
+          ? await saveUserAccess(client, currentActor, body.user || {}, { createIdentity: true })
+          : (action === "update_access"
+            ? await saveUserAccess(client, currentActor, body.user || {}, { createIdentity: false })
+            : (() => { throw new Error("Acción de administración de usuarios no válida."); })())));
     return send(response, 200, { ok: true, data });
   } catch (error) {
     const statusCode = Number(error?.statusCode || error?.status || 400);

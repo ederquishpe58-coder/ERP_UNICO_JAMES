@@ -9,6 +9,7 @@
     container: null,
     appState: null,
     orderId: "",
+    sellingCompanyId: "",
     buffer: "",
     bufferTimer: 0,
     commitTimer: 0,
@@ -46,6 +47,11 @@
     return row?.legalName || row?.commercialName || "Sin cliente";
   }
 
+  function warehouseOrder(appState, orderId, sellingCompanyId = "") {
+    if (typeof flow.findWarehouseOrder === "function") return flow.findWarehouseOrder(appState, orderId, sellingCompanyId);
+    return (flow.getWarehouseOrders?.(appState) || []).find(order => String(order.id) === String(orderId)) || null;
+  }
+
   function progressVisual(progress) {
     const total = Math.max(0, number(progress?.requiredBunches));
     const scanned = Math.max(0, number(progress?.scannedBunches));
@@ -69,12 +75,12 @@
     return `<section class="page-header"><div><p class="section-kicker">OPERACIONES / POSCOSECHA</p><h1>Cuarto Frío</h1><p>Pedidos guardados y enviados desde Comercial. Abra uno para completar sus cajas.</p></div><div class="page-header-side"><span class="status-badge authorized">ESCÁNER ACTIVO AL ABRIR</span></div></section>
       <section class="panel-card commercial-v2-section commercial-v2-tracking-panel commercial-v2-cold-room-panel">
         <div class="commercial-v2-filters"><label>Fecha del pedido<input type="date" value="${esc(ui.date)}" data-cold-filter="date"></label><label>Estado<select data-cold-filter="status"><option value="TODOS">Todos</option><option value="PENDIENTE" ${ui.status === "PENDIENTE" ? "selected" : ""}>Pendientes</option><option value="INCOMPLETO" ${ui.status === "INCOMPLETO" ? "selected" : ""}>Incompletos</option><option value="COMPLETADO" ${ui.status === "COMPLETADO" ? "selected" : ""}>Completados</option><option value="LISTO_DESPACHO" ${ui.status === "LISTO_DESPACHO" ? "selected" : ""}>Listos para despacho</option><option value="DESPACHADO" ${ui.status === "DESPACHADO" ? "selected" : ""}>Despachados</option></select></label><button type="button" class="secondary-button" data-cold-all>Ver todas las fechas</button></div>
-        <div class="table-wrap commercial-v2-tracking-table commercial-v2-cold-room-table"><table><thead><tr><th>Fecha</th><th>Pedido</th><th>Factura</th><th>Cajas</th><th>Ramos</th><th>Faltantes</th><th>Mercado</th><th>Estado</th><th>Acción</th></tr></thead><tbody>${rows.map(order => { const progress = flow.buildOrderFulfillment(order); const dispatchStatus = upper(order.dispatchStatus); const visibleStatus = dispatchStatus === "DISPATCHED" ? "DESPACHADO" : dispatchStatus === "READY_FOR_DISPATCH" ? "LISTO_DESPACHO" : progress.status; return `<tr><td><strong>${dateLabel(order.issuedAt)}</strong></td><td><strong>${esc(order.number)}</strong></td><td>${esc(BlessERP.comercialInvoiceSequence?.visibleInvoiceNumber?.(order) || "-")}</td><td><span class="commercial-v2-count-chip">${progress.boxes.length}</span></td><td>${progressVisual(progress)}</td><td><span class="commercial-v2-pending-chip ${progress.pendingBunches ? "has-pending" : ""}">${progress.pendingBunches}</span></td><td><span class="commercial-v2-market-chip">${flow.isLocalOrder(order, appState) ? "LOCAL" : "EXPORTACIÓN"}</span></td><td><span class="status-badge ${["DISPATCHED", "READY_FOR_DISPATCH"].includes(dispatchStatus) || progress.allBoxesComplete ? "authorized" : progress.scannedBunches ? "partial" : "pending"}">${visibleStatus}</span></td><td><button type="button" class="primary-button" data-cold-open="${esc(order.id)}">${dispatchStatus === "DISPATCHED" ? "Ver despacho" : "Abrir escáner"}</button></td></tr>`; }).join("") || `<tr><td colspan="9"><div class="empty-state compact">No existen pedidos enviados a Cuarto Frío con estos filtros.</div></td></tr>`}</tbody></table></div>
+        <div class="table-wrap commercial-v2-tracking-table commercial-v2-cold-room-table"><table><thead><tr><th>Fecha</th><th>Pedido</th><th>Empresa</th><th>Cajas</th><th>Ramos</th><th>Faltantes</th><th>Estado</th><th>Acción</th></tr></thead><tbody>${rows.map(order => { const progress = flow.buildOrderFulfillment(order); const dispatchStatus = upper(order.dispatchStatus); const visibleStatus = dispatchStatus === "DISPATCHED" ? "DESPACHADO" : dispatchStatus === "READY_FOR_DISPATCH" ? "LISTO_DESPACHO" : progress.status; return `<tr><td><strong>${dateLabel(order.issuedAt)}</strong></td><td><strong>${esc(order.number)}</strong></td><td>${esc(order.sellingCompanyName || order.sellingCompanyKey || "BLESS FLOWER")}</td><td><span class="commercial-v2-count-chip">${progress.boxes.length}</span></td><td>${progressVisual(progress)}</td><td><span class="commercial-v2-pending-chip ${progress.pendingBunches ? "has-pending" : ""}">${progress.pendingBunches}</span></td><td><span class="status-badge ${["DISPATCHED", "READY_FOR_DISPATCH"].includes(dispatchStatus) || progress.allBoxesComplete ? "authorized" : progress.scannedBunches ? "partial" : "pending"}">${visibleStatus}</span></td><td><button type="button" class="primary-button" data-cold-open="${esc(order.id)}" data-cold-seller="${esc(order.sellingCompanyId || "")}">${dispatchStatus === "DISPATCHED" ? "Ver despacho" : "Abrir escáner"}</button></td></tr>`; }).join("") || `<tr><td colspan="8"><div class="empty-state compact">No existen pedidos enviados a Cuarto Frío con estos filtros.</div></td></tr>`}</tbody></table></div>
         <div class="commercial-v2-pagination"><button class="secondary-button" data-cold-page="${ui.page - 1}" ${ui.page <= 1 ? "disabled" : ""}>Anterior</button><span>Página ${ui.page} de ${totalPages} · ${filtered.length} pedido(s)</span><button class="secondary-button" data-cold-page="${ui.page + 1}" ${ui.page >= totalPages ? "disabled" : ""}>Siguiente</button></div>
       </section>`;
   }
 
-  function renderBox(box, activeBoxNumber) {
+  function renderBox(box, activeBoxNumber, order) {
     const isCurrent = !box.automaticComplete && Number(box.boxNumber) === Number(activeBoxNumber);
     const status = box.automaticComplete ? "COMPLETA" : (isCurrent ? "EN LLENADO" : box.status);
     const scans = box.lines.flatMap(line => line.scans || []).sort((left, right) => String(left.packedAt || left.scannedAt || "").localeCompare(String(right.packedAt || right.scannedAt || "")));
@@ -82,8 +88,13 @@
     const boxStatus = upper(box.boxStatus);
     const closed = boxStatus === "CLOSED";
     const immutable = ["READY_FOR_DISPATCH", "DISPATCHED"].includes(boxStatus);
+    const sharedSeller = Boolean(order?.sellingCompanyId && order?.inventoryPoolCompanyId
+      && String(order.sellingCompanyId) !== String(order.inventoryPoolCompanyId));
     const visibleStatus = boxStatus === "READY_FOR_DISPATCH" ? "LISTA PARA SALIDA" : boxStatus === "DISPATCHED" ? "DESPACHADA" : closed ? "CERRADA" : status;
-    return `<article class="commercial-v2-cold-box ${box.automaticComplete ? "is-complete" : ""} ${isCurrent ? "is-current" : ""}" data-cold-box-card="${box.boxNumber}"><header><div><span>Caja</span><strong>${box.boxNumber}</strong><small>${esc(box.boxCode || box.boxType)}</small></div><span class="status-badge ${box.automaticComplete || immutable ? "authorized" : box.scannedBunches || isCurrent ? "partial" : "pending"}">${visibleStatus}</span></header><div class="commercial-v2-cold-lines">${box.lines.map(line => `<div><strong>${esc(line.variety)}</strong><span>${line.length} CM</span><span>${line.scannedBunches}/${line.requiredBunches}</span><small>${line.pendingBunches ? `${line.pendingBunches} falta(n)` : "Completo"}</small></div>`).join("")}</div>${box.boxId && !immutable ? `<footer class="commercial-v2-cold-box-actions">${closed ? `<button type="button" class="secondary-button" data-cold-box-reopen="${box.boxNumber}">Reabrir</button>` : `${lastScan ? `<button type="button" class="danger-button" data-cold-box-unassign="${esc(lastScan.labelCode || lastScan.code)}">Desasignar último</button>` : ""}${box.automaticComplete ? `<button type="button" class="secondary-button" data-cold-box-close="${box.boxNumber}">Cerrar</button>` : ""}`}</footer>` : ""}</article>`;
+    const closedAction = sharedSeller && lastScan
+      ? `<button type="button" class="danger-button" data-cold-box-unassign="${esc(lastScan.labelCode || lastScan.code)}">Desasignar último</button>`
+      : `<button type="button" class="secondary-button" data-cold-box-reopen="${box.boxNumber}">Reabrir</button>`;
+    return `<article class="commercial-v2-cold-box ${box.automaticComplete ? "is-complete" : ""} ${isCurrent ? "is-current" : ""}" data-cold-box-card="${box.boxNumber}"><header><div><span>Caja</span><strong>${box.boxNumber}</strong><small>${esc(box.boxCode || box.boxType)}</small></div><span class="status-badge ${box.automaticComplete || immutable ? "authorized" : box.scannedBunches || isCurrent ? "partial" : "pending"}">${visibleStatus}</span></header><div class="commercial-v2-cold-lines">${box.lines.map(line => `<div><strong>${esc(line.variety)}</strong><span>${line.length} CM</span><span>CALIDAD: ${esc(BlessERP.flowerQuality?.label?.(line.quality) || "SIN CALIDAD")}</span><span>${line.scannedBunches}/${line.requiredBunches}</span><small>${line.pendingBunches ? `${line.pendingBunches} falta(n)` : "Completo"}</small></div>`).join("")}</div>${box.boxId && !immutable ? `<footer class="commercial-v2-cold-box-actions">${closed ? closedAction : `${lastScan ? `<button type="button" class="danger-button" data-cold-box-unassign="${esc(lastScan.labelCode || lastScan.code)}">Desasignar último</button>` : ""}${box.automaticComplete ? `<button type="button" class="secondary-button" data-cold-box-close="${box.boxNumber}">Cerrar</button>` : ""}`}</footer>` : ""}</article>`;
   }
 
   function activeScannerMessage(progress) {
@@ -104,9 +115,10 @@
   function renderDetail(appState, order) {
     const ui = flow.sessionFor(appState).coldRoom;
     const progress = flow.buildOrderFulfillment(order);
-    const dispatch = flow.getDispatchRecord(appState, order.id);
+    const dispatch = flow.getDispatchRecord(appState, order.id, order.sellingCompanyId);
     const dispatchStatus = upper(dispatch?.status || order.dispatchStatus || "");
-    const local = flow.isLocalOrder(order, appState);
+    const local = flow.isLocalOrder(order, appState)
+      && (!order.sellingCompanyId || !order.inventoryPoolCompanyId || String(order.sellingCompanyId) === String(order.inventoryPoolCompanyId));
     const pool = local ? flow.localPoolFor(appState, order.customerId) : [];
     const lots = local ? flow.localLotsFor(appState, order.customerId) : [];
     const selectedActiveBox = progress.boxes.find(box => !box.automaticComplete && Number(box.boxNumber) === Number(ui.boxNumber));
@@ -115,21 +127,22 @@
     const completedBoxes = progress.boxes.filter(box => box.automaticComplete).length;
     const activeBoxLabel = activeBox ? `${activeBox.boxNumber}/${progress.boxes.length}` : `${progress.boxes.length}/${progress.boxes.length}`;
     const scannerPanel = !local ? renderScannerPanel(progress) : "";
-    return `<section class="page-header"><div><p class="section-kicker">CUARTO FRÍO / PEDIDO</p><h1>${esc(order.number)}</h1><p>${esc(customerName(appState, order.customerId))} · ${local ? "Asignación automática desde la bolsa local" : "Escaneo Zebra automático por caja compatible"}</p></div><div class="page-header-side"><button type="button" class="secondary-button" data-cold-back>Regresar a Cuarto Frío</button></div></section>
+    const visibleCustomer = order.customerDisplay || customerName(appState, order.customerId);
+    return `<section class="page-header"><div><p class="section-kicker">CUARTO FRÍO / PEDIDO</p><h1>${esc(order.number)}</h1><p>${esc(visibleCustomer)} · ${local ? "Asignación automática desde la bolsa local" : "Escaneo Zebra automático por caja compatible"}</p></div><div class="page-header-side"><button type="button" class="secondary-button" data-cold-back>Regresar a Cuarto Frío</button></div></section>
       <section class="commercial-v2-cold-compact-summary">${[["Cajas completadas", `${completedBoxes}/${progress.boxes.length}`], ["Caja actual", activeBoxLabel], ["Requerido", progress.requiredBunches], [local ? "Ingresado / asignado" : "Leídos", progress.scannedBunches], ["Pendiente", progress.pendingBunches]].map(item => `<div><span>${item[0]}</span><strong>${item[1]}</strong></div>`).join("")}</section>
       <section class="panel-card commercial-v2-section commercial-v2-dispatch-final"><div class="panel-card-head"><div><p class="section-kicker">SALIDA FÍSICA</p><h3>Despacho del pedido</h3><p class="panel-note">Empacado no significa despachado. La salida física ocurre únicamente al confirmar esta acción en Supabase.</p></div><span class="status-badge ${dispatchStatus === "DISPATCHED" || progress.allBoxesComplete ? "authorized" : "pending"}">${dispatchStatus === "DISPATCHED" ? "DESPACHADO" : progress.allBoxesComplete ? "PEDIDO COMPLETO" : "PEDIDO INCOMPLETO"}</span></div>${dispatchStatus === "DISPATCHED" ? `<div class="inline-feedback success"><strong>${esc(dispatch?.dispatchCode || order.dispatchCode || "DESPACHO CONFIRMADO")}</strong> · ${esc(String(dispatch?.dispatchedAt || order.dispatchedAt || "").replace("T", " ").slice(0, 16))}</div>` : `<div class="table-actions-inline"><button type="button" class="primary-button" data-cold-dispatch-confirm ${progress.allBoxesComplete || dispatchStatus === "READY_FOR_DISPATCH" ? "" : "disabled"}>Despachar pedido</button></div>`}</section>
       <section class="panel-card commercial-v2-section commercial-v2-cold-detail">
-        <div class="panel-card-head"><div><p class="section-kicker">${local ? "VENTA LOCAL" : "ESCÁNER AUTOMÁTICO"}</p><h3>${local ? `Bolsa ${esc(customerName(appState, order.customerId))}` : "Cajas y contenido del pedido"}</h3></div><span class="status-badge ${progress.allBoxesComplete ? "authorized" : "partial"}">${progress.allBoxesComplete ? "PEDIDO COMPLETADO" : "HID ACTIVO"}</span></div>
+        <div class="panel-card-head"><div><p class="section-kicker">${local ? "VENTA LOCAL" : "ESCÁNER AUTOMÁTICO"}</p><h3>${local ? `Bolsa ${esc(visibleCustomer)}` : "Cajas y contenido del pedido"}</h3></div><span class="status-badge ${progress.allBoxesComplete ? "authorized" : "partial"}">${progress.allBoxesComplete ? "PEDIDO COMPLETADO" : "HID ACTIVO"}</span></div>
         ${local ? `<div class="commercial-v2-local-confirm"><div><strong>${pool.length} ramo(s) preparados · ${lots.length} lote(s)</strong><span>Se asignan por variedad y medida, del más antiguo al más reciente. No se reescanea la etiqueta Bless.</span></div><button type="button" class="primary-button" data-cold-confirm-local ${progress.allBoxesComplete ? "disabled" : ""}>Confirmar pedido local</button></div>
-        <div class="table-wrap"><table><thead><tr><th>Lote</th><th>Etiqueta</th><th>Variedad</th><th>Medida</th><th>Estado</th><th>Acción explícita</th></tr></thead><tbody>${pool.slice(0, 100).map(item => `<tr><td>${esc(item.lotCode || "SIN LOTE")}</td><td>${esc(item.labelCode)}</td><td>${esc(item.variety)}</td><td>${number(item.length)} CM</td><td><span class="status-badge pending">DESTINADO</span></td><td><button type="button" class="secondary-button" data-cold-reassign-export="${esc(item.inventoryId)}">Mover a BLESS / Exportación</button></td></tr>`).join("") || `<tr><td colspan="6"><div class="empty-state compact">No hay ramos ingresados disponibles para este cliente.</div></td></tr>`}</tbody></table></div>` : `${scannerPanel}<input class="commercial-v2-scanner-capture" id="cold-room-zebra-input" inputmode="numeric" autocomplete="off" maxlength="32" tabindex="-1" readonly data-cold-scan aria-hidden="true" aria-label="Buffer Zebra automático" ${progress.allBoxesComplete ? "disabled" : ""}>`}
-        <div class="commercial-v2-cold-boxes">${progress.boxes.map(box => renderBox(box, activeBoxNumber)).join("")}</div>
+        <div class="table-wrap"><table><thead><tr><th>Lote</th><th>Etiqueta</th><th>Variedad</th><th>Medida</th><th>Calidad</th><th>Estado</th><th>Acción explícita</th></tr></thead><tbody>${pool.slice(0, 100).map(item => `<tr><td>${esc(item.lotCode || "SIN LOTE")}</td><td>${esc(item.labelCode)}</td><td>${esc(item.variety)}</td><td>${number(item.length)} CM</td><td>${esc(BlessERP.flowerQuality?.label?.(item.quality) || "SIN CALIDAD")}</td><td><span class="status-badge pending">DESTINADO</span></td><td><button type="button" class="secondary-button" data-cold-reassign-export="${esc(item.inventoryId)}">Mover a BLESS / Exportación</button></td></tr>`).join("") || `<tr><td colspan="7"><div class="empty-state compact">No hay ramos ingresados disponibles para este cliente.</div></td></tr>`}</tbody></table></div>` : `${scannerPanel}<input class="commercial-v2-scanner-capture" id="cold-room-zebra-input" inputmode="numeric" autocomplete="off" maxlength="32" tabindex="-1" readonly data-cold-scan aria-hidden="true" aria-label="Buffer Zebra automático" ${progress.allBoxesComplete ? "disabled" : ""}>`}
+        <div class="commercial-v2-cold-boxes">${progress.boxes.map(box => renderBox(box, activeBoxNumber, order)).join("")}</div>
       </section>`;
   }
 
   function render(appState) {
     const ui = flow.sessionFor(appState).coldRoom;
-    const order = ui.orderId ? flow.findOrder(appState, ui.orderId) : null;
-    if (ui.orderId && !order) ui.orderId = "";
+    const order = ui.orderId ? warehouseOrder(appState, ui.orderId, ui.sellingCompanyId) : null;
+    if (ui.orderId && !order) { ui.orderId = ""; ui.sellingCompanyId = ""; }
     return order ? renderDetail(appState, order) : renderList(appState);
   }
 
@@ -159,7 +172,7 @@
   }
 
   function scannerProgress() {
-    const order = scanner.orderId && scanner.appState ? flow.findOrder(scanner.appState, scanner.orderId) : null;
+    const order = scanner.orderId && scanner.appState ? warehouseOrder(scanner.appState, scanner.orderId, scanner.sellingCompanyId) : null;
     return order ? flow.buildOrderFulfillment(order) : null;
   }
 
@@ -260,8 +273,8 @@
     updateScannerDom();
   }
 
-  function mountHid(container, appState, orderId) {
-    const changedContext = scanner.orderId && String(scanner.orderId) !== String(orderId);
+  function mountHid(container, appState, orderId, sellingCompanyId = "") {
+    const changedContext = scanner.orderId && (String(scanner.orderId) !== String(orderId) || String(scanner.sellingCompanyId) !== String(sellingCompanyId));
     if (changedContext) {
       scanner.contextVersion += 1;
       scanner.queue.length = 0;
@@ -273,6 +286,7 @@
     scanner.container = container;
     scanner.appState = appState;
     scanner.orderId = String(orderId || "");
+    scanner.sellingCompanyId = String(sellingCompanyId || "");
     if (!scanner.listenerMounted) {
       document.addEventListener("keydown", captureHidKey, true);
       document.addEventListener("visibilitychange", resetBufferOnReturn);
@@ -299,6 +313,7 @@
     scanner.container = null;
     scanner.appState = null;
     scanner.orderId = "";
+    scanner.sellingCompanyId = "";
     scanner.feedback = null;
     scanner.lastRead = null;
     scanner.pendingScrollBox = 0;
@@ -367,7 +382,7 @@
       setFeedback("processing", "Procesando etiqueta...", item.code, { sticky: true });
       let result;
       try {
-        result = await flow.scanBunchAutomatically(scanner.appState, item.orderId, item.code);
+        result = await flow.scanBunchAutomatically(scanner.appState, item.orderId, item.code, item.sellingCompanyId);
       } catch (error) {
         result = { ok: false, error: error?.message || "No se pudo procesar la etiqueta." };
       }
@@ -418,7 +433,7 @@
 
   function enqueueScan(code) {
     if (!scanner.orderId) return false;
-    scanner.queue.push({ code, orderId: scanner.orderId, contextVersion: scanner.contextVersion });
+    scanner.queue.push({ code, orderId: scanner.orderId, sellingCompanyId: scanner.sellingCompanyId, contextVersion: scanner.contextVersion });
     updateScannerDom();
     void drainQueue();
     return true;
@@ -454,8 +469,8 @@
       const button = event.target.closest("button");
       if (!button) return;
       const ui = flow.sessionFor(appState).coldRoom;
-      if (button.dataset.coldOpen) { ui.orderId = button.dataset.coldOpen; BlessERP.layout.renderPage(); return; }
-      if (button.hasAttribute("data-cold-back")) { ui.orderId = ""; BlessERP.layout.renderPage(); return; }
+      if (button.dataset.coldOpen) { ui.orderId = button.dataset.coldOpen; ui.sellingCompanyId = button.dataset.coldSeller || ""; BlessERP.layout.renderPage(); return; }
+      if (button.hasAttribute("data-cold-back")) { ui.orderId = ""; ui.sellingCompanyId = ""; BlessERP.layout.renderPage(); return; }
       if (button.dataset.coldPage) { ui.page = Number(button.dataset.coldPage); BlessERP.layout.renderPage(); return; }
       if (button.hasAttribute("data-cold-all")) { ui.date = ""; ui.page = 1; BlessERP.layout.renderPage(); return; }
       if (button.hasAttribute("data-cold-confirm-local")) {
@@ -477,7 +492,7 @@
       }
       if (button.dataset.coldBoxClose) {
         button.disabled = true;
-        const result = await flow.closeWarehouseBox(appState, ui.orderId, Number(button.dataset.coldBoxClose));
+        const result = await flow.closeWarehouseBox(appState, ui.orderId, Number(button.dataset.coldBoxClose), ui.sellingCompanyId);
         if (!result.ok) BlessERP.layout.toast(result.error, { tone: "danger" });
         BlessERP.layout.renderPage();
         return;
@@ -486,7 +501,7 @@
         const reason = prompt("Motivo de reapertura de la caja:");
         if (!reason) return;
         button.disabled = true;
-        const result = await flow.reopenWarehouseBox(appState, ui.orderId, Number(button.dataset.coldBoxReopen), reason);
+        const result = await flow.reopenWarehouseBox(appState, ui.orderId, Number(button.dataset.coldBoxReopen), reason, ui.sellingCompanyId);
         if (!result.ok) BlessERP.layout.toast(result.error, { tone: "danger" });
         BlessERP.layout.renderPage();
         return;
@@ -495,7 +510,7 @@
         const reason = prompt("Motivo para retirar el ramo de la caja:");
         if (!reason) return;
         button.disabled = true;
-        const result = await flow.unassignBunchFromOrder(appState, ui.orderId, button.dataset.coldBoxUnassign, reason);
+        const result = await flow.unassignBunchFromOrder(appState, ui.orderId, button.dataset.coldBoxUnassign, reason, ui.sellingCompanyId);
         if (!result.ok) BlessERP.layout.toast(result.error, { tone: "danger" });
         BlessERP.layout.renderPage();
         return;
@@ -504,7 +519,7 @@
         if (!confirm("¿Confirma que el pedido y todas sus cajas salieron físicamente de la empresa?")) return;
         const observations = prompt("Observación del despacho (opcional):", "Salida física confirmada desde Cuarto Frío.") || "";
         button.disabled = true;
-        const result = await flow.confirmDispatch(appState, ui.orderId, { observations });
+        const result = await flow.confirmDispatch(appState, ui.orderId, { observations }, ui.sellingCompanyId);
         BlessERP.layout.toast(result.ok ? `Despacho ${result.result?.dispatchCode || ""} confirmado.` : result.error, { tone: result.ok ? "success" : "danger" });
         BlessERP.layout.renderPage();
       }
@@ -514,9 +529,15 @@
   function bind(container, appState) {
     bindContainerEvents(container, appState);
     const ui = flow.sessionFor(appState).coldRoom;
+    if (!ui.sharedLoaded && !ui.sharedLoading && typeof flow.refreshWarehouseOrders === "function") {
+      void flow.refreshWarehouseOrders(appState).then(result => {
+        if (!result?.ok) BlessERP.layout.toast(result?.message || "No se pudo cargar la cola compartida de Cuarto Frío.", { tone: "warning" });
+        if (container.isConnected) BlessERP.layout.renderPage();
+      });
+    }
     const scannerField = container.querySelector("[data-cold-scan]:not(:disabled)");
     if (scannerField && ui.orderId) {
-      mountHid(container, appState, ui.orderId);
+      mountHid(container, appState, ui.orderId, ui.sellingCompanyId);
       scrollToActiveBox();
     } else {
       scanner.container = container;
