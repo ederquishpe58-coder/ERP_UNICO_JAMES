@@ -325,36 +325,46 @@
       && BlessERP.capabilityRuntime?.can?.("tax.parameters.manage") ? companyId : "";
   }
 
+  function certificateRequestError(code, message) {
+    return Object.assign(new Error(message), { code });
+  }
+
   async function certificateValidationRequest(companyId, file, action, fixture = {}) {
-    if (!companyId || companyId !== certificatePrecheckCompany()) throw new Error("Seleccione la empresa y verifique sus permisos tributarios.");
+    if (!companyId || companyId !== certificatePrecheckCompany()) throw certificateRequestError("COMPANY_REQUIRED", "Seleccione la empresa y verifique sus permisos tributarios.");
     if (!file || !/\.(p12|pfx)$/i.test(file.name || "") || file.size < 1 || file.size > 3 * 1024 * 1024) {
-      throw new Error("Seleccione un archivo .p12 o .pfx de hasta 3 MB.");
+      throw certificateRequestError("INVALID_CERTIFICATE_FILE", "Seleccione un archivo .p12 o .pfx de hasta 3 MB.");
     }
+    let timer;
+    const controller = new AbortController();
+    const timeout = new Promise((_, reject) => { timer = setTimeout(() => { reject(certificateRequestError("DRY_RUN_TIMEOUT", "La validación excedió el tiempo de espera. Vuelva a seleccionar el archivo para reintentar.")); controller.abort(); }, 65000); });
+    const wait = promise => Promise.race([promise, timeout]);
     let bytes;
     let binary = "";
     try {
-      bytes = new Uint8Array(await file.arrayBuffer());
+      bytes = new Uint8Array(await wait(file.arrayBuffer()));
       for (let index = 0; index < bytes.length; index += 16384) {
         binary += String.fromCharCode(...bytes.subarray(index, index + 16384));
       }
-      const activeSession = await session();
-      if (!activeSession?.access_token) throw new Error("Inicie sesión en el ERP.");
-      if (companyId !== certificatePrecheckCompany()) throw new Error("La empresa cambió. Vuelva a seleccionar el archivo.");
+      const activeSession = await wait(session());
+      if (!activeSession?.access_token) throw certificateRequestError("AUTH_REQUIRED", "Inicie sesión en el ERP.");
+      if (companyId !== certificatePrecheckCompany()) throw certificateRequestError("COMPANY_CHANGED", "La empresa cambió. Vuelva a seleccionar el archivo.");
       // This pre-configuration action deliberately does not call ensureActiveCompany:
       // no SRI settings, SRI activation, certificate upload or storage is required.
-      const response = await fetch("/api/sri?action=" + action, {
-        method: "POST", cache: "no-store", headers: {
+      const response = await wait(fetch("/api/sri?action=" + action, {
+        method: "POST", cache: "no-store", signal: controller.signal, headers: {
           "content-type": "application/json", authorization: `Bearer ${activeSession.access_token}`
         },
         body: JSON.stringify({ company_id: companyId, certificate_file: btoa(binary), ...fixture })
-      });
+      }));
       binary = "";
-      const payload = await response.json();
-      if (companyId !== certificatePrecheckCompany()) throw new Error("La empresa cambió. Repita la validación.");
-      if (!response.ok || !payload.ok) throw new Error(payload.error?.message || "No fue posible validar el certificado.");
-      if (payload.data?.company_id !== companyId) throw new Error("La respuesta no corresponde a la empresa seleccionada.");
+      const payload = await wait(response.json()).catch(error => { if (error?.code === "DRY_RUN_TIMEOUT") throw error; throw certificateRequestError("INVALID_RESPONSE", "El servidor no devolvió un resultado válido."); });
+      if (companyId !== certificatePrecheckCompany()) throw certificateRequestError("COMPANY_CHANGED", "La empresa cambió. Repita la validación.");
+      if (!payload || typeof payload !== "object") throw certificateRequestError("INVALID_RESPONSE", "El servidor no devolvió un resultado válido.");
+      if (!response.ok || !payload.ok) throw certificateRequestError(payload.error?.code || (response.status === 401 ? "AUTH_REQUIRED" : response.status === 403 ? "CAPABILITY_REQUIRED" : "PRECHECK_UNAVAILABLE"), payload.error?.message || "No fue posible validar el certificado.");
+      if (payload.data?.company_id !== companyId) throw certificateRequestError("INVALID_RESPONSE", "La respuesta no corresponde a la empresa seleccionada.");
       return payload.data;
     } finally {
+      clearTimeout(timer);
       binary = "";
       bytes?.fill(0);
     }
@@ -368,7 +378,7 @@
     const invoice = documentType === "01" && ["LOCAL", "EXPORT"].includes(commercialContext);
     const retention = documentType === "07" && commercialContext == null
       && companyId === "cf331b82-7ac3-4065-9e38-d0bbcde96cd5";
-    if (!invoice && !retention) return Promise.reject(new Error("Seleccione una prueba permitida para esta empresa."));
+    if (!invoice && !retention) return Promise.reject(certificateRequestError("DRY_RUN_FIXTURE_REQUIRED", "Seleccione una prueba permitida para esta empresa."));
     return certificateValidationRequest(companyId, file, "validate-xml-signature-dry-run", {
       document_type: documentType, ...(invoice ? { commercial_context: commercialContext } : {})
     });

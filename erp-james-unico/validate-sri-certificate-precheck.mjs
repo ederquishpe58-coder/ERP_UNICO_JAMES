@@ -270,6 +270,7 @@ try {
       assert.deepEqual(Object.keys(JSON.parse(options.body)).sort(), ['certificate_file','company_id']);
       return { ok: !networkFail, async json() { return networkFail ? { ok: false, error: { message: 'Fallo controlado' } } : { ok: true, data: { valid: true, crypto_valid: true, validity_valid: true, company_id: responseCompany, ruc_match: 'PASS', identity_ruc: rucs[responseCompany], identity_ruc_oid: RUC_OID, not_after: responseCompany === BLESS ? '2029-03-28T00:00:00Z' : '2030-06-19T00:00:00Z', private_key_usable: true } }; } };
     } };
+  Object.assign(ctx, { AbortController, setTimeout, clearTimeout });
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(root + '/scripts/services/sri/sri-api-client.js', 'utf8'), ctx);
   vm.runInContext(fs.readFileSync(root + '/scripts/services/sri/certificate-precheck-ui.js', 'utf8'), ctx);
