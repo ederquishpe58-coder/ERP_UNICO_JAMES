@@ -250,14 +250,32 @@
       );
       if (!auth.ok) return;
 
+      const currentAuth = () => !auth.access || (BlessERP.authAccess?.activeAccess?.()?.sessionGeneration === auth.access.sessionGeneration
+        && BlessERP.authAccess?.activeAccess?.()?.session?.user?.id === auth.access.session?.user?.id);
       setBootStage("CAPABILITIES_SHADOW");
       try {
-        await timeout(
+        const capabilities = await timeout(
           BlessERP.capabilityRuntime?.bootstrap?.() || { loaded: true, effectiveCapabilityCount: 0 },
           10000,
           "La carga del contexto de capabilities"
         );
+        if (!currentAuth()) return;
+        if (BlessERP.capabilityPolicy?.mode?.hardEnforcement === true && (!capabilities.loaded || capabilities.error || !capabilities.effectiveCapabilityCount)) {
+          throw new Error(capabilities.error || "ACCESS_CONFIGURATION_REQUIRED: no se confirmaron permisos operativos.");
+        }
       } catch (error) {
+        if (!currentAuth()) return;
+        if (BlessERP.capabilityPolicy?.mode?.hardEnforcement === true) {
+          window.clearTimeout(window.__JAEDER_BOOT_WATCHDOG__);
+          BlessERP.authAccess.renderGate({
+            title: "No se pudieron cargar los permisos",
+            message: /AbortError|operation was aborted/i.test(String(error?.message || error))
+              ? "CAPABILITY_BOOTSTRAP_INTERRUPTED: reintente la carga de permisos."
+              : String(error?.message || "No se confirmaron permisos operativos."),
+            showLogin: false, allowRetry: true, allowSignOut: true
+          });
+          return;
+        }
         // U2C2A observa, pero todavía no autoriza ni bloquea. Un fallo del motor
         // nuevo queda diagnosticado sin sustituir el control legacy vigente.
         console.warn("[jaeder-capabilities-shadow] El control legacy continúa activo.", error);

@@ -275,10 +275,21 @@
     current.error = "";
     refreshKey = key;
     const ownGeneration = ++refreshGeneration;
+    const controller = new AbortController();
+    let timeoutId;
+    const request = name => {
+      const query = client.rpc(name, { p_company_id: nextIdentity.companyId });
+      return query.abortSignal ? query.abortSignal(controller.signal) : query;
+    };
     refreshPromise = (async () => {
-      const [versionResult, capabilityResult] = await Promise.all([
-        client.rpc("erp_security_get_permission_version", { p_company_id: nextIdentity.companyId }),
-        client.rpc("erp_security_get_effective_capabilities", { p_company_id: nextIdentity.companyId })
+      const [versionResult, capabilityResult] = await Promise.race([
+        Promise.all([request("erp_security_get_permission_version"), request("erp_security_get_effective_capabilities")]),
+        new Promise((_, reject) => {
+          timeoutId = window.setTimeout(() => {
+            reject(new Error("CAPABILITY_BOOTSTRAP_TIMEOUT: no se confirmaron los permisos. Reintente la carga."));
+            controller.abort();
+          }, 9000);
+        })
       ]);
       if (versionResult.error) throw versionResult.error;
       if (capabilityResult.error) throw capabilityResult.error;
@@ -288,6 +299,7 @@
       const capabilityIds = new Set(rows
         .map(row => String(row?.capability_id || ""))
         .filter(capabilityId => policy?.isKnownCapability?.(capabilityId)));
+      if (hardEnforcementEnabled() && !capabilityIds.size) throw new Error("ACCESS_CONFIGURATION_REQUIRED: no hay permisos efectivos. Solicite al administrador verificar el perfil canónico (PROFILE_MISSING) y sus capabilities.");
       current = {
         ...emptyContext(nextIdentity, "RESOLVED"),
         capabilityIds,
@@ -310,14 +322,17 @@
         ...emptyContext(nextIdentity, "RESOLUTION_ERROR"),
         loaded: false,
         loading: false,
-        error: String(error?.message || error || "No se pudieron resolver capabilities."),
+        error: /AbortError|operation was aborted/i.test(String(error?.message || error))
+          ? "CAPABILITY_BOOTSTRAP_INTERRUPTED: reintente la carga de permisos."
+          : String(error?.message || error || "No se pudieron resolver capabilities."),
         refreshedAt: new Date().toISOString()
       };
       recordDiagnostic("CAPABILITY_CONTEXT_ERROR", { reason: current.error });
       window.dispatchEvent?.(new CustomEvent("erp:capabilities-refreshed", { detail: snapshot() }));
-      console.warn("[jaeder-capabilities] No se pudo resolver el contexto; el acceso funcional queda denegado.", error);
+      console.warn("[jaeder-capabilities] No se pudo resolver el contexto; el acceso funcional queda denegado.", current.error);
       return snapshot();
     }).finally(() => {
+      window.clearTimeout(timeoutId);
       if (ownGeneration === refreshGeneration) refreshPromise = null;
     });
     return refreshPromise;

@@ -6,7 +6,7 @@
     EDITOR: "INVITADO",
     VIEWER: "INVITADO"
   });
-  const DIRECTORY_QUERY_TIMEOUT_MS = 7000;
+  const DIRECTORY_BOOTSTRAP_TIMEOUT_MS = 25000;
   const DIRECTORY_QUERY_ATTEMPTS = 2;
   const ACCESS_CACHE_FRESH_MS = 5 * 60 * 1000;
   const ACCESS_CACHE_OFFLINE_MAX_AGE_MS = 15 * 60 * 60 * 1000;
@@ -17,6 +17,9 @@
   let sessionSupervisorStarted = false;
   let authStateListenerStarted = false;
   let directoryValidationPromise = null;
+  let directoryContext = null;
+  let directoryFlight = null;
+  let sessionGeneration = 0;
   let lastDirectoryValidationAt = 0;
   let currentSessionStatus = {
     active: false,
@@ -96,33 +99,120 @@
     return new Promise(resolve => setTimeout(resolve, milliseconds));
   }
 
-  async function selectRows(queryFactory, label) {
+  function bootstrapError(code, message) {
+    return Object.assign(new Error(`${code}: ${message}`), { code });
+  }
+
+  function staleBootstrap(error) {
+    return error?.code === "SESSION_BOOTSTRAP_STALE";
+  }
+
+  async function sessionRequest(request) {
+    let timer;
+    try {
+      return await Promise.race([request, new Promise((_, reject) => {
+        timer = window.setTimeout(() => reject(bootstrapError("AUTH_SESSION_TIMEOUT", "No se pudo confirmar la sesión a tiempo. Reintente el acceso.")), 9000);
+      })]);
+    } finally { window.clearTimeout(timer); }
+  }
+
+  function invalidateDirectory() {
+    sessionGeneration++;
+    directoryContext?.controller.abort();
+    directoryContext = null;
+    directoryFlight = null;
+    directoryValidationPromise = null;
+    lastDirectoryValidationAt = 0;
+    currentAccess = null;
+    BlessERP.capabilityRuntime?.invalidateCapabilities?.("AUTH_CONTEXT_CHANGED");
+  }
+
+  function contextFor(session) {
+    const key = `${session?.user?.id || ""}:${requestedCompanyKey()}`;
+    if (!directoryContext || directoryContext.key !== key) {
+      invalidateDirectory();
+      directoryContext = { key, userId: session?.user?.id, companyKey: requestedCompanyKey(), generation: sessionGeneration, controller: new AbortController() };
+    }
+    return directoryContext;
+  }
+
+  function assertCurrent(context) {
+    if (directoryContext !== context || context.controller.signal.aborted || context.companyKey !== requestedCompanyKey()) {
+      throw bootstrapError("SESSION_BOOTSTRAP_STALE", "La consulta pertenece a otra sesión o empresa.");
+    }
+  }
+
+  function assertAccessCurrent(access) {
+    if (!directoryContext || access?.sessionGeneration !== directoryContext.generation || access?.session?.user?.id !== directoryContext.userId) {
+      throw bootstrapError("SESSION_BOOTSTRAP_STALE", "El acceso corresponde a una sesión anterior.");
+    }
+    assertCurrent(directoryContext);
+  }
+
+  window.addEventListener?.("erp:company-changed", () => {
+    if (directoryContext && directoryContext.companyKey !== requestedCompanyKey()) {
+      invalidateDirectory();
+      void validateActiveAccess(null, true).then(result => {
+        if (result.ok) return BlessERP.capabilityRuntime?.refreshCapabilities?.({ reason: "COMPANY_BOOTSTRAP" });
+      }).catch(error => { if (!staleBootstrap(error)) renderGate({ message: error.message, showLogin: false, allowRetry: true }); });
+    }
+  });
+
+  async function selectRows(queryFactory, label, flight) {
     let lastError = null;
     for (let attempt = 1; attempt <= DIRECTORY_QUERY_ATTEMPTS; attempt += 1) {
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), DIRECTORY_QUERY_TIMEOUT_MS);
       try {
-        const { data, error } = await queryFactory(controller.signal);
+        assertCurrent(flight.context);
+        const { data, error } = await Promise.race([queryFactory(flight.controller.signal), flight.interrupted]);
+        assertCurrent(flight.context);
         if (error) throw error;
         return Array.isArray(data) ? data : [];
       } catch (error) {
+        assertCurrent(flight.context);
+        if (flight.controller.signal.aborted || error?.code === "SESSION_BOOTSTRAP_TIMEOUT") throw bootstrapError("SESSION_BOOTSTRAP_TIMEOUT", "La carga de acceso agotó su tiempo de espera. Reintente sin cambiar su contraseña.");
         lastError = error;
         if (
           (error?.name !== "AbortError" && !transientDirectoryError(error))
           || attempt === DIRECTORY_QUERY_ATTEMPTS
         ) break;
         await wait(700 * attempt);
-      } finally {
-        window.clearTimeout(timeout);
       }
     }
-    const detail = lastError?.name === "AbortError"
-      ? "la consulta excedió el tiempo de espera"
+    const detail = lastError?.name === "AbortError" || /AbortError|operation was aborted/i.test(String(lastError?.message || ""))
+      ? "consulta interrumpida; reintente la carga de acceso"
       : String(lastError?.message || lastError || "error desconocido");
-    throw new Error(`${label}: ${detail}`);
+    throw bootstrapError("SESSION_BOOTSTRAP_NETWORK_ERROR", `${label}: ${detail}`);
   }
 
-  async function loadDirectory(session, allowInitialOwnerClaim = true) {
+  function loadDirectory(session, allowInitialOwnerClaim = true) {
+    const context = contextFor(session);
+    if (directoryFlight?.context === context) return directoryFlight.promise;
+    const controller = new AbortController();
+    let rejectInterrupted;
+    const interrupted = new Promise((_, reject) => { rejectInterrupted = reject; });
+    const cancel = () => {
+      rejectInterrupted(bootstrapError("SESSION_BOOTSTRAP_STALE", "La consulta pertenece a otra sesión o empresa."));
+      controller.abort();
+    };
+    const timer = window.setTimeout(() => {
+      rejectInterrupted(bootstrapError("SESSION_BOOTSTRAP_TIMEOUT", "La carga de acceso agotó su tiempo de espera. Reintente sin cambiar su contraseña."));
+      controller.abort();
+    }, DIRECTORY_BOOTSTRAP_TIMEOUT_MS);
+    context.controller.signal.addEventListener("abort", cancel, { once: true });
+    const flight = { context, controller, interrupted };
+    directoryFlight = flight;
+    flight.promise = Promise.race([readDirectory(session, allowInitialOwnerClaim, flight), interrupted])
+      .then(access => { assertCurrent(context); return { ...access, sessionGeneration: context.generation }; })
+      .catch(error => { assertCurrent(context); throw error; })
+      .finally(() => {
+        window.clearTimeout(timer);
+        context.controller.signal.removeEventListener("abort", cancel);
+        if (directoryFlight === flight) directoryFlight = null;
+      });
+    return flight.promise;
+  }
+
+  async function readDirectory(session, allowInitialOwnerClaim, flight) {
     const supabase = client();
     const userId = session?.user?.id;
     if (!supabase || !userId) throw new Error("No existe una sesión válida para cargar accesos.");
@@ -133,20 +223,20 @@
           .select("id, company_id, user_id, membership_role, membership_status, is_default, display_name_override, area, job_title, notes, valid_from, valid_until")
           .eq("user_id", userId)
           .abortSignal(signal),
-        "Su membresía"
+        "Su membresía", flight
       ),
       selectRows(
         signal => supabase.from("user_profiles")
           .select("user_id, display_name, username, phone, locale, timezone, default_company_id, is_active")
           .eq("user_id", userId)
           .abortSignal(signal),
-        "Su perfil"
+        "Su perfil", flight
       )
     ]);
     if (allowInitialOwnerClaim && !memberships.length && !profiles.length) {
       const { data: claimed, error: claimError } = await supabase.rpc("erp_claim_initial_owner");
       if (!claimError && claimed === true) {
-        return loadDirectory(session, false);
+        return readDirectory(session, false, flight);
       }
       if (claimError && !/erp_claim_initial_owner|PGRST202|does not exist/i.test(String(claimError.message || ""))) {
         console.warn("[jaeder-auth] No se pudo validar el primer propietario invitado.", claimError);
@@ -161,14 +251,14 @@
               .in("id", companyIds)
               .eq("is_active", true)
               .abortSignal(signal),
-            "Sus empresas"
+            "Sus empresas", flight
           ),
           selectRows(
             signal => supabase.from("user_route_permissions")
               .select("company_id, user_id, route_id, can_view, can_create, can_edit, can_delete, can_approve, can_print, can_export")
               .eq("user_id", userId)
               .abortSignal(signal),
-            "Sus permisos"
+            "Sus permisos", flight
           )
         ])
       : [[], []];
@@ -217,7 +307,8 @@
       };
     }) : [];
 
-    const activeCompanyKey = requestedCompanyKey();
+    assertCurrent(flight.context);
+    const activeCompanyKey = flight.context.companyKey;
     const activeCompany = companies.find(company => company.company_key === activeCompanyKey);
     const ownMembership = profile?.is_active === false
       ? null
@@ -307,11 +398,13 @@
       allowedCompanyKeys: cached.allowedCompanyKeys || [activeCompanyKey],
       directoryScope: "CURRENT_USER_CACHE",
       validatedAt: cached.loadedAt,
-      fromCache: true
+      fromCache: true,
+      sessionGeneration: contextFor(session).generation
     };
   }
 
   function applyDirectory(access) {
+    if (remoteEnabled()) assertAccessCurrent(access);
     const db = BlessERP.state?.state?.db;
     if (!db || !access?.currentUser || !access?.ownMembership || !access?.activeCompany) return false;
     const previousUsers = Array.isArray(db.visualUsers) ? db.visualUsers : [];
@@ -345,6 +438,7 @@
     };
     db.session.alerts = Array.isArray(db.session.alerts) ? db.session.alerts : [];
     currentAccess = access;
+    if (!access.fromCache) lastDirectoryValidationAt = Date.now();
     try {
       BlessERP.storage?.save?.(db);
     } catch {
@@ -353,8 +447,10 @@
     return true;
   }
 
-  function refreshAccessInBackground(session) {
+  function refreshAccessInBackground(session, generation = sessionGeneration) {
+    if (generation !== sessionGeneration || directoryContext?.userId !== session?.user?.id) return;
     loadDirectory(session).then(access => {
+      assertAccessCurrent(access);
       if (!access.currentUser || !access.ownMembership || !access.activeCompany) {
         renderGate({
           title: "El acceso cambió",
@@ -368,6 +464,7 @@
       applyDirectory(access);
       BlessERP.state?.refreshNavigationAccess?.();
     }).catch(error => {
+      if (staleBootstrap(error)) return;
       console.warn("[auth-access] No se pudo actualizar el acceso en segundo plano", error);
     });
   }
@@ -437,6 +534,7 @@
         if (!result.ok) throw new Error(result.message);
         status.textContent = "Validando empresa y permisos...";
         const access = await loadDirectory(result.session);
+        assertAccessCurrent(access);
         if (!access.currentUser) {
           throw new Error("La cuenta existe en Supabase Auth, pero todavía no tiene un perfil ERP habilitado.");
         }
@@ -446,7 +544,8 @@
         applyDirectory(access);
         window.location.reload();
       } catch (error) {
-        status.textContent = error.message || "No se pudo iniciar sesión.";
+        if (staleBootstrap(error) || !status.isConnected) return;
+        status.textContent = authErrorMessage(error);
         button.disabled = false;
       }
     });
@@ -461,6 +560,7 @@
 
   function authErrorMessage(error) {
     const message = String(error?.message || error || "").trim();
+    if (error?.name === "AbortError" || /AbortError|operation was aborted/i.test(message)) return "AUTH_SESSION_INTERRUPTED: reintente el acceso sin cambiar su contraseña.";
     if (/invalid login credentials/i.test(message)) {
       return "Correo o contraseña incorrectos. Solicite al administrador que valide su acceso o establezca una contraseña nueva.";
     }
@@ -487,10 +587,16 @@
     }
     const supabase = client();
     if (!supabase) return { ok: false, message: "Supabase no está configurado." };
-    const { data, error } = await supabase.auth.signInWithPassword({
+    invalidateDirectory();
+    const generation = sessionGeneration;
+    const companyKey = requestedCompanyKey();
+    const { data, error } = await sessionRequest(supabase.auth.signInWithPassword({
       email: authEmailForIdentifier(email),
       password: String(password || "")
-    });
+    }));
+    if (companyKey !== requestedCompanyKey() || (generation !== sessionGeneration && directoryContext?.userId !== data?.session?.user?.id)) {
+      throw bootstrapError("SESSION_BOOTSTRAP_STALE", "El intento de ingreso fue reemplazado.");
+    }
     return error
       ? { ok: false, message: authErrorMessage(error) }
       : { ok: true, session: data.session, user: data.user };
@@ -502,6 +608,7 @@
     }
     const supabase = client();
     if (!supabase) return { ok: true };
+    invalidateDirectory();
     const { error } = await supabase.auth.signOut();
     return error ? { ok: false, message: error.message } : { ok: true };
   }
@@ -526,6 +633,13 @@
 
   async function validateActiveAccess(session = null, force = false) {
     if (!remoteEnabled()) return { ok: true, mode: "LOCAL" };
+    const supabase = client();
+    const generation = sessionGeneration;
+    const companyKey = requestedCompanyKey();
+    const activeSession = session || (await sessionRequest(supabase.auth.getSession())).data?.session;
+    if (companyKey !== requestedCompanyKey() || (generation !== sessionGeneration && directoryContext?.userId !== activeSession?.user?.id)) return { ok: false, mode: "STALE" };
+    if (!activeSession) return { ok: false, mode: "NO_SESSION" };
+    const context = contextFor(activeSession);
     if (
       !force
       && lastDirectoryValidationAt
@@ -533,13 +647,13 @@
     ) {
       return { ok: true, mode: "RECENT" };
     }
-    if (directoryValidationPromise) return directoryValidationPromise;
-    directoryValidationPromise = (async () => {
-      const supabase = client();
-      const activeSession = session || (await supabase.auth.getSession()).data?.session;
-      if (!activeSession) return { ok: false, mode: "NO_SESSION" };
+    if (directoryValidationPromise?.context === context) return directoryValidationPromise.promise;
+    const validation = { context };
+    directoryValidationPromise = validation;
+    validation.promise = (async () => {
       try {
         const access = await loadDirectory(activeSession);
+        assertAccessCurrent(access);
         lastDirectoryValidationAt = Date.now();
         if (!access.currentUser || !access.ownMembership || !access.activeCompany) {
           currentAccess = null;
@@ -560,15 +674,16 @@
         BlessERP.state?.refreshNavigationAccess?.();
         return { ok: true, mode: "VALIDATED", access };
       } catch (error) {
+        if (staleBootstrap(error)) return { ok: false, mode: "STALE" };
         if (transientDirectoryError(error) || navigator.onLine === false) {
-          return { ok: true, mode: "OFFLINE_CACHE", error };
+          return { ok: Boolean(currentAccess && currentAccess.sessionGeneration === context.generation), mode: "OFFLINE_CACHE", error };
         }
         throw error;
       }
     })().finally(() => {
-      directoryValidationPromise = null;
+      if (directoryValidationPromise === validation) directoryValidationPromise = null;
     });
-    return directoryValidationPromise;
+    return validation.promise;
   }
 
   function emitSessionStatus(nextStatus = {}) {
@@ -620,9 +735,15 @@
     if (!supabase?.auth?.onAuthStateChange) return;
     authStateListenerStarted = true;
     supabase.auth.onAuthStateChange((event, session) => {
+      // Capture the Auth identity before deferred callbacks; token refresh of the
+      // same user must not cancel its membership bootstrap.
+      if (event === "SIGNED_OUT") invalidateDirectory();
+      else if (session && ["SIGNED_IN", "INITIAL_SESSION", "USER_UPDATED"].includes(event)) contextFor(session);
+      const generation = sessionGeneration;
       // Se difiere el trabajo que consulta Supabase para no bloquear el callback
       // interno de renovación de Auth.
       window.setTimeout(() => {
+        if (generation !== sessionGeneration) return;
         if (event === "TOKEN_REFRESHED") {
           emitSessionStatus({
             active: Boolean(session),
@@ -631,7 +752,7 @@
           });
           return;
         }
-        if (event === "SIGNED_IN" || event === "USER_UPDATED") {
+        if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "INITIAL_SESSION") {
           emitSessionStatus({
             active: Boolean(session),
             mode: "SUPABASE",
@@ -640,6 +761,7 @@
               : "Sesión Supabase activa"
           });
           validateActiveAccess(session, true).catch(error => {
+            if (staleBootstrap(error)) return;
             console.warn("[auth-access] No se pudo validar el cambio de sesión", error);
           });
           return;
@@ -670,7 +792,7 @@
       checkSessionContinuity(false).catch(error => {
         emitSessionStatus({
           active: Boolean(currentAccess),
-          message: error?.message || "No se pudo comprobar la sesión"
+          message: authErrorMessage(error)
         });
       });
     }, SESSION_CHECK_INTERVAL_MS);
@@ -758,19 +880,25 @@
       return { ok: false, mode: "MISCONFIGURED" };
     }
     let bootSession = null;
+    let bootContext = null;
+    const companyKey = requestedCompanyKey();
+    const startingGeneration = sessionGeneration;
     try {
-      const { data, error } = await supabase.auth.getSession();
+      const { data, error } = await sessionRequest(supabase.auth.getSession());
       if (error) throw error;
+      if (companyKey !== requestedCompanyKey() || (startingGeneration !== sessionGeneration && directoryContext?.userId !== data?.session?.user?.id)) return { ok: false, mode: "STALE" };
       if (!data?.session) {
         renderGate({ showLogin: true });
         return { ok: false, mode: "LOGIN_REQUIRED" };
       }
       bootSession = data.session;
+      bootContext = contextFor(data.session);
       const cachedAccess = cachedDirectory(data.session);
       if (cachedAccess) {
         applyDirectory(cachedAccess);
         document.body.classList.remove("auth-gate-active");
-        window.setTimeout(() => refreshAccessInBackground(data.session), 3500);
+        const generation = sessionGeneration;
+        window.setTimeout(() => refreshAccessInBackground(data.session, generation), 3500);
         startSessionSupervisor();
         return { ok: true, mode: "AUTHENTICATED_CACHE", access: cachedAccess };
       }
@@ -780,6 +908,7 @@
         showLogin: false
       });
       const access = await loadDirectory(data.session);
+      assertAccessCurrent(access);
       if (!access.currentUser) {
         renderGate({
         title: "Usuario sin perfil en JAEDER SYSTEMS",
@@ -805,6 +934,7 @@
       startSessionSupervisor();
       return { ok: true, mode: "AUTHENTICATED", access };
     } catch (error) {
+      if (staleBootstrap(error) || companyKey !== requestedCompanyKey() || (bootContext ? directoryContext !== bootContext : startingGeneration !== sessionGeneration)) return { ok: false, mode: "STALE" };
       const offlineAccess = transientDirectoryError(error) && bootSession
         ? cachedDirectory(bootSession, ACCESS_CACHE_OFFLINE_MAX_AGE_MS)
         : null;
@@ -825,7 +955,7 @@
         title: "No se pudo validar el acceso",
         message: transientDirectoryError(error)
           ? "Supabase tardó demasiado en responder. Reintente; JAEDER SYSTEMS ya consulta solamente su usuario y sus empresas."
-          : (error.message || "Revise la conexión con Supabase."),
+          : authErrorMessage(error),
         showLogin: false,
         allowRetry: true,
         allowSignOut: true
