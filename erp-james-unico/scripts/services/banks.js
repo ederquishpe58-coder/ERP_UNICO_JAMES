@@ -126,7 +126,7 @@
     return bankAccounts().find(item => item.linkedAccountCode === linkedAccountCode);
   }
 
-  function validateBankAccount(account) {
+  function validateBankAccount(account, canonicalAccount = null) {
     const candidate = normalizeBankAccount(account);
     const errors = [];
     const warnings = [];
@@ -152,7 +152,7 @@
     }
 
     if (candidate.linkedAccountCode) {
-      const linkedAccount = chartService.findByCode(candidate.linkedAccountCode);
+      const linkedAccount = canonicalAccount || chartService.findByCode(candidate.linkedAccountCode);
       if (!linkedAccount) {
         errors.push("La cuenta contable asociada no existe.");
       } else {
@@ -165,10 +165,15 @@
   }
 
   async function saveBankAccount(account) {
-    const { account: candidate, errors, warnings } = validateBankAccount(account);
+    let resolved = null;
+    if (BlessERP.services.bankAccountContract?.required()) {
+      try { resolved = await BlessERP.services.bankAccountContract.resolveAccount(account); }
+      catch (error) { return { ok: false, errors: [error.message], warnings: [] }; }
+    }
+    const { account: candidate, errors, warnings } = validateBankAccount(resolved ? { ...account, linkedAccountCode: resolved.code } : account, resolved?.account);
     if (errors.length) return { ok: false, errors, warnings };
     const before = findBankAccountById(candidate.id) || null;
-    const result = await BlessERP.services?.treasuryV2?.upsertBankAccount?.(candidate);
+    const result = await BlessERP.services?.treasuryV2?.upsertBankAccount?.(candidate, resolved ? { companyId: resolved.companyId } : {});
     if (!result?.ok) return { ok:false,errors:result?.errors || [result?.message || "Supabase no confirmó la cuenta bancaria."],warnings };
     const confirmed = normalizeBankAccount(result.account);
     adminService?.addAuditLog?.({

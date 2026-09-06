@@ -108,12 +108,55 @@
     return error ? { ok: false, rows: [], error, message: error.message } : { ok: true, rows: data || [] };
   }
 
+  async function bankAccountingConfiguration() {
+    const companyId = activeCompanyUuid();
+    if (!configured() || !companyId) throw new Error("TREASURY_CANONICAL_CONFIG_REQUIRED: conecte la empresa a Supabase.");
+    const records = [];
+    for (let offset = 0; ; offset += 500) {
+      const { data, error } = await BlessERP.getSupabaseClient().from("erp_entity_records")
+        .select("company_id,entity,record_id,payload,version,deleted_at")
+        .eq("company_id", companyId).in("entity", ["accounting_chart_accounts", "company_settings"])
+        .is("deleted_at", null).order("id").range(offset, offset + 499);
+      if (companyId !== activeCompanyUuid()) throw new Error("TREASURY_COMPANY_CHANGED: vuelva a abrir la cuenta en la empresa actual.");
+      if (error || !Array.isArray(data)) throw new Error(error?.message || "TREASURY_CANONICAL_CONFIG_REQUIRED: no se pudo leer la configuración contable.");
+      if (data.some(row => row.company_id !== companyId || row.deleted_at || !row.payload || Number(row.version || 0) < 1)) throw new Error("TREASURY_CANONICAL_CONFIG_INVALID");
+      records.push(...data);
+      if (data.length < 500) break;
+    }
+    const settings = records.filter(row => row.entity === "company_settings");
+    if (settings.length > 1) throw new Error("TREASURY_CANONICAL_CONFIG_AMBIGUOUS");
+    return { companyId, accounts: records.filter(row => row.entity === "accounting_chart_accounts"), mainBank: String(settings[0]?.payload?.defaultAccounts?.mainBank || "").trim() };
+  }
+
+  function resolveBankLedger(config, selectedCode) {
+    if (config.companyId !== activeCompanyUuid()) throw new Error("TREASURY_COMPANY_CHANGED");
+    const code = String(selectedCode || "").trim() || config.mainBank;
+    if (!code) throw new Error("TREASURY_BANK_ACCOUNT_CONFIG_REQUIRED: seleccione una cuenta contable o configure el banco principal de esta empresa.");
+    const matches = config.accounts.filter(row => String(row.payload.code || row.record_id).trim() === code);
+    if (matches.length !== 1) throw new Error("FINANCE_V2_ACCOUNT_NOT_FOUND:" + code + " — seleccione una cuenta canónica de esta empresa.");
+    const row = matches[0], account = row.payload;
+    if (row.company_id !== config.companyId || row.deleted_at || account.deleted_at || account.__deleted) throw new Error("FINANCE_V2_ACCOUNT_NOT_FOUND:" + code);
+    if (!["ACTIVA", "ACTIVE"].includes(String(account.status || "").toUpperCase()) || account.isMovement !== true) throw new Error("FINANCE_V2_ACCOUNT_NOT_POSTABLE:" + code);
+    return { code, account, companyId: config.companyId };
+  }
+
+  async function upsertBankAccount(payload, options = {}) {
+    try {
+      const expectedCompany = options.companyId || activeCompanyUuid();
+      if (expectedCompany !== activeCompanyUuid()) throw new Error("TREASURY_COMPANY_CHANGED");
+      const config = await bankAccountingConfiguration();
+      if (expectedCompany !== activeCompanyUuid()) throw new Error("TREASURY_COMPANY_CHANGED");
+      const resolved = resolveBankLedger(config, payload.ledgerAccountCode);
+      return await command("erp_treasury_v2_upsert_bank_account", {
+        p_payload: { ...payload, ledgerAccountCode: resolved.code }, p_local_created_at: new Date().toISOString()
+      }, { ...options, source: "TREASURY_V2_BANK_ACCOUNT" });
+    } catch (error) { return { ok: false, message: error.message, errors: [error.message] }; }
+  }
+
   const repository = Object.freeze({
     activeCompanyUuid, canExecute, healthStatus, isUuid, probeBackend, remoteRequired, uuid,
     bankAccountCatalog: () => queryView("erp_treasury_bank_accounts", { status: "ACTIVE" }),
-    upsertBankAccount: (payload, options = {}) => command("erp_treasury_v2_upsert_bank_account", {
-      p_payload: payload, p_local_created_at: new Date().toISOString()
-    }, { ...options, source: "TREASURY_V2_BANK_ACCOUNT" }),
+    bankAccountingConfiguration, resolveBankLedger, upsertBankAccount,
     upsertCashAccount: (payload, options = {}) => command("erp_treasury_v2_upsert_cash_account", {
       p_payload: payload, p_local_created_at: new Date().toISOString()
     }, { ...options, source: "TREASURY_V2_CASH_ACCOUNT" }),

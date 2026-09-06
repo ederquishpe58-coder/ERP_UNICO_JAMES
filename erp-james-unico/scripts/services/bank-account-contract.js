@@ -30,6 +30,42 @@
     return row.bankAccountLabel || [row.bankAccountCode, row.bankName].filter(Boolean).join(" · ")
       || `Banco sin identificar: ${row.bankAccountId || "sin identificador"}`;
   }
+  let configuration = null, configurationRequest = null, configurationError = "", configurationCompany = "";
+  function configurationSnapshot() {
+    if (configurationCompany !== company()) { configuration = null; configurationError = ""; configurationCompany = company(); }
+    if (configuration?.companyId !== company()) configuration = null;
+    return { ready: Boolean(configuration), companyId: company(), error: configurationError, mainBank: configuration?.mainBank || "", accounts: configuration?.accounts || [] };
+  }
+  async function loadConfiguration() {
+    const id = company();
+    configurationSnapshot();
+    if (configurationRequest?.companyId === id) return configurationRequest.promise;
+    configuration = null; configurationError = "";
+    const request = { companyId: id };
+    request.promise = (async () => {
+      try {
+        const result = await erp.getTreasuryV2Repository().bankAccountingConfiguration();
+        if (id !== company()) throw new Error("TREASURY_COMPANY_CHANGED");
+        configuration = result; return configurationSnapshot();
+      } catch (error) { if (id === company()) configurationError = error.message; throw error; }
+      finally { if (configurationRequest === request) configurationRequest = null; }
+    })();
+    configurationRequest = request; return request.promise;
+  }
+  function accountOptions() {
+    if (!required()) return erp.services.chartOfAccounts.movementOptions();
+    const snapshot = configurationSnapshot();
+    return snapshot.accounts.filter(row => !row.deleted_at && !row.payload.deleted_at && !row.payload.__deleted && row.payload.isMovement === true && ["ACTIVE", "ACTIVA"].includes(String(row.payload.status).toUpperCase()))
+      .map(row => ({ ...row.payload, code: row.payload.code || row.record_id })).sort((a,b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+  }
+  async function resolveAccount(account) {
+    const id = company();
+    if (account.treasuryCompanyId && account.treasuryCompanyId !== id) throw new Error("TREASURY_COMPANY_CHANGED: vuelva a abrir el formulario en la empresa actual.");
+    const repository = erp.getTreasuryV2Repository();
+    const config = await repository.bankAccountingConfiguration();
+    if (id !== company()) throw new Error("TREASURY_COMPANY_CHANGED");
+    return repository.resolveBankLedger(config, account.linkedAccountCode);
+  }
   function fingerprint(value) {
     if (Array.isArray(value)) return `[${value.map(fingerprint).join(",")}]`;
     if (value && typeof value === "object") return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${fingerprint(value[k])}`).join(",")}}`;
@@ -54,5 +90,5 @@
     finally { pending.delete(id); }
   }
   erp.services = erp.services || {};
-  erp.services.bankAccountContract = { company, belongs, required, ledger, bank, label, saveDraft };
+  erp.services.bankAccountContract = { company, belongs, required, ledger, bank, label, saveDraft, configurationSnapshot, loadConfiguration, accountOptions, resolveAccount };
 })();

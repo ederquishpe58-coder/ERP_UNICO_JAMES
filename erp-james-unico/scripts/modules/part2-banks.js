@@ -130,11 +130,13 @@
       holder: "",
       currency: "USD",
       linkedAccountCode: "",
+      treasuryCompanyId: BlessERP.services.bankAccountContract?.company() || "",
       openingBalance: 0,
       openingBalanceDate: companyService.settings().periodStart || BlessERP.utils.today(),
       status: "activa",
       observation: ""
     };
+    uiState.accounts.draft.treasuryCompanyId = BlessERP.services.bankAccountContract?.company() || "";
     uiState.accounts.errors = [];
     uiState.accounts.warnings = [];
     uiState.accounts.message = "";
@@ -249,10 +251,21 @@
   }
 
   function renderAccounts(container, route) {
+    const contract = BlessERP.services.bankAccountContract;
+    if (uiState.accounts.companyId !== contract.company()) {
+      uiState.accounts.companyId = contract.company();
+      uiState.accounts.draft = null;
+      uiState.accounts.errors = []; uiState.accounts.warnings = []; uiState.accounts.message = "";
+    }
+    if (contract.required() && !contract.configurationSnapshot().ready && !contract.configurationSnapshot().error) {
+      const requestedCompany = contract.company();
+      contract.loadConfiguration().catch(error => { if (requestedCompany === contract.company()) uiState.accounts.errors = [error.message]; })
+        .finally(() => { if (requestedCompany === contract.company() && document.querySelector("#bank-account-search")) BlessERP.layout.renderPage(); });
+    }
     const rows = accountRows();
     const summary = bankService.dashboardSummary();
     const draft = uiState.accounts.draft;
-    const ledgerOptions = chartService.movementOptions();
+    const ledgerOptions = contract.accountOptions();
     container.innerHTML = `
       <section class="page-header">
         <div>
@@ -326,7 +339,7 @@
             <label class="compact-field">
               <span>Cuenta contable asociada</span>
               <select name="linkedAccountCode">
-                <option value="">Seleccionar cuenta</option>
+                <option value="">${contract.configurationSnapshot().mainBank ? `Banco principal configurado: ${esc(contract.configurationSnapshot().mainBank)}` : "Seleccionar cuenta"}</option>
                 ${ledgerOptions.map(item => `<option value="${esc(item.code)}" ${draft.linkedAccountCode === item.code ? "selected" : ""}>${esc(item.code)} - ${esc(item.name)}</option>`).join("")}
               </select>
             </label>
@@ -1016,7 +1029,11 @@
     document.querySelector("[data-bank-account-save]")?.addEventListener("click", async event => {
       const button = event.currentTarget;
       button.disabled = true;
-      const result = await bankService.saveBankAccount(collectAccountDraft());
+      const submittedCompany = BlessERP.services.bankAccountContract.company();
+      const draft = collectAccountDraft();
+      uiState.accounts.draft = clone(draft);
+      const result = await bankService.saveBankAccount(draft);
+      if (submittedCompany !== BlessERP.services.bankAccountContract.company()) return;
       uiState.accounts.errors = result.errors || [];
       uiState.accounts.warnings = result.warnings || [];
       uiState.accounts.message = "";
