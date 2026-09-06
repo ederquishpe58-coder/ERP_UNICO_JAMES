@@ -402,6 +402,10 @@ async function cleanupMarkedTestDemoDocuments(client, companyId, input = {}) {
 
 module.exports = async function handler(request, response) {
   response.setHeader("x-content-type-options", "nosniff");
+  const applyAction = queryValue(request, "action") || request.body?.action;
+  if (require("./sri/_lib/test-apply.cjs").ACTIONS.includes(applyAction)) {
+    return require("./sri/_lib/test-apply.cjs").handleTestApply(request, response);
+  }
   if (queryValue(request, "action") === "validate-certificate" || request.body?.action === "validate-certificate") {
     return handleCertificatePrecheck(request, response);
   }

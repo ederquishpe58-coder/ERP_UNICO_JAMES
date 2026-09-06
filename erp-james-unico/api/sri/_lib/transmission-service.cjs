@@ -119,7 +119,7 @@ function retryDelaySeconds(settings, attemptNumber) {
 async function settingsFor(client, companyId) {
   const settings = dbError(await client.from("sri_settings").select("*")
     .eq("company_id", companyId).single(), "Configuracion SRI");
-  if (settings.environment !== "TEST" || settings.production_enabled) {
+  if (settings.environment !== "TEST" || settings.production_enabled || settings.test_enabled !== true) {
     throw new SriValidationError("La transmision SRI esta restringida al ambiente de pruebas.");
   }
   return settings;

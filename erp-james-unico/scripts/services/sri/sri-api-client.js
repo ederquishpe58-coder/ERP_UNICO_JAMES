@@ -142,17 +142,20 @@
     const env = BlessERP.getEnvConfig?.() || {};
     const supabaseStatus = BlessERP.getSupabaseStatus?.() || {};
     const ready = Boolean(
-      env.supabaseEnabled && env.sriEnabled && env.sriSupabaseEnabled &&
+      env.supabaseEnabled &&
       env.authEnabled && supabaseStatus.configured && supabaseStatus.hasRuntimeFactory
     );
     return {
       ready,
+      // Connection readiness is not permission to emit. The server-owned flag
+      // is per company; deployment-wide public flags are no longer its authority.
+      testEnabled: runtimeBindings.get(selectedCompanyKey)?.configuration?.settings?.test_enabled === true,
       env,
       supabaseStatus,
       activeCompany: activeCompany(),
       message: ready
         ? "Conexion tributaria disponible."
-        : "Active Supabase, autenticacion y SRI en las variables publicas del despliegue."
+        : "Se requiere conexion Supabase y una sesion ERP autenticada."
     };
   }
 
@@ -313,6 +316,41 @@
 
   function post(action, body = {}) {
     return api("", { method: "POST", body: JSON.stringify({ action, ...body }) });
+  }
+
+  async function testConfigurationRequest(action, companyId, planHash, confirmation, file) {
+    const allowed = ["review-sri-test-configuration", "precheck-sri-test-configuration", "apply-sri-test-configuration"];
+    if (!allowed.includes(action) || companyId !== certificatePrecheckCompany()) throw new Error("COMPANY_REQUIRED");
+    const body = { action, company_id: companyId };
+    let bytes;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 125000);
+    try {
+      if (!(await session())?.access_token) throw new Error("AUTH_REQUIRED");
+      if (action !== allowed[0]) {
+        if (!file || !/\.(p12|pfx)$/i.test(file.name) || file.size <= 0 || file.size > 3 * 1024 * 1024) throw new Error("CERTIFICATE_REQUIRED");
+        bytes = new Uint8Array(await file.arrayBuffer());
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += 16384) binary += String.fromCharCode(...bytes.subarray(i, i + 16384));
+        body.certificate_file = btoa(binary); binary = "";
+        body.approved_plan_hash = planHash;
+        if (action === allowed[2]) body.explicit_confirmation = confirmation;
+      }
+      if (companyId !== certificatePrecheckCompany()) throw new Error("COMPANY_CHANGED");
+      const data = await rawApi(query({ action }), { method: "POST", body: JSON.stringify(body), signal: controller.signal });
+      if (companyId !== certificatePrecheckCompany()) throw new Error("COMPANY_CHANGED");
+      if (!data || data.company_id !== companyId || typeof data.status !== "string"
+        || (action === allowed[0] && (!data.plan || !Array.isArray(data.plan.sequences) || typeof data.approved_plan_hash !== "string"))) throw new Error("INVALID_RESPONSE");
+      if (action === allowed[2] && ["PASS", "ALREADY_APPLIED"].includes(data.status)) {
+        runtimeBindings.clear(); membershipDiscoveryPromise = null;
+      }
+      return data;
+    } catch (error) {
+      if (error?.name === "AbortError") throw new Error("REQUEST_TIMEOUT: vuelva a revisar el estado antes de repetir el apply.");
+      const safe = new Set(["AUTH_REQUIRED","CAPABILITY_REQUIRED","COMPANY_REQUIRED","COMPANY_CHANGED","COMPANY_NOT_APPROVED","CANONICAL_COMPANY_DRIFT","PLAN_DRIFT","BASELINE_DRIFT","PRIVATE_STORAGE_REQUIRED","CERTIFICATE_REQUIRED","CERTIFICATE_INVALID","CERTIFICATE_STORAGE_CONFLICT","CERTIFICATE_STORAGE_MISMATCH","SECRET_REQUIRED","XML_XADES_FAILED","INVALID_INPUT","INVALID_RESPONSE","ACTIVAR_TEST_REQUIRED","APPLY_IN_PROGRESS","OPERATION_LEASE_MISMATCH","RECOVERY_REQUIRED","ROLLBACK_INCOMPLETE","APPLY_FAILED","PRECHECK_REQUIRED"]);
+      const code = safe.has(error?.code) ? error.code : safe.has(error?.message) ? error.message : "REQUEST_FAILED";
+      throw Object.assign(new Error(code), { code });
+    } finally { clearTimeout(timeout); bytes?.fill(0); delete body.certificate_file; }
   }
 
   function certificatePrecheckCompany() {
@@ -627,6 +665,7 @@
     detail,
     configuration,
     post,
+    testConfigurationRequest,
     certificatePrecheckCompany,
     validateCertificate,
     validateXmlSignatureDryRun,

@@ -22,8 +22,8 @@
   ],
   "functions": {
     "api/sri.js": {
-      "includeFiles": "{docs/sri/official/**,scripts/assets/**,node_modules/xmllint-wasm/xmllint.wasm}",
-      "maxDuration": 60
+      "includeFiles": "{api/sri/_lib/reviewable-apply-plan-current.json,docs/sri/official/**,scripts/assets/**,node_modules/xmllint-wasm/xmllint.wasm}",
+      "maxDuration": 120
     },
     "api/sri-retry.js": {
       "includeFiles": "{docs/sri/official/**,scripts/assets/**,node_modules/xmllint-wasm/xmllint.wasm}",

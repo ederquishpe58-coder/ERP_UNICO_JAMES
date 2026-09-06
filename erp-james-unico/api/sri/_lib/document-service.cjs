@@ -236,7 +236,7 @@ async function createDraft(client, input, actorUserId) {
   if (!companyId || !emissionPointId) throw new SriValidationError("Empresa y punto de emision son obligatorios.");
 
   const settings = dbError(await client.from("sri_settings").select("*").eq("company_id", companyId).single(), "Configuracion SRI");
-  if (settings.environment !== "TEST" || settings.production_enabled) {
+  if (settings.environment !== "TEST" || settings.production_enabled || settings.test_enabled !== true) {
     throw new SriValidationError("Esta etapa solo permite el ambiente SRI de pruebas con produccion deshabilitada.");
   }
   const version = documentVersion(settings, documentType);
@@ -495,6 +495,8 @@ async function generateXml(client, companyId, documentId, actorUserId) {
   let document = detail.document;
   if (["XML_GENERADO", "FIRMADO", "ENVIADO_SRI", "RECIBIDO_SRI", "AUTORIZADO"].includes(document.status)) return detail;
   if (!['BORRADOR', 'VALIDADO'].includes(document.status)) throw new SriValidationError(`No se puede generar XML desde ${document.status}.`);
+  const settings = dbError(await client.from("sri_settings").select("*").eq("company_id", companyId).single(), "Configuracion SRI");
+  if (settings.environment !== "TEST" || settings.production_enabled || settings.test_enabled !== true) throw new SriValidationError("La generacion XML requiere SRI TEST habilitado canonicamente para esta empresa.");
   const payload = await documentPayload(client, document);
   const exportInvoice = document.document_type === "01" && isExportInvoicePayload(payload.source || payload);
   const currentIssueDate = ecuadorDate();
@@ -531,7 +533,7 @@ async function signDocument(client, companyId, documentId, actorUserId) {
   if (["FIRMADO", "ENVIADO_SRI", "RECIBIDO_SRI", "AUTORIZADO"].includes(document.status)) return detail;
   if (document.status !== "XML_GENERADO") throw new SriValidationError("El comprobante debe tener un XML validado antes de firmarse.");
   const settings = dbError(await client.from("sri_settings").select("*").eq("company_id", companyId).single(), "Configuracion SRI");
-  if (settings.environment !== "TEST" || settings.production_enabled) throw new SriValidationError("La firma esta habilitada solamente para ambiente de pruebas en esta etapa.");
+  if (settings.environment !== "TEST" || settings.production_enabled || settings.test_enabled !== true) throw new SriValidationError("La firma requiere SRI TEST habilitado canonicamente para esta empresa.");
   const company = await canonicalCertificateCompany(client, companyId);
   if (settings.ruc !== company.tax_id) throw new SriValidationError("La configuracion SRI no coincide con el RUC canonico.");
   const certificateRow = dbError(await client.from("digital_certificates").select("*")

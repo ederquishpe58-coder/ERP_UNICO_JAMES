@@ -1,0 +1,212 @@
+{
+  "version": "SRI-TEST-20260906-1",
+  "baseDeployment": "dpl_6HUV83ZMpy6dB3drMYzUDarhLpij",
+  "baseSha": "8cae245b4febf77f46aa3957e78a839a0ef68fc8",
+  "oldPlanSha256": "b59756cef469195d74199edc2b4c2a799f918c04ce50986bc953723305df217c",
+  "companies": [
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "code": "BLESS",
+      "settings": {
+        "legalName": "LANCHIMBA TUTILLO MANUEL CLEMENTE",
+        "commercialName": "BLESS FLOWER",
+        "ruc": "1717637084001",
+        "headOfficeAddress": "COMUNIDAD CARRERA\nCALLE CENTRAL S/N\nINTERSECCIÓN SANTA ROSA\nVÍA A OYACACHI\nREFERENCIA: A TRES CUADRAS DEL PARQUE CENTRAL\nCANGAHUA - CAYAMBE - PICHINCHA\nECUADOR",
+        "accountingRequired": true,
+        "withholdingAgentNumber": "10",
+        "specialTaxpayerNumber": null,
+        "rimpeLabel": null,
+        "environment": "TEST",
+        "productionEnabled": false
+      },
+      "points": [
+        {
+          "establishmentCode": "001",
+          "emissionPointCode": "003",
+          "establishmentAddress": "COMUNIDAD CARRERA\nCALLE CENTRAL S/N\nINTERSECCIÓN SANTA ROSA\nVÍA A OYACACHI\nREFERENCIA: A TRES CUADRAS DEL PARQUE CENTRAL\nCANGAHUA - CAYAMBE - PICHINCHA\nECUADOR",
+          "name": "LOCAL",
+          "active": true
+        },
+        {
+          "establishmentCode": "001",
+          "emissionPointCode": "002",
+          "establishmentAddress": "COMUNIDAD CARRERA\nCALLE CENTRAL S/N\nINTERSECCIÓN SANTA ROSA\nVÍA A OYACACHI\nREFERENCIA: A TRES CUADRAS DEL PARQUE CENTRAL\nCANGAHUA - CAYAMBE - PICHINCHA\nECUADOR",
+          "name": "EXPORT",
+          "active": true
+        }
+      ],
+      "sequences": [
+        {
+          "establishmentCode": "001",
+          "emissionPointCode": "003",
+          "environment": "TEST",
+          "documentType": "01",
+          "lastIssuedNumber": 0,
+          "expectedStoredNext": 1,
+          "expectedFirst": "000000001"
+        },
+        {
+          "establishmentCode": "001",
+          "emissionPointCode": "003",
+          "environment": "TEST",
+          "documentType": "04",
+          "lastIssuedNumber": 0,
+          "expectedStoredNext": 1,
+          "expectedFirst": "000000001"
+        },
+        {
+          "establishmentCode": "001",
+          "emissionPointCode": "002",
+          "environment": "TEST",
+          "documentType": "01",
+          "lastIssuedNumber": 0,
+          "expectedStoredNext": 1,
+          "expectedFirst": "000000001"
+        },
+        {
+          "establishmentCode": "001",
+          "emissionPointCode": "002",
+          "environment": "TEST",
+          "documentType": "04",
+          "lastIssuedNumber": 0,
+          "expectedStoredNext": 1,
+          "expectedFirst": "000000001"
+        },
+        {
+          "establishmentCode": "001",
+          "emissionPointCode": "002",
+          "environment": "TEST",
+          "documentType": "07",
+          "lastIssuedNumber": 0,
+          "expectedStoredNext": 1,
+          "expectedFirst": "000000001"
+        }
+      ],
+      "certificate": {
+        "path": "EXISTING_LOCAL_FILE_CONFIRMED",
+        "passwordSecretName": "SRI_P12_PASSWORD_BLESS",
+        "secretStatus": "SENSITIVE_PRODUCTION_PRESENT",
+        "storageBucket": "sri-private",
+        "canonicalObjectPath": "companies/cf331b82-7ac3-4065-9e38-d0bbcde96cd5/certificates/<sha256-fingerprint>.p12",
+        "status": "NOT_UPLOADED",
+        "humanRuntimePrecheck": "PASS",
+        "humanExpiration": "2029-03-28"
+      },
+      "productionEnabled": false,
+      "retentionAuto": "No emission during apply"
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "code": "IMPERIO",
+      "settings": {
+        "legalName": "LANCHIMBA TIPANLUISA SANDY ANAHI",
+        "commercialName": "IMPERIO FLOWERS",
+        "ruc": "1727970137001",
+        "headOfficeAddress": "CALLE 3 DE NOVIEMBRE\nNÚMERO LOTE 4\nINTERSECCIÓN CACHICUNGO\nREFERENCIA: A DOS CUADRAS DE LA CANCHA COMUNAL CARRERA\nCANGAHUA - CAYAMBE - PICHINCHA\nECUADOR",
+        "accountingRequired": false,
+        "withholdingAgentNumber": null,
+        "specialTaxpayerNumber": null,
+        "rimpeLabel": null,
+        "environment": "TEST",
+        "productionEnabled": false
+      },
+      "points": [
+        {
+          "establishmentCode": "001",
+          "emissionPointCode": "003",
+          "establishmentAddress": "CALLE 3 DE NOVIEMBRE\nNÚMERO LOTE 4\nINTERSECCIÓN CACHICUNGO\nREFERENCIA: A DOS CUADRAS DE LA CANCHA COMUNAL CARRERA\nCANGAHUA - CAYAMBE - PICHINCHA\nECUADOR",
+          "name": "LOCAL",
+          "active": true
+        },
+        {
+          "establishmentCode": "001",
+          "emissionPointCode": "002",
+          "establishmentAddress": "CALLE 3 DE NOVIEMBRE\nNÚMERO LOTE 4\nINTERSECCIÓN CACHICUNGO\nREFERENCIA: A DOS CUADRAS DE LA CANCHA COMUNAL CARRERA\nCANGAHUA - CAYAMBE - PICHINCHA\nECUADOR",
+          "name": "EXPORT",
+          "active": true
+        }
+      ],
+      "sequences": [
+        {
+          "establishmentCode": "001",
+          "emissionPointCode": "003",
+          "environment": "TEST",
+          "documentType": "01",
+          "lastIssuedNumber": 0,
+          "expectedStoredNext": 1,
+          "expectedFirst": "000000001"
+        },
+        {
+          "establishmentCode": "001",
+          "emissionPointCode": "003",
+          "environment": "TEST",
+          "documentType": "04",
+          "lastIssuedNumber": 0,
+          "expectedStoredNext": 1,
+          "expectedFirst": "000000001"
+        },
+        {
+          "establishmentCode": "001",
+          "emissionPointCode": "002",
+          "environment": "TEST",
+          "documentType": "01",
+          "lastIssuedNumber": 0,
+          "expectedStoredNext": 1,
+          "expectedFirst": "000000001"
+        },
+        {
+          "establishmentCode": "001",
+          "emissionPointCode": "002",
+          "environment": "TEST",
+          "documentType": "04",
+          "lastIssuedNumber": 0,
+          "expectedStoredNext": 1,
+          "expectedFirst": "000000001"
+        }
+      ],
+      "certificate": {
+        "path": "EXISTING_LOCAL_FILE_CONFIRMED",
+        "passwordSecretName": "SRI_P12_PASSWORD_IMPERIO",
+        "secretStatus": "SENSITIVE_PRODUCTION_PRESENT",
+        "storageBucket": "sri-private",
+        "canonicalObjectPath": "companies/ab60abdc-fe53-4289-9ae2-8f749ee21cff/certificates/<sha256-fingerprint>.p12",
+        "status": "NOT_UPLOADED",
+        "humanRuntimePrecheck": "PASS",
+        "humanExpiration": "2030-06-19"
+      },
+      "productionEnabled": false,
+      "retentionAuto": "DISABLED; no 07 sequence row"
+    }
+  ],
+  "primaryRowsPlanned": {
+    "sri_settings": 2,
+    "emission_points": 4,
+    "electronic_document_sequences": 9,
+    "digital_certificates": 2,
+    "totalDatabaseRows": 17,
+    "storageObjects": 2,
+    "separateEstablishmentsTable": false
+  },
+  "sequenceContract": {
+    "api": "save-document-sequence",
+    "input": "lastIssuedNumber=0",
+    "stored": "next_value=1",
+    "firstFutureAllocation": "000000001",
+    "allocationDuringApply": 0,
+    "productionDeltaAllowed": 0
+  },
+  "taxContract": {
+    "regimeGeneral": "rimpe_label=null",
+    "notSpecial": "special_taxpayer_number=null",
+    "BLESSAgent": "withholding_agent_number=\"10\"",
+    "IMPERIOAgent": "withholding_agent_number=null"
+  },
+  "storageContract": {
+    "bucket": "sri-private",
+    "private": true,
+    "actualCanonicalPath": "companies/<company_id>/certificates/<certificate_fingerprint_sha256>.p12",
+    "publicUrls": false,
+    "secretValuesInDatabase": false,
+    "onlySecretReferenceName": true
+  }
+}

@@ -12,7 +12,7 @@
     const companyId = BlessERP.sriApi?.certificatePrecheckCompany?.();
     if (!companyId) { activeView = null; return ""; }
     viewFor(companyId);
-    return `<section class="panel-card" data-certificate-precheck>
+    return `${BlessERP.sriTestApply?.render?.() || ""}<section class="panel-card" data-certificate-precheck>
       <h3>Validar certificado SRI</h3>
       <p>Comprueba el certificado de la empresa seleccionada sin guardarlo ni activar SRI.</p>
       <label>Archivo .p12 / .pfx (máximo 3 MB)
@@ -38,6 +38,7 @@
   }
 
   function bind(container) {
+    BlessERP.sriTestApply?.bind?.(container);
     const panel = container.querySelector("[data-certificate-precheck]");
     if (!panel) return;
     const companyId = BlessERP.sriApi.certificatePrecheckCompany();

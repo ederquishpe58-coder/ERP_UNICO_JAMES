@@ -31,7 +31,7 @@ const client={
    const c=companies[where.id||where.company_id]||companies[B];
    if(table==='companies')return [c];
    if(table==='sri_company_memberships')return membership?[{company_id:where.company_id,role_code:'ADMIN',active:true}]:[];
-   if(table==='sri_settings')return [{company_id:c.id,ruc:c.tax_id,environment:'TEST',production_enabled:false}];
+   if(table==='sri_settings')return [{company_id:c.id,ruc:c.tax_id,environment:'TEST',test_enabled:true,production_enabled:false}];
    if(table==='digital_certificates')return stored?[stored]:[];
    if(table==='electronic_documents')return document?[document]:[];
    if(table==='electronic_document_files')return unsignedXml?[{id:'fixture-file',document_id:document?.id,file_type:'UNSIGNED_XML',storage_bucket:'sri-private',storage_object_path:'fixture-unsigned.xml'}]:[];
