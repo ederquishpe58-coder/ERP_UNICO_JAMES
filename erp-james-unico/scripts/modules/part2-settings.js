@@ -333,8 +333,8 @@
 
         ${remoteCanonical ? `
           <section class="inline-feedback ${membership.profileState === "PROFILE_MISSING" ? "danger" : "success"}">
-            <strong>${membership.profileState === "PROFILE_MISSING" ? "PROFILE_MISSING" : `Perfil efectivo: ${esc(membership.profileName || membership.profileId)}`}</strong>
-            <div>Las capabilities se resuelven en servidor. DENY prevalece sobre GRANT y perfil.</div>
+            <strong>${membership.profileState === "PROFILE_MISSING" ? "PROFILE_MISSING" : `Perfil efectivo: ${esc(BlessERP.capabilityPresentation?.profile(membership.profileId)?.label || membership.profileName || membership.profileId)}`}</strong>
+            <div>Los permisos se confirman en el servidor. Bloquear prevalece sobre permitir y sobre el perfil base.</div>
             ${membership.legacyDependent ? `<div>LEGACY VISIBLE: existen ${esc(String(membership.legacyRoutePermissionCount || 0))} registro(s) históricos en user_route_permissions. No se editan ni se usan para construir este perfil.</div>` : ""}
           </section>
           ${stored?.cloudManaged && draft.id !== currentUserId ? `<section data-user-access-plan></section>` : ""}

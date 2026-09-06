@@ -12282,3 +12282,31 @@ body.yield-presentation-route #page-root{
     padding:14px;
   }
 }
+
+/* User Admin access presentation only. */
+.user-access-plan .access-technical-name { display: none; }
+.user-access-plan.show-technical-names .access-technical-name,
+.user-access-plan .access-untranslated-name { display: block; overflow-wrap: anywhere; font-size: .75rem; margin-top: 4px; }
+.user-access-plan .access-technical-toggle { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
+.user-access-plan .access-technical-toggle input { width: auto; }
+.user-access-plan .access-permission-catalog { max-height: 440px; overflow: auto; border: 1px solid #dce5df; border-radius: 8px; margin: 8px 0 16px; }
+.user-access-plan [data-access-category] > h4 { margin: 0; padding: 9px 12px; background: #eef4f0; color: #254c38; }
+.user-access-plan .access-permission-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(170px, 230px); gap: 12px; padding: 10px 12px; border-bottom: 1px solid #e6ece8; align-items: center; }
+.user-access-plan .access-permission-row small,
+.user-access-plan .access-effective-group small,
+.user-access-plan .access-effective-group li small { display: block; margin-top: 3px; color: #526259; line-height: 1.4; }
+.user-access-plan .access-permission-choice { display: grid; gap: 5px; }
+.user-access-plan .access-origin { font-size: .75rem; line-height: 1.4; color: #46584b; }
+.user-access-plan [data-access-effect="GRANT"] .access-origin { color: #11623d; font-weight: 600; }
+.user-access-plan [data-access-effect="DENY"] .access-origin { color: #942d29; font-weight: 600; }
+.user-access-plan .access-effective-count { font-size: 1.05rem; }
+.user-access-plan [data-access-plan-summary] { margin-top: 14px; padding: 12px; border: 1px solid #dce5df; border-radius: 8px; }
+.user-access-plan [data-access-plan-summary] details { margin: 8px 0; }
+.user-access-plan .access-effective-group ul { list-style: none; padding: 0 8px; }
+.user-access-plan .access-effective-group li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #e6ece8; }
+.user-access-plan [data-access-review-stale] { color: #794800; }
+.user-access-plan [hidden] { display: none !important; }
+@media (max-width: 640px) {
+  .user-access-plan .access-permission-row { grid-template-columns: minmax(0, 1fr); }
+  .user-access-plan .access-effective-group li { display: block; }
+}
