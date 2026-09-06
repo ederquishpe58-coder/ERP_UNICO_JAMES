@@ -251,7 +251,7 @@
           <div>
             <p class="section-kicker">USUARIO Y ACCESOS</p>
             <h3>${stored ? "Editar usuario" : "Nuevo usuario"}</h3>
-            <small>${remoteCanonical ? "Los permisos efectivos se derivan exclusivamente del perfil canónico asignado por empresa." : "Los permisos individuales nunca pueden superar las funciones habilitadas para cada empresa."}</small>
+            <small>${remoteCanonical ? "Los permisos efectivos se resuelven en servidor desde el perfil y los overrides canónicos de cada empresa." : "Los permisos individuales nunca pueden superar las funciones habilitadas para cada empresa."}</small>
           </div>
           <div class="editor-actions">
             <button class="secondary-button" type="button" data-user-cancel>Cancelar</button>
@@ -316,7 +316,7 @@
           ${remoteCanonical ? `
             <label class="compact-field">
               <span>Perfil canónico</span>
-              <select data-user-company-profile="${esc(selectedCompanyId)}" ${membership.enabled ? "required" : "disabled"}>
+              <select data-user-company-profile="${esc(selectedCompanyId)}" ${membership.enabled && !stored?.cloudManaged ? "required" : "disabled"}>
                 <option value="">Seleccione un perfil</option>
                 ${canonicalProfiles.map(profile => `<option value="${esc(profile.id)}" ${membership.profileId === profile.id ? "selected" : ""}>${esc(profile.name)} (${esc(profile.id)})</option>`).join("")}
               </select>
@@ -334,9 +334,10 @@
         ${remoteCanonical ? `
           <section class="inline-feedback ${membership.profileState === "PROFILE_MISSING" ? "danger" : "success"}">
             <strong>${membership.profileState === "PROFILE_MISSING" ? "PROFILE_MISSING" : `Perfil efectivo: ${esc(membership.profileName || membership.profileId)}`}</strong>
-            <div>Las capabilities se resuelven en servidor desde el perfil. Admin Users no crea permisos individuales.</div>
+            <div>Las capabilities se resuelven en servidor. DENY prevalece sobre GRANT y perfil.</div>
             ${membership.legacyDependent ? `<div>LEGACY VISIBLE: existen ${esc(String(membership.legacyRoutePermissionCount || 0))} registro(s) históricos en user_route_permissions. No se editan ni se usan para construir este perfil.</div>` : ""}
           </section>
+          ${stored?.cloudManaged && draft.id !== currentUserId ? `<section data-user-access-plan></section>` : ""}
         ` : `<div class="user-route-matrix">
           <div class="user-route-matrix-head">
             <div>
@@ -554,6 +555,19 @@
       </section>
     `;
 
+    const planRoot = document.querySelector("[data-user-access-plan]");
+    if (planRoot) BlessERP.userAccessOverrides?.mount(planRoot, {
+      targetUserId: uiState.users.draft.id,
+      companyKey: uiState.users.accessCompanyId,
+      onConfirmed: result => {
+        const access = userAccessFor(uiState.users.draft, uiState.users.accessCompanyId);
+        access.profileId = result.profile_id;
+        access.profileName = result.profiles.find(profile => profile.profile_id === result.profile_id)?.display_name || result.profile_id;
+        access.profileState = "CANONICAL";
+        uiState.users.unlinkedLoaded = false;
+        uiState.users.message = "Perfil y permisos confirmados por servidor. Cierre el editor para volver al directorio.";
+      }
+    });
     document.querySelector("#settings-users-search")?.addEventListener("input", event => {
       uiState.users.search = event.target.value;
       BlessERP.layout.renderPage();

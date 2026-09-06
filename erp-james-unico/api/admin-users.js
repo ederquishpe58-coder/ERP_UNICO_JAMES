@@ -84,9 +84,12 @@ function inviteRedirectUrl(request, requestedValue = "") {
 }
 
 async function actor(client, request) {
-  const token = bearerToken(request);
+  let token;
+  try { token = bearerToken(request); }
+  catch { throw Object.assign(new Error("La sesión no es válida o expiró."), { statusCode: 401 }); }
+  if (!token) throw Object.assign(new Error("La sesión no es válida o expiró."), { statusCode: 401 });
   const { data, error } = await client.auth.getUser(token);
-  if (error || !data?.user) throw new Error("La sesión no es válida o expiró.");
+  if (error || !data?.user) throw Object.assign(new Error("La sesión no es válida o expiró."), { statusCode: 401 });
   return { ...data.user, accessToken: token };
 }
 
@@ -517,6 +520,41 @@ async function deleteUser(client, actorUser, input) {
   };
 }
 
+async function accessPlan(client, actorUser, action, input = {}) {
+  const allowed = new Set(["companyKey", "contextCompanyKey", "targetUserId", "profileId", "overrides", "expectedVersion", "operationId", "reason"]);
+  if (Object.keys(input).some(key => !allowed.has(key))) throw new Error("SECURITY_ACCESS_PLAN_INPUT_INVALID");
+  if (!input.companyKey || input.companyKey !== input.contextCompanyKey) {
+    throw Object.assign(new Error("SECURITY_COMPANY_CONTEXT_MISMATCH"), { statusCode: 403 });
+  }
+  const company = await companyByKey(client, input.companyKey);
+  const target = uuidOrNull(input.targetUserId);
+  if (!target) throw new Error("SECURITY_TARGET_MEMBERSHIP_REQUIRED");
+  // All reads/changes for the plan use the actor JWT, including the independent confirmation read.
+  const userClient = getSupabaseUserContext(actorUser.accessToken);
+  async function rpc(name, args) {
+    const { data, error } = await userClient.rpc(name, args);
+    if (error) throw Object.assign(new Error(error.message || "SECURITY_ACCESS_PLAN_FAILED"), { statusCode: error.code === "42501" ? 403 : 400 });
+    if (data?.company_id !== company.id || data?.target_user_id !== target || !Array.isArray(data.effective_capabilities) || !data.state_token) {
+      throw new Error("CANONICAL_ACCESS_PLAN_NOT_CONFIRMED");
+    }
+    return data;
+  }
+  const scope = { p_company_id: company.id, p_target_user_id: target };
+  if (action === "preview_access_plan") return rpc("erp_admin_preview_user_access_plan", {
+    ...scope, p_profile_id: input.profileId ?? null, p_overrides: input.overrides ?? null
+  });
+  const data = await rpc("erp_admin_configure_user_access_plan", {
+    ...scope, p_profile_id: input.profileId, p_overrides: input.overrides,
+    p_expected_version: input.expectedVersion, p_operation_id: uuidOrNull(input.operationId), p_reason: input.reason
+  });
+  if (data.confirmed !== true || data.operation_id !== input.operationId) throw new Error("CANONICAL_ACCESS_PLAN_NOT_CONFIRMED");
+  const second = await rpc("erp_admin_preview_user_access_plan", scope);
+  for (const key of ["state_token", "profile_id", "overrides", "effective_capabilities", "membership", "version"]) {
+    if (JSON.stringify(data[key]) !== JSON.stringify(second[key])) throw new Error("CANONICAL_ACCESS_PLAN_SECOND_READ_MISMATCH");
+  }
+  return { ...data, second_read_confirmed: true };
+}
+
 module.exports = async function handler(request, response) {
   if (request.method === "OPTIONS") {
     response.statusCode = 204;
@@ -537,6 +575,9 @@ module.exports = async function handler(request, response) {
     if (request.method !== "POST") return send(response, 405, { ok: false, error: "Método no permitido." });
     const body = bodyOf(request);
     const action = String(body.action || "").toLowerCase();
+    if (["preview_access_plan", "configure_access_plan"].includes(action)) {
+      return send(response, 200, { ok: true, data: await accessPlan(client, currentActor, action, body.plan) });
+    }
     if (action === "create_user" && body?.user && typeof body.user === "object") {
       body.user.inviteRedirectTo = inviteRedirectUrl(request, body.user.inviteRedirectTo);
     }
