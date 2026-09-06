@@ -1,4 +1,5 @@
 const { parsePkcs12, resolveCertificatePassword, SECRET_NAME_PATTERN } = require("./sri/_lib/certificate.cjs");
+const { handleCertificatePrecheck } = require("./sri/_lib/certificate-precheck.cjs");
 const { SriError, SriValidationError } = require("./sri/_lib/errors.cjs");
 const {
   createDraft,
@@ -387,6 +388,9 @@ async function cleanupMarkedTestDemoDocuments(client, companyId, input = {}) {
 
 module.exports = async function handler(request, response) {
   response.setHeader("x-content-type-options", "nosniff");
+  if (queryValue(request, "action") === "validate-certificate" || request.body?.action === "validate-certificate") {
+    return handleCertificatePrecheck(request, response);
+  }
   if (request.method === "OPTIONS") {
     response.statusCode = 204;
     return response.end();

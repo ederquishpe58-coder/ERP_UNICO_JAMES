@@ -315,6 +315,51 @@
     return api("", { method: "POST", body: JSON.stringify({ action, ...body }) });
   }
 
+  function certificatePrecheckCompany() {
+    const access = BlessERP.authAccess?.activeAccess?.() || {};
+    const selected = String(BlessERP.services?.companyContext?.activeCompanyId?.() || "");
+    const company = (access.companies || []).find(item => [item.id, item.company_key, item.company_code].includes(selected));
+    const capability = BlessERP.capabilityRuntime?.status?.();
+    const companyId = String(company?.id || "");
+    return UUID_PATTERN.test(companyId) && capability?.loaded && capability.companyId === companyId
+      && BlessERP.capabilityRuntime?.can?.("tax.parameters.manage") ? companyId : "";
+  }
+
+  async function validateCertificate(companyId, file) {
+    if (!companyId || companyId !== certificatePrecheckCompany()) throw new Error("Seleccione la empresa y verifique sus permisos tributarios.");
+    if (!file || !/\.(p12|pfx)$/i.test(file.name || "") || file.size < 1 || file.size > 3 * 1024 * 1024) {
+      throw new Error("Seleccione un archivo .p12 o .pfx de hasta 3 MB.");
+    }
+    let bytes;
+    let binary = "";
+    try {
+      bytes = new Uint8Array(await file.arrayBuffer());
+      for (let index = 0; index < bytes.length; index += 16384) {
+        binary += String.fromCharCode(...bytes.subarray(index, index + 16384));
+      }
+      const activeSession = await session();
+      if (!activeSession?.access_token) throw new Error("Inicie sesión en el ERP.");
+      if (companyId !== certificatePrecheckCompany()) throw new Error("La empresa cambió. Vuelva a seleccionar el archivo.");
+      // This pre-configuration action deliberately does not call ensureActiveCompany:
+      // no SRI settings, SRI activation, certificate upload or storage is required.
+      const response = await fetch("/api/sri?action=validate-certificate", {
+        method: "POST", cache: "no-store", headers: {
+          "content-type": "application/json", authorization: `Bearer ${activeSession.access_token}`
+        },
+        body: JSON.stringify({ company_id: companyId, certificate_file: btoa(binary) })
+      });
+      binary = "";
+      const payload = await response.json();
+      if (companyId !== certificatePrecheckCompany()) throw new Error("La empresa cambió. Repita la validación.");
+      if (!response.ok || !payload.ok) throw new Error(payload.error?.message || "No fue posible validar el certificado.");
+      if (payload.data?.company_id !== companyId) throw new Error("La respuesta no corresponde a la empresa seleccionada.");
+      return payload.data;
+    } finally {
+      binary = "";
+      bytes?.fill(0);
+    }
+  }
+
   async function download(fileId) {
     const response = await api(query({ action: "download", fileId }));
     const blob = await response.blob();
@@ -558,6 +603,8 @@
     detail,
     configuration,
     post,
+    certificatePrecheckCompany,
+    validateCertificate,
     download,
     subscribe,
     unsubscribe,

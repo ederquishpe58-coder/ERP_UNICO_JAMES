@@ -307,6 +307,7 @@
       </section>
       ${routeTabs(route)}
       ${draftFeedback(uiState.taxes.message, uiState.taxes.errors, uiState.taxes.warnings)}
+      ${BlessERP.sriCertificatePrecheck?.render?.() || ""}
       ${summaryCards(summary, "tax")}
       <section class="panel-card compact-toolbar-card">
         <div class="compact-toolbar">
@@ -396,6 +397,7 @@
       </article>
     `;
     bindTaxes();
+    BlessERP.sriCertificatePrecheck?.bind?.(container);
   }
 
   function renderRetentions(container, route) {
