@@ -236,6 +236,10 @@
   }
 
   function replayGate(operation, syncContext = context(), at = Date.now()) {
+    if (registry()?.requiresExplicitAcknowledgement?.(operation?.entity)
+        || (operation?.entity === 'accounting_document_sequences' && !operation?.payload?.documentType)) {
+      return { ok: false, reason: QUARANTINE_REASONS.EXPLICIT_SERVER_AUTHORITY };
+    }
     if (registry()?.descriptor?.(operation?.entity)?.syncMode === "EXPLICIT_COMMERCIAL_MASTER_DATA") {
       return { ok: false, reason: QUARANTINE_REASONS.EXPLICIT_SERVER_AUTHORITY };
     }

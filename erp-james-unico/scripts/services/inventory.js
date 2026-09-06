@@ -342,7 +342,7 @@
 
   function emptyResponsible() {
     return {
-      id: "",
+      id: uid("DRAFT"),
       code: `RSP-${String(responsibles().length + 1).padStart(3, "0")}`,
       name: "",
       role: "",
@@ -354,32 +354,7 @@
   }
 
   function saveResponsible(responsible) {
-    const candidate = normalizeResponsible(responsible);
-    const rows = responsibles();
-    const errors = [];
-    if (!candidate.code) errors.push("El codigo del responsable es obligatorio.");
-    if (!candidate.name) errors.push("El nombre del responsable es obligatorio.");
-    const duplicate = rows.find(item => item.id !== candidate.id && item.code === candidate.code);
-    if (duplicate) errors.push("No se permite codigo de responsable duplicado.");
-    if (candidate.warehouseId && !findWarehouseById(candidate.warehouseId)) errors.push("La bodega del responsable no existe.");
-    if (errors.length) return { ok: false, errors };
-    const index = rows.findIndex(item => item.id === candidate.id);
-    if (index >= 0) rows[index] = candidate;
-    else rows.unshift(candidate);
-    saveList("inventoryResponsibles", rows);
-    adminService?.addAuditLog?.({
-      module: "INVENTARIO",
-      action: index >= 0 ? "EDITAR_RESPONSABLE_INVENTARIO" : "CREAR_RESPONSABLE_INVENTARIO",
-      entityType: "inventory_responsible",
-      entityId: candidate.id,
-      entityLabel: candidate.code,
-      documentLabel: candidate.name,
-      nextStatus: candidate.status,
-      description: `${index >= 0 ? "Se actualizo" : "Se creo"} el responsable ${candidate.code}.`,
-      after: candidate,
-      result: "exitoso"
-    });
-    return { ok: true, responsible: clone(candidate) };
+    return BlessERP.services.confirmedOperationalWrite.unavailable("saveResponsible");
   }
 
   function defaultWarehouse() {
@@ -388,7 +363,7 @@
 
   function emptyWarehouse() {
     return {
-      id: "",
+      id: uid("DRAFT"),
       code: nextWarehouseCode(),
       name: "",
       responsible: currentUser().name,
@@ -398,40 +373,11 @@
   }
 
   function saveWarehouse(warehouse) {
-    const candidate = normalizeWarehouse(warehouse);
-    const rows = warehouses();
-    const errors = [];
-    if (!candidate.code) errors.push("El codigo de bodega es obligatorio.");
-    if (!candidate.name) errors.push("El nombre de bodega es obligatorio.");
-    const duplicate = rows.find(item => item.id !== candidate.id && item.code === candidate.code);
-    if (duplicate) errors.push("No se permite codigo de bodega duplicado.");
-    if (errors.length) return { ok: false, errors };
-    const index = rows.findIndex(item => item.id === candidate.id);
-    if (index >= 0) rows[index] = candidate;
-    else rows.unshift(candidate);
-    saveList("inventoryWarehouses", rows);
-    adminService?.addAuditLog?.({
-      module: "INVENTARIO",
-      action: index >= 0 ? "EDITAR_BODEGA" : "CREAR_BODEGA",
-      entityType: "warehouse",
-      entityId: candidate.id,
-      entityLabel: candidate.code,
-      documentLabel: candidate.name,
-      nextStatus: candidate.status,
-      description: `${index >= 0 ? "Se actualizo" : "Se creo"} la bodega ${candidate.code}.`,
-      after: candidate,
-      result: "exitoso"
-    });
-    return { ok: true, warehouse: clone(candidate) };
+    return BlessERP.services.confirmedOperationalWrite.unavailable("saveWarehouse");
   }
 
   function toggleWarehouseStatus(warehouseId) {
-    const rows = warehouses();
-    const index = rows.findIndex(item => item.id === warehouseId);
-    if (index < 0) return { ok: false, message: "Bodega no encontrada." };
-    rows[index].status = rows[index].status === "activo" ? "inactivo" : "activo";
-    saveList("inventoryWarehouses", rows);
-    return { ok: true, warehouse: clone(rows[index]) };
+    return BlessERP.services.confirmedOperationalWrite.unavailable('toggleWarehouseStatus');
   }
 
   function normalizeItem(raw = {}) {
@@ -519,55 +465,11 @@
   }
 
   function saveItem(item) {
-    const candidate = normalizeItem(item);
-    const rows = items();
-    const errors = [];
-    if (!candidate.code) errors.push("El codigo interno es obligatorio.");
-    if (!candidate.name) errors.push("El nombre del producto es obligatorio.");
-    const duplicate = rows.find(entry => entry.id !== candidate.id && entry.code === candidate.code);
-    if (duplicate) errors.push("No se permite codigo interno duplicado.");
-    if (candidate.warehouseId && !findWarehouseById(candidate.warehouseId)) errors.push("La bodega seleccionada no existe.");
-    if (candidate.defaultCostCenter) {
-      const availableCostCenters = adminService?.costCenters?.({ status: "activo" }) || [];
-      if (!availableCostCenters.some(item => item.code === candidate.defaultCostCenter)) {
-        errors.push("El centro de costo predeterminado no existe o esta inactivo.");
-      }
-    }
-    if (candidate.defaultResponsibleId) {
-      const responsible = findResponsibleById(candidate.defaultResponsibleId);
-      if (!responsible || responsible.status !== "activo") {
-        errors.push("El responsable predeterminado no existe o esta inactivo.");
-      }
-    }
-    errors.push(...validateMovementAccount(candidate.inventoryAccountCode, "la cuenta contable de inventario").errors);
-    errors.push(...validateMovementAccount(candidate.expenseAccountCode, "la cuenta contable de consumo / gasto / costo").errors);
-    if (errors.length) return { ok: false, errors: [...new Set(errors)] };
-    const index = rows.findIndex(entry => entry.id === candidate.id);
-    if (index >= 0) rows[index] = candidate;
-    else rows.unshift(candidate);
-    saveList("inventoryItems", rows);
-    adminService?.addAuditLog?.({
-      module: "INVENTARIO",
-      action: index >= 0 ? "EDITAR_ITEM_INVENTARIO" : "CREAR_ITEM_INVENTARIO",
-      entityType: "inventory_item",
-      entityId: candidate.id,
-      entityLabel: candidate.code,
-      documentLabel: candidate.name,
-      nextStatus: candidate.status,
-      description: `${index >= 0 ? "Se actualizo" : "Se creo"} el item ${candidate.code}.`,
-      after: candidate,
-      result: "exitoso"
-    });
-    return { ok: true, item: clone(candidate) };
+    return BlessERP.services.confirmedOperationalWrite.unavailable("saveItem");
   }
 
   function toggleItemStatus(itemId) {
-    const rows = items();
-    const index = rows.findIndex(item => item.id === itemId);
-    if (index < 0) return { ok: false, message: "Producto no encontrado." };
-    rows[index].status = rows[index].status === "activo" ? "inactivo" : "activo";
-    saveList("inventoryItems", rows);
-    return { ok: true, item: clone(rows[index]) };
+    return BlessERP.services.confirmedOperationalWrite.unavailable('toggleItemStatus');
   }
 
   function draftItemFromPurchaseLine(purchaseId, lineId) {
@@ -671,7 +573,7 @@
   function emptyMovement(type = "SALIDA_CONSUMO") {
     const warehouse = defaultWarehouse();
     return {
-      id: "",
+      id: uid("DRAFT"),
       movementNumber: nextMovementNumber(),
       movementDate: today(),
       movementType: movementTypes.includes(type) ? type : "SALIDA_CONSUMO",
@@ -1022,7 +924,7 @@
     return { ok: true, entry };
   }
 
-  function saveMovement(movement) {
+  async function saveMovement(movement) {
     const { movement: candidate, errors } = validateMovement(movement);
     if (errors.length) return { ok: false, errors };
     const rows = movements();
@@ -1030,87 +932,16 @@
     candidate.status = candidate.status === "ANULADO" ? "ANULADO" : "BORRADOR";
     if (index >= 0) rows[index] = candidate;
     else rows.unshift(candidate);
-    saveList("inventoryMovements", rows);
-    adminService?.addAuditLog?.({
-      module: "INVENTARIO",
-      action: index >= 0 ? "EDITAR_MOVIMIENTO_INVENTARIO" : "CREAR_MOVIMIENTO_INVENTARIO",
-      entityType: "inventory_movement",
-      entityId: candidate.id,
-      entityLabel: candidate.movementNumber,
-      documentLabel: candidate.documentOrigin || candidate.movementNumber,
-      nextStatus: candidate.status,
-      description: `${index >= 0 ? "Se actualizo" : "Se creo"} el movimiento ${candidate.movementNumber}.`,
-      after: candidate,
-      result: "exitoso"
-    });
-    return { ok: true, movement: clone(candidate) };
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('material_inventory_movements', candidate, {});
+    return { ...ack, movement: clone(ack.serverRecord?.payload || candidate) };
   }
 
   function confirmMovement(movementId) {
-    const rows = movements();
-    const index = rows.findIndex(item => item.id === movementId);
-    if (index < 0) return { ok: false, errors: ["Movimiento de inventario no encontrado."] };
-    if (rows[index].status !== "BORRADOR") return { ok: false, errors: ["Solo se pueden confirmar movimientos en borrador."] };
-    const { movement: candidate, errors } = validateMovement(rows[index], { forConfirm: true });
-    if (errors.length) return { ok: false, errors };
-
-    if (touchesJournal(candidate.movementType)) {
-      const built = buildMovementJournalEntry(candidate);
-      if (!built.ok) return built;
-      const savedEntry = journalService.saveDraft(built.entry);
-      if (!savedEntry.ok) return { ok: false, errors: savedEntry.errors || ["No se pudo guardar el asiento de inventario."] };
-      const postedEntry = journalService.postEntry(savedEntry.entry.id);
-      if (!postedEntry.ok) return { ok: false, errors: postedEntry.errors || ["No se pudo contabilizar el asiento de inventario."] };
-      candidate.journalEntryId = postedEntry.entry.id;
-      candidate.journalEntryNumber = postedEntry.entry.entryNumber;
-    }
-
-    candidate.status = "CONFIRMADO";
-    rows[index] = candidate;
-    saveList("inventoryMovements", rows);
-    adminService?.addAuditLog?.({
-      module: "INVENTARIO",
-      action: "CONFIRMAR_MOVIMIENTO_INVENTARIO",
-      entityType: "inventory_movement",
-      entityId: candidate.id,
-      entityLabel: candidate.movementNumber,
-      documentLabel: candidate.documentOrigin || candidate.movementNumber,
-      previousStatus: "BORRADOR",
-      nextStatus: candidate.status,
-      description: `Movimiento ${candidate.movementNumber} confirmado${candidate.journalEntryNumber ? ` con asiento ${candidate.journalEntryNumber}` : ""}.`,
-      after: candidate,
-      result: "exitoso"
-    });
-    return { ok: true, movement: clone(candidate) };
+    return BlessERP.services.confirmedOperationalWrite.unavailable("confirmMovement");
   }
 
   function annulMovement(movementId) {
-    const rows = movements();
-    const index = rows.findIndex(item => item.id === movementId);
-    if (index < 0) return { ok: false, message: "Movimiento de inventario no encontrado." };
-    if (rows[index].status === "ANULADO") return { ok: false, message: "El movimiento ya esta anulado." };
-    if (rows[index].journalEntryId) {
-      const reversed = journalService.reverseEntry(rows[index].journalEntryId);
-      if (!reversed.ok) return { ok: false, message: reversed.message || "No se pudo reversar el asiento de inventario." };
-      rows[index].reverseEntryId = reversed.entry.id;
-      rows[index].reverseEntryNumber = reversed.entry.entryNumber;
-    }
-    rows[index].status = "ANULADO";
-    saveList("inventoryMovements", rows);
-    adminService?.addAuditLog?.({
-      module: "INVENTARIO",
-      action: "ANULAR_MOVIMIENTO_INVENTARIO",
-      entityType: "inventory_movement",
-      entityId: rows[index].id,
-      entityLabel: rows[index].movementNumber,
-      documentLabel: rows[index].documentOrigin || rows[index].movementNumber,
-      previousStatus: "CONFIRMADO",
-      nextStatus: rows[index].status,
-      description: `Movimiento ${rows[index].movementNumber} anulado.`,
-      after: rows[index],
-      result: "exitoso"
-    });
-    return { ok: true, movement: clone(rows[index]) };
+    return BlessERP.services.confirmedOperationalWrite.unavailable("annulMovement");
   }
 
   function stockSummary(filters = {}) {

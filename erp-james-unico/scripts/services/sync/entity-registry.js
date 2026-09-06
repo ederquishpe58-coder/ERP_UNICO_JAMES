@@ -568,6 +568,7 @@
   }
 
   function isSyncEligibleRecord(descriptor, record) {
+    if (descriptor?.entity === 'accounting_document_sequences' && !record?.documentType) return false;
     // Las etiquetas creadas por la RPC Zebra V2 ya fueron confirmadas por el
     // servidor. Aunque la colección conserva temporalmente etiquetas antiguas
     // del flujo legacy, un registro V2 nunca debe volver a enviarse por la
@@ -652,6 +653,7 @@
     const descriptor = typeof descriptorOrEntity === "string"
       ? BY_ENTITY.get(String(descriptorOrEntity || ""))
       : descriptorOrEntity;
+    if (requiresExplicitAcknowledgement(descriptor?.entity)) return true;
     const syncMode = String(descriptor?.syncMode || "");
     if (syncMode === "EXPLICIT_FLOW_V2") return true;
     if (syncMode === "EXPLICIT_COMMERCIAL_MASTER_DATA") {
@@ -703,6 +705,9 @@
     // repositorio, RLS y Realtime hayan sido validados y tengan su guard propio.
     return false;
   }
+
+  const confirmedWriteEntities = new Set(["company_settings","accounting_chart_accounts","accounting_journal_entries","accounting_cost_centers","accounting_tax_parameters","accounting_retention_parameters","material_inventory_movements","collections","payments","commercial_preorders","inventory_responsibles","inventory_warehouses","inventory_items","customer_receivables","collection_batches","payment_batches"]);
+  function requiresExplicitAcknowledgement(entity) { return confirmedWriteEntities.has(String(entity || '')); }
 
   function shouldSkipIncrementalCapture(descriptorOrEntity) {
     const descriptor = typeof descriptorOrEntity === "string"
@@ -817,6 +822,7 @@
     hasCanonicalServerEvidence,
     isExplicitCaptureReady,
     shouldSkipIncrementalCapture,
+    requiresExplicitAcknowledgement,
     snapshot,
     applyServerRecord
   };

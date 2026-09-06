@@ -862,8 +862,8 @@
       }));
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-payment-save]")?.addEventListener("click", () => {
-      const result = portfolioService.savePayment(collectPaymentDraft());
+    document.querySelector("[data-payment-save]")?.addEventListener("click", async () => {
+      const result = await portfolioService.savePayment(collectPaymentDraft());
       uiState.payments.errors = result.errors || [];
       uiState.payments.message = "";
       if (!result.ok) {
@@ -877,8 +877,8 @@
     document.querySelector("[data-payment-confirm]")?.addEventListener("click", async event => {
       event.currentTarget.disabled = true;
       let current = collectPaymentDraft();
-      if (!current.id) {
-        const saved = portfolioService.savePayment(current);
+      if (!current.id || !portfolioService.payments().some(item => item.id === current.id)) {
+        const saved = await portfolioService.savePayment(current);
         if (!saved.ok) {
           uiState.payments.errors = saved.errors || [];
           BlessERP.layout.renderPage();

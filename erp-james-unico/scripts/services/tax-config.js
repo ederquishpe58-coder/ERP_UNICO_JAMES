@@ -231,7 +231,7 @@
   function emptyTax() {
     const defaults = settingsDefaults();
     return {
-      id: "",
+      id: uid("DRAFT"),
       internalCode: "",
       sriCode: "",
       name: "",
@@ -252,7 +252,7 @@
   function emptyRetention() {
     const defaults = settingsDefaults();
     return {
-      id: "",
+      id: uid("DRAFT"),
       internalCode: "",
       sriCode: "",
       description: "",
@@ -407,44 +407,44 @@
     return { normalized, errors, warnings: retentionWarnings(normalized) };
   }
 
-  function saveTax(candidate) {
+  async function saveTax(candidate) {
     const { normalized, errors, warnings } = validateTax(candidate, candidate?.id || "");
     if (errors.length) return { ok: false, errors, warnings };
     const rows = taxes();
     const index = rows.findIndex(item => item.id === normalized.id);
     if (index >= 0) rows[index] = normalized;
     else rows.unshift(normalized);
-    saveList("taxParameters", rows);
-    return { ok: true, tax: clone(normalized), warnings };
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('accounting_tax_parameters', normalized, {});
+    return { ...ack, tax: clone(ack.serverRecord?.payload || normalized) };
   }
 
-  function saveRetention(candidate) {
+  async function saveRetention(candidate) {
     const { normalized, errors, warnings } = validateRetention(candidate, candidate?.id || "");
     if (errors.length) return { ok: false, errors, warnings };
     const rows = retentions();
     const index = rows.findIndex(item => item.id === normalized.id);
     if (index >= 0) rows[index] = normalized;
     else rows.unshift(normalized);
-    saveList("retentionParameters", rows);
-    return { ok: true, retention: clone(normalized), warnings };
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('accounting_retention_parameters', normalized, {});
+    return { ...ack, retention: clone(ack.serverRecord?.payload || normalized) };
   }
 
-  function toggleTaxStatus(id) {
+  async function toggleTaxStatus(id) {
     const rows = taxes();
     const index = rows.findIndex(item => item.id === id);
     if (index < 0) return { ok: false, message: "Impuesto no encontrado." };
     rows[index].status = rows[index].status === "activo" ? "inactivo" : "activo";
-    saveList("taxParameters", rows);
-    return { ok: true, tax: clone(rows[index]) };
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('accounting_tax_parameters', rows[index]);
+    return { ...ack, tax: clone(ack.serverRecord?.payload || rows[index]) };
   }
 
-  function toggleRetentionStatus(id) {
+  async function toggleRetentionStatus(id) {
     const rows = retentions();
     const index = rows.findIndex(item => item.id === id);
     if (index < 0) return { ok: false, message: "Retencion no encontrada." };
     rows[index].status = rows[index].status === "activo" ? "inactivo" : "activo";
-    saveList("retentionParameters", rows);
-    return { ok: true, retention: clone(rows[index]) };
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('accounting_retention_parameters', rows[index]);
+    return { ...ack, retention: clone(ack.serverRecord?.payload || rows[index]) };
   }
 
   function validateTaxActiveOnDate(codeOrRecord, date) {

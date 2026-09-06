@@ -5,7 +5,7 @@
   const utils = BlessERP.comercialUtils;
 
   const STATUS = {
-    BORRADOR: { label: "Borrador", tone: "pending" },
+    BORRADOR: { label: "Borrador · guardar para confirmar persistencia", tone: "pending" },
     CONFIRMADO: { label: "Confirmado", tone: "authorized" },
     PEDIDO_GENERADO: { label: "Pedido generado", tone: "partial" },
     ANULADO: { label: "Anulado", tone: "cancelled" }
@@ -24,6 +24,18 @@
   };
   const ANY_LENGTH = "CUALQUIER_MEDIDA";
   let noticeTimer = 0;
+  const pendingPoWrites = new Map();
+  async function confirmPoPersistence(preorder, action) {
+    const access = BlessERP.authAccess?.activeAccess?.();
+    const key = [access?.session?.user?.id, access?.activeCompany?.id, preorder.id, action].join(':');
+    const pending = pendingPoWrites.get(key);
+    const intent = value => JSON.stringify({ ...value, history: undefined, updatedAt: undefined, confirmedAt: undefined, reopenedAt: undefined, annulledAt: undefined });
+    if (pending && intent(pending) !== intent(preorder)) return { ok: false, message: 'Hay un intento pendiente. Reintente el mismo cambio antes de editarlo.' };
+    if (!pending) pendingPoWrites.set(key, BlessERP.utils.clone(preorder));
+    const result = await BlessERP.services.confirmedOperationalWrite.commit('commercial_preorders', pending || preorder);
+    if (result.ok) pendingPoWrites.delete(key);
+    return result;
+  }
 
   function now() {
     return new Date().toISOString();
@@ -378,18 +390,20 @@
     return errors;
   }
 
-  function saveDraft(appState) {
-    const preorder = current(appState);
+  async function saveDraft(appState) {
+    const preorder = BlessERP.utils.clone(current(appState));
     if (!preorder || preorder.status !== "BORRADOR") return false;
     preorder.updatedAt = now();
     record(preorder, appState, "GUARDAR_BORRADOR", `${preorder.number} guardado como borrador.`);
+    const ack = await confirmPoPersistence(preorder, 'saveDraft');
+    if (!ack.ok) { setNotice(appState, ack.message, 'danger'); return false; }
     setNotice(appState, `${preorder.number} guardado. No se afectó ninguna otra parte del sistema.`, "success");
-    save(appState);
+
     return true;
   }
 
-  function confirm(appState) {
-    const preorder = current(appState);
+  async function confirm(appState) {
+    const preorder = BlessERP.utils.clone(current(appState));
     if (!preorder || preorder.status !== "BORRADOR") return false;
     const errors = validate(preorder);
     if (errors.length) {
@@ -401,34 +415,40 @@
     preorder.confirmedBy = activeUser(appState);
     preorder.updatedAt = now();
     record(preorder, appState, "CONFIRMAR_PO", `${preorder.number} confirmado. Ya puede generar un pedido.`);
+    const ack = await confirmPoPersistence(preorder, 'confirm');
+    if (!ack.ok) { setNotice(appState, ack.message, 'danger'); return false; }
     setNotice(appState, `${preorder.number} confirmado. Use “Generar pedido” para continuar en Crear pedido.`, "success");
-    save(appState);
+
     return true;
   }
 
-  function reopen(appState, reason) {
-    const preorder = current(appState);
+  async function reopen(appState, reason) {
+    const preorder = BlessERP.utils.clone(current(appState));
     if (!preorder || preorder.status !== "CONFIRMADO" || !String(reason || "").trim()) return false;
     preorder.status = "BORRADOR";
     preorder.reopenedAt = now();
     preorder.reopenReason = String(reason).trim();
     preorder.updatedAt = now();
     record(preorder, appState, "REABRIR_PO", `${preorder.number} reabierto como borrador.`, preorder.reopenReason);
+    const ack = await confirmPoPersistence(preorder, 'reopen');
+    if (!ack.ok) { setNotice(appState, ack.message, 'danger'); return false; }
     setNotice(appState, `${preorder.number} volvió a borrador.`, "warning");
-    save(appState);
+
     return true;
   }
 
-  function annul(appState, reason) {
-    const preorder = current(appState);
+  async function annul(appState, reason) {
+    const preorder = BlessERP.utils.clone(current(appState));
     if (!preorder || preorder.status === "PEDIDO_GENERADO" || preorder.status === "ANULADO" || !String(reason || "").trim()) return false;
     preorder.status = "ANULADO";
     preorder.annulledAt = now();
     preorder.annulReason = String(reason).trim();
     preorder.updatedAt = now();
     record(preorder, appState, "ANULAR_PO", `${preorder.number} anulado sin afectar pedidos, inventario ni SRI.`, preorder.annulReason);
+    const ack = await confirmPoPersistence(preorder, 'annul');
+    if (!ack.ok) { setNotice(appState, ack.message, 'danger'); return false; }
     setNotice(appState, `${preorder.number} anulado. No se eliminó y conserva su historial.`, "warning");
-    save(appState);
+
     return true;
   }
 
@@ -500,11 +520,12 @@
     return lines;
   }
 
-  function generateOrder(appState) {
+  async function generateOrder(appState) {
     const preorder = current(appState);
     if (!preorder || preorder.status !== "CONFIRMADO" || preorder.linkedOrderId) return null;
     const preorderId = preorder.id;
-    const order = stateApi.createNewOrder(appState, {
+    const pendingOrder = ensureStore(appState).orders?.find(item => item.sourcePoId === preorder.id && item.unsavedDraft === true);
+    const order = pendingOrder || stateApi.createNewOrder(appState, {
       customerId: preorder.customerId,
       brandId: preorder.brandId,
       destination: preorder.destination,
@@ -525,7 +546,7 @@
     });
     if (!order) return null;
 
-    const generatedPreorder = ensureStore(appState).preorders.find(item => item.id === preorderId);
+    const generatedPreorder = BlessERP.utils.clone(ensureStore(appState).preorders.find(item => item.id === preorderId));
     if (!generatedPreorder) return order;
     generatedPreorder.status = "PEDIDO_GENERADO";
     generatedPreorder.generatedAt = now();
@@ -534,7 +555,9 @@
     generatedPreorder.linkedOrderNumber = order.number;
     generatedPreorder.updatedAt = now();
     record(generatedPreorder, appState, "GENERAR_PEDIDO", `${order.number} generado desde ${generatedPreorder.number}.`);
-    save(appState);
+    const ack = await confirmPoPersistence(generatedPreorder, 'generateOrder');
+    if (!ack.ok) { setNotice(appState, ack.message + ' El pedido sigue como borrador local.', 'danger'); BlessERP.layout.renderPage(); return null; }
+
     BlessERP.state.setRoute("commercial-order-master");
     BlessERP.layout.renderApp();
     return order;
@@ -1020,32 +1043,32 @@
       BlessERP.layout.renderPage();
     }));
 
-    container.querySelector("[data-po-save]")?.addEventListener("click", () => {
-      saveDraft(appState);
+    container.querySelector("[data-po-save]")?.addEventListener("click", async () => {
+      await saveDraft(appState);
       BlessERP.layout.renderPage();
     });
 
-    container.querySelector("[data-po-confirm]")?.addEventListener("click", () => {
-      confirm(appState);
+    container.querySelector("[data-po-confirm]")?.addEventListener("click", async () => {
+      await confirm(appState);
       BlessERP.layout.renderPage();
     });
 
-    container.querySelector("[data-po-reopen]")?.addEventListener("click", () => {
+    container.querySelector("[data-po-reopen]")?.addEventListener("click", async () => {
       const reason = window.prompt("Motivo para reabrir el PO como borrador:", "") || "";
       if (!reason.trim()) return;
-      reopen(appState, reason);
+      await reopen(appState, reason);
       BlessERP.layout.renderPage();
     });
 
-    container.querySelector("[data-po-annul]")?.addEventListener("click", () => {
+    container.querySelector("[data-po-annul]")?.addEventListener("click", async () => {
       const reason = window.prompt("Motivo de anulación del PO:", "") || "";
       if (!reason.trim()) return;
-      annul(appState, reason);
+      await annul(appState, reason);
       BlessERP.layout.renderPage();
     });
 
-    container.querySelector("[data-po-generate]")?.addEventListener("click", () => {
-      generateOrder(appState);
+    container.querySelector("[data-po-generate]")?.addEventListener("click", async () => {
+      await generateOrder(appState);
     });
 
     container.querySelector("[data-po-open-order]")?.addEventListener("click", event => {

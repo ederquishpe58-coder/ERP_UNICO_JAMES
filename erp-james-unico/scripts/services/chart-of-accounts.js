@@ -42,7 +42,7 @@
     return String(code || "").split(".").filter(Boolean).length || 1;
   }
 
-  function saveAccount(candidate) {
+  async function saveAccount(candidate) {
     const normalized = {
       id: candidate.id || uid("ACC"),
       code: String(candidate.code || "").trim(),
@@ -74,12 +74,11 @@
     if (index >= 0) accounts[index] = normalized;
     else accounts.push(normalized);
 
-    stateApi.state.db.chartOfAccounts = sortAccounts(accounts);
-    stateApi.saveDb();
-    return { ok: true, account: clone(normalized) };
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('accounting_chart_accounts', normalized, {});
+    return { ...ack, account: clone(ack.serverRecord?.payload || normalized) };
   }
 
-  function toggleActive(id) {
+  async function toggleActive(id) {
     const accounts = all();
     const target = accounts.find(account => account.id === id);
     if (!target) return { ok: false, message: "Cuenta no encontrada." };
@@ -94,9 +93,8 @@
       }
     }
     target.status = target.status === "Activa" ? "Inactiva" : "Activa";
-    stateApi.state.db.chartOfAccounts = sortAccounts(accounts);
-    stateApi.saveDb();
-    return { ok: true, account: clone(target) };
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('accounting_chart_accounts', target, {});
+    return { ...ack, account: clone(ack.serverRecord?.payload || target) };
   }
 
   function movementOptions() {

@@ -285,7 +285,7 @@
   function emptyReceivable(customerId = "") {
     const settings = companyService.settings();
     return {
-      id: "",
+      id: uid("DRAFT"),
       customerId,
       customerName: "",
       customerTaxId: "",
@@ -664,32 +664,7 @@
   }
 
   function saveReceivable(receivable) {
-    const { receivable: candidate, errors } = validateReceivable(receivable, { forPost: false });
-    if (errors.length) return { ok: false, errors };
-    const rows = receivableDocuments();
-    candidate.id = candidate.id || uid("CXC");
-    candidate.updatedBy = currentUser().name;
-    candidate.updatedAt = new Date().toISOString();
-    const index = rows.findIndex(item => item.id === candidate.id);
-    const before = index >= 0 ? clone(rows[index]) : null;
-    if (index >= 0) rows[index] = candidate;
-    else rows.unshift(candidate);
-    saveList("customerReceivables", rows);
-    adminService?.addAuditLog?.({
-      module: "COBROS",
-      action: index >= 0 ? "EDITAR_CXC" : "CREAR_CXC",
-      entityType: "receivable",
-      entityId: candidate.id,
-      entityLabel: candidate.documentNumber,
-      documentLabel: candidate.documentNumber,
-      previousStatus: before?.status || "",
-      nextStatus: candidate.status,
-      description: `${index >= 0 ? "Se actualizo" : "Se creo"} el documento ${candidate.documentNumber} de cuentas por cobrar.`,
-      before,
-      after: candidate,
-      result: "exitoso"
-    });
-    return { ok: true, receivable: clone(candidate) };
+    return BlessERP.services.confirmedOperationalWrite.unavailable("saveReceivable");
   }
 
   function addDays(value, days) {
@@ -1154,7 +1129,7 @@
   function emptyCollection(customerId = "") {
     const remote = BlessERP.getEnvConfig?.()?.financialV2CaptureEnabled === true;
     return {
-      id: "",
+      id: uid("DRAFT"),
       collectionNumber: remote ? "Se asigna al confirmar" : nextCollectionNumber(),
       customerId,
       customerName: "",
@@ -1178,7 +1153,7 @@
 
   function emptyCollectionBatch() {
     return {
-      id: "",
+      id: uid("DRAFT"),
       batchNumber: nextCollectionBatchNumber(),
       collectionDate: today(),
       collectionAccountCode: "",
@@ -1460,7 +1435,7 @@
     return entry;
   }
 
-  function saveCollection(collection) {
+  async function saveCollection(collection) {
     const { collection: candidate, errors } = validateCollection(collection, { forConfirm: false });
     if (errors.length) return { ok: false, errors };
     const rows = collections();
@@ -1468,20 +1443,8 @@
     const index = rows.findIndex(item => item.id === candidate.id);
     if (index >= 0) rows[index] = candidate;
     else rows.unshift(candidate);
-    saveList("collections", rows);
-    adminService?.addAuditLog?.({
-      module: "COBROS",
-      action: index >= 0 ? "EDITAR_COBRO" : "CREAR_COBRO",
-      entityType: "collection",
-      entityId: candidate.id,
-      entityLabel: candidate.collectionNumber,
-      documentLabel: candidate.collectionNumber,
-      nextStatus: candidate.status,
-      description: `${index >= 0 ? "Se actualizo" : "Se creo"} el cobro ${candidate.collectionNumber}.`,
-      after: candidate,
-      result: "exitoso"
-    });
-    return { ok: true, collection: clone(candidate) };
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('collections', candidate, {});
+    return { ...ack, collection: clone(ack.serverRecord?.payload || candidate) };
   }
 
   function confirmCollection(collectionId) {
@@ -1581,66 +1544,11 @@
   }
 
   function saveCollectionBatch(batch) {
-    const { batch: candidate, errors } = validateCollectionBatch(batch, { forConfirm: false });
-    if (errors.length) return { ok: false, errors };
-    const rows = collectionBatches();
-    candidate.id = candidate.id || uid("LCB");
-    const index = rows.findIndex(item => item.id === candidate.id);
-    if (index >= 0) rows[index] = candidate;
-    else rows.unshift(candidate);
-    saveList("collectionBatches", rows);
-    adminService?.addAuditLog?.({
-      module: "COBROS",
-      action: index >= 0 ? "EDITAR_LOTE_COBRO" : "CREAR_LOTE_COBRO",
-      entityType: "collection_batch",
-      entityId: candidate.id,
-      entityLabel: candidate.batchNumber,
-      documentLabel: candidate.batchNumber,
-      nextStatus: candidate.status,
-      description: `${index >= 0 ? "Se actualizo" : "Se creo"} el lote de cobro ${candidate.batchNumber}.`,
-      after: candidate,
-      result: "exitoso"
-    });
-    return { ok: true, batch: clone(candidate) };
+    return BlessERP.services.confirmedOperationalWrite.unavailable("saveCollectionBatch");
   }
 
   function confirmCollectionBatch(batchId) {
-    const rows = collectionBatches();
-    const index = rows.findIndex(item => item.id === batchId);
-    if (index < 0) return { ok: false, errors: ["Lote de cobro no encontrado."] };
-    if (rows[index].status !== "BORRADOR") return { ok: false, errors: ["Solo se pueden confirmar lotes en borrador."] };
-    const { batch: candidate, errors } = validateCollectionBatch(rows[index], { forConfirm: true });
-    if (errors.length) return { ok: false, errors };
-    const pseudoCollection = {
-      ...candidate,
-      total: candidate.totalToCollect,
-      customerName: "Cobros masivos",
-      collectionNumber: candidate.batchNumber
-    };
-    const entryDraft = buildCollectionJournalEntry(pseudoCollection, `Lote de cobros ${candidate.batchNumber}`);
-    const savedEntry = journalService.saveDraft(entryDraft);
-    if (!savedEntry.ok) return { ok: false, errors: savedEntry.errors || ["No se pudo guardar el asiento del lote de cobro."] };
-    const postedEntry = journalService.postEntry(savedEntry.entry.id);
-    if (!postedEntry.ok) return { ok: false, errors: postedEntry.errors || ["No se pudo contabilizar el lote de cobro."] };
-    candidate.status = "CONFIRMADO";
-    candidate.entryId = postedEntry.entry.id;
-    candidate.entryNumber = postedEntry.entry.entryNumber;
-    rows[index] = candidate;
-    saveList("collectionBatches", rows);
-    adminService?.addAuditLog?.({
-      module: "COBROS",
-      action: "CONFIRMAR_LOTE_COBRO",
-      entityType: "collection_batch",
-      entityId: candidate.id,
-      entityLabel: candidate.batchNumber,
-      documentLabel: candidate.batchNumber,
-      previousStatus: "BORRADOR",
-      nextStatus: candidate.status,
-      description: `Lote de cobro ${candidate.batchNumber} confirmado con asiento ${candidate.entryNumber}.`,
-      after: candidate,
-      result: "exitoso"
-    });
-    return { ok: true, batch: clone(candidate), entry: clone(postedEntry.entry) };
+    return BlessERP.services.confirmedOperationalWrite.unavailable("confirmCollectionBatch");
   }
 
   function annulCollectionBatch(batchId) {

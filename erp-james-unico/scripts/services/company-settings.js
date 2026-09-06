@@ -44,19 +44,17 @@
       || BlessERP.utils.clone(stateApi.state.db.companySettings || {});
   }
 
-  function save(nextSettings) {
-    if (BlessERP.services?.companyContext?.saveCompanySettings) {
-      const saved = BlessERP.services.companyContext.saveCompanySettings(nextSettings);
-      stateApi.state.db.meta.companyName = saved.commercialName || saved.legalName || stateApi.state.db.meta.companyName;
-      stateApi.state.db.meta.accountingPeriod = saved.periodLabel || saved.activePeriod || stateApi.state.db.meta.accountingPeriod;
-      stateApi.saveDb();
-      return saved;
-    }
-    stateApi.state.db.companySettings = BlessERP.utils.clone(nextSettings);
-    stateApi.state.db.meta.companyName = nextSettings.commercialName || nextSettings.legalName || stateApi.state.db.meta.companyName;
-    stateApi.state.db.meta.accountingPeriod = nextSettings.periodLabel || nextSettings.activePeriod || stateApi.state.db.meta.accountingPeriod;
-    stateApi.saveDb();
-    return settings();
+  async function save(nextSettings) {
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('company_settings', nextSettings);
+    if (!ack.ok) return ack;
+    const saved = BlessERP.utils.clone(ack.serverRecord.payload);
+    const db = stateApi.state.db;
+    const id = BlessERP.services.companyContext.activeCompanyId();
+    if (db.companyStores?.[id]) db.companyStores[id].companySettings = saved;
+    db.meta.companyName = saved.commercialName || saved.legalName || db.meta.companyName;
+    db.meta.accountingPeriod = saved.periodLabel || saved.activePeriod || db.meta.accountingPeriod;
+    stateApi.saveDb({ remote: true, captureIncremental: false, skipCloudSnapshot: true });
+    return { ...ack, settings: saved };
   }
 
   function missingDefaultAccounts(currentSettings = settings()) {

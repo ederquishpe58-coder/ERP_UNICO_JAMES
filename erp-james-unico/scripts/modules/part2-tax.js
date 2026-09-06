@@ -820,8 +820,8 @@
       uiState.taxes.warnings = [];
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-tax-save]")?.addEventListener("click", () => {
-      const result = taxService.saveTax(collectTaxDraft());
+    document.querySelector("[data-tax-save]")?.addEventListener("click", async () => {
+      const result = await taxService.saveTax(collectTaxDraft());
       uiState.taxes.errors = result.errors || [];
       uiState.taxes.warnings = result.warnings || [];
       uiState.taxes.message = "";
@@ -836,8 +836,8 @@
       ensureTaxDraft(record);
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-tax-toggle]").forEach(button => button.addEventListener("click", () => {
-      const result = taxService.toggleTaxStatus(button.dataset.taxToggle);
+    document.querySelectorAll("[data-tax-toggle]").forEach(button => button.addEventListener("click", async () => {
+      const result = await taxService.toggleTaxStatus(button.dataset.taxToggle);
       uiState.taxes.message = result.ok ? `Estado de ${result.tax.internalCode} actualizado.` : (result.message || "");
       uiState.taxes.errors = [];
       uiState.taxes.warnings = [];
@@ -880,8 +880,8 @@
       uiState.retentions.warnings = [];
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-retention-parameter-save]")?.addEventListener("click", () => {
-      const result = taxService.saveRetention(collectRetentionDraft());
+    document.querySelector("[data-retention-parameter-save]")?.addEventListener("click", async () => {
+      const result = await taxService.saveRetention(collectRetentionDraft());
       uiState.retentions.errors = result.errors || [];
       uiState.retentions.warnings = result.warnings || [];
       uiState.retentions.message = "";
@@ -896,8 +896,8 @@
       ensureRetentionDraft(record);
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-retention-parameter-toggle]").forEach(button => button.addEventListener("click", () => {
-      const result = taxService.toggleRetentionStatus(button.dataset.retentionParameterToggle);
+    document.querySelectorAll("[data-retention-parameter-toggle]").forEach(button => button.addEventListener("click", async () => {
+      const result = await taxService.toggleRetentionStatus(button.dataset.retentionParameterToggle);
       uiState.retentions.message = result.ok ? `Estado de ${result.retention.internalCode} actualizado.` : (result.message || "");
       uiState.retentions.errors = [];
       uiState.retentions.warnings = [];

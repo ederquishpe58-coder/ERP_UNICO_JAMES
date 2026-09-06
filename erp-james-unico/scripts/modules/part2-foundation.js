@@ -49,7 +49,7 @@
 
   function draftAccount() {
     return {
-      id: "",
+      id: BlessERP.utils.uid("DRAFT"),
       code: "",
       name: "",
       type: "",
@@ -365,7 +365,7 @@
   }
 
   function bindCompanyPage() {
-    document.querySelectorAll("[data-company-save]").forEach(button => button.addEventListener("click", () => {
+    document.querySelectorAll("[data-company-save]").forEach(button => button.addEventListener("click", async () => {
       const next = collectCompanyForm();
       const errors = validateCompany(next);
       uiState.companyErrors = errors;
@@ -374,7 +374,12 @@
         BlessERP.layout.renderPage();
         return;
       }
-      companyService.save(next);
+      const result = await companyService.save(next);
+      if (!result.ok) {
+        uiState.companyErrors = result.errors || [result.message];
+        BlessERP.layout.renderPage();
+        return;
+      }
       uiState.companyMessage = "Parametros generales guardados correctamente.";
       BlessERP.layout.renderApp();
     }));
@@ -420,9 +425,9 @@
       uiState.accountErrors = [];
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-account-save]")?.addEventListener("click", () => {
+    document.querySelector("[data-account-save]")?.addEventListener("click", async () => {
       const draft = readAccountDraftFromForm();
-      const result = chartService.saveAccount(draft);
+      const result = await chartService.saveAccount(draft);
       uiState.accountErrors = result.errors || [];
       uiState.accountMessage = "";
       if (!result.ok) {
@@ -439,8 +444,8 @@
       startEditAccount(account);
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-account-toggle]").forEach(button => button.addEventListener("click", () => {
-      const result = chartService.toggleActive(button.dataset.accountToggle);
+    document.querySelectorAll("[data-account-toggle]").forEach(button => button.addEventListener("click", async () => {
+      const result = await chartService.toggleActive(button.dataset.accountToggle);
       uiState.accountMessage = result.ok ? "Estado de la cuenta actualizado." : (result.message || "No se pudo actualizar la cuenta.");
       uiState.accountErrors = [];
       BlessERP.layout.renderPage();

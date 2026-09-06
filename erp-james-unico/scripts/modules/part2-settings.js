@@ -75,7 +75,7 @@
 
   function sequenceDraft(sequence = null) {
     return sequence ? BlessERP.utils.clone(sequence) : {
-      id: "",
+      id: BlessERP.utils.uid("DRAFT"),
       code: "",
       name: "",
       prefix: "",
@@ -97,7 +97,7 @@
 
   function costCenterDraft(costCenter = null) {
     return costCenter ? BlessERP.utils.clone(costCenter) : {
-      id: "",
+      id: BlessERP.utils.uid("DRAFT"),
       code: "",
       name: "",
       type: "administrativo",
@@ -1152,10 +1152,10 @@
       uiState.sequences.errors = [];
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-sequence-save]")?.addEventListener("click", () => {
+    document.querySelector("[data-sequence-save]")?.addEventListener("click", async () => {
       const form = document.querySelector("#sequence-form");
       const data = Object.fromEntries(new FormData(form).entries());
-      const result = adminService.saveSequence({
+      const result = await adminService.saveSequence({
         ...uiState.sequences.draft,
         ...data,
         currentNumber: Number(data.currentNumber || 0),
@@ -1331,9 +1331,9 @@
       uiState.costCenters.errors = [];
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-cost-center-save]")?.addEventListener("click", () => {
+    document.querySelector("[data-cost-center-save]")?.addEventListener("click", async () => {
       const form = document.querySelector("#cost-center-form");
-      const result = adminService.saveCostCenter({
+      const result = await adminService.saveCostCenter({
         ...uiState.costCenters.draft,
         ...Object.fromEntries(new FormData(form).entries())
       });
@@ -1352,8 +1352,8 @@
       uiState.costCenters.errors = [];
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-cost-center-toggle]").forEach(button => button.addEventListener("click", () => {
-      const result = adminService.toggleCostCenterStatus(button.dataset.costCenterToggle);
+    document.querySelectorAll("[data-cost-center-toggle]").forEach(button => button.addEventListener("click", async () => {
+      const result = await adminService.toggleCostCenterStatus(button.dataset.costCenterToggle);
       if (result.ok) uiState.costCenters.message = `Centro de costo ${result.costCenter.code} actualizado a ${result.costCenter.status}.`;
       BlessERP.layout.renderPage();
     }));

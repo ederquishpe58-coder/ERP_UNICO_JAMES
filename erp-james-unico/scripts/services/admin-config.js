@@ -768,8 +768,8 @@
     return { ok: true, user: clone(user) };
   }
 
-  function detectSequenceUsage(code, configuredSequence = null) {
-    ensureStore();
+  function detectSequenceUsage(code, configuredSequence = null, options = {}) {
+    if (options.readOnly !== true) ensureStore();
     const db = stateApi.state.db;
     switch (code) {
       case "ASI":
@@ -874,7 +874,23 @@
     return sequences().find(item => item.code === String(code || "").trim().toUpperCase()) || null;
   }
 
-  function saveSequence(sequence) {
+  async function saveNonSriSequence(sequence) {
+    const candidate = normalizeSequence(sequence);
+    const rows = clone(stateApi.state.db.documentSequences || []).map(normalizeSequence);
+    const errors = [];
+    if (!sequenceAllowed(candidate.code)) errors.push('Secuencial no habilitado para esta empresa.');
+    if (!candidate.code || !candidate.name) errors.push('El código y nombre del secuencial son obligatorios.');
+    if (!Number.isSafeInteger(candidate.currentNumber) || candidate.currentNumber < 0 || candidate.currentNumber > 999999999) errors.push('El último número debe ser un entero entre 0 y 999999999.');
+    if (rows.some(item => item.id !== candidate.id && item.code === candidate.code)) errors.push('No se permite código de secuencial duplicado.');
+    if (rows.some(item => item.id !== candidate.id && !item.documentType && item.prefix === candidate.prefix && item.year === candidate.year && item.module === candidate.module)) errors.push('Ese prefijo ya está usado en el mismo módulo y año.');
+    if (candidate.currentNumber < detectSequenceUsage(candidate.code, candidate, { readOnly: true })) errors.push('No se puede retroceder el número ya utilizado.');
+    if (errors.length) return { ok: false, errors };
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('accounting_document_sequences', candidate);
+    return { ...ack, sequence: clone(ack.serverRecord?.payload || candidate) };
+  }
+
+  async function saveSequence(sequence) {
+    if (!sequence?.documentType && !SRI_SEQUENCE_CODES[sequence?.code]) return saveNonSriSequence(sequence);
     ensureStore();
     const candidate = normalizeSequence(sequence);
     const rawEstablishmentCode = String(sequence?.establishmentCode || "").trim();
@@ -943,6 +959,10 @@
     const before = index >= 0 ? clone(rows[index]) : null;
     if (index >= 0) rows[index] = candidate;
     else rows.unshift(candidate);
+    if (!candidate.documentType) {
+      const ack = await BlessERP.services.confirmedOperationalWrite.commit('accounting_document_sequences', candidate);
+      return { ...ack, sequence: clone(ack.serverRecord?.payload || candidate) };
+    }
     stateApi.state.db.documentSequences = rows;
     stateApi.saveDb();
     if (candidate.documentType && BlessERP.services?.companySettings?.save) {
@@ -1000,10 +1020,10 @@
       .sort((a, b) => a.code.localeCompare(b.code, "es"));
   }
 
-  function saveCostCenter(costCenter) {
-    ensureStore();
+  async function saveCostCenter(costCenter) {
+
     const candidate = normalizeCostCenter(costCenter);
-    const rows = costCenters();
+    const rows = clone(stateApi.state.db.costCenters || []).map(normalizeCostCenter);
     const errors = [];
     if (!candidate.code) errors.push("El codigo del centro de costo es obligatorio.");
     if (!candidate.name) errors.push("El nombre del centro de costo es obligatorio.");
@@ -1014,49 +1034,19 @@
     const before = index >= 0 ? clone(rows[index]) : null;
     if (index >= 0) rows[index] = candidate;
     else rows.unshift(candidate);
-    stateApi.state.db.costCenters = rows;
-    stateApi.saveDb();
-    addAuditLog({
-      module: "CONFIGURACION",
-      action: index >= 0 ? "EDITAR_CENTRO_COSTO" : "CREAR_CENTRO_COSTO",
-      entityType: "cost_center",
-      entityId: candidate.id,
-      entityLabel: candidate.code,
-      documentLabel: candidate.name,
-      previousStatus: before?.status || "",
-      nextStatus: candidate.status,
-      description: `${index >= 0 ? "Se actualizo" : "Se creo"} el centro de costo ${candidate.code}.`,
-      before,
-      after: candidate,
-      result: "exitoso"
-    });
-    return { ok: true, costCenter: clone(candidate) };
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('accounting_cost_centers', candidate, {});
+    return { ...ack, costCenter: clone(ack.serverRecord?.payload || candidate) };
   }
 
-  function toggleCostCenterStatus(costCenterId) {
-    ensureStore();
-    const rows = costCenters();
+  async function toggleCostCenterStatus(costCenterId) {
+
+    const rows = clone(stateApi.state.db.costCenters || []).map(normalizeCostCenter);
     const index = rows.findIndex(item => item.id === costCenterId);
     if (index < 0) return { ok: false, message: "Centro de costo no encontrado." };
     const before = clone(rows[index]);
     rows[index].status = rows[index].status === "activo" ? "inactivo" : "activo";
-    stateApi.state.db.costCenters = rows;
-    stateApi.saveDb();
-    addAuditLog({
-      module: "CONFIGURACION",
-      action: "CAMBIAR_ESTADO_CENTRO_COSTO",
-      entityType: "cost_center",
-      entityId: rows[index].id,
-      entityLabel: rows[index].code,
-      documentLabel: rows[index].name,
-      previousStatus: before.status,
-      nextStatus: rows[index].status,
-      description: `Centro de costo ${rows[index].code} cambiado a estado ${rows[index].status}.`,
-      before,
-      after: rows[index],
-      result: "exitoso"
-    });
-    return { ok: true, costCenter: clone(rows[index]) };
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('accounting_cost_centers', rows[index], {});
+    return { ...ack, costCenter: clone(ack.serverRecord?.payload || rows[index]) };
   }
 
   function normalizeAuditLog(log = {}) {

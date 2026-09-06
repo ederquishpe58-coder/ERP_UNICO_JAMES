@@ -88,7 +88,7 @@
   function emptyEntry() {
     const settings = companyService.settings();
     return {
-      id: "",
+      id: uid("DRAFT"),
       entryNumber: nextEntryNumber(settings.periodStart || "", settings.activePeriod || currentPeriod()),
       accountingDate: settings.periodStart || new Date().toISOString().slice(0, 10),
       accountingPeriod: settings.activePeriod || currentPeriod(),
@@ -206,8 +206,8 @@
     normalized.createdById = normalized.createdById || user.id;
     if (index >= 0) entries[index] = normalized;
     else entries.unshift(normalized);
-    stateApi.state.db.journalEntries = sortEntries(entries);
-    if (options.prepareOnly !== true && stateApi.saveDb() === false) return { ok: false, confirmed: false, entry: clone(normalized), errors: ["No se pudo conservar el borrador en este dispositivo."] };
+    if (options.prepareOnly !== true) return BlessERP.services.confirmedOperationalWrite.unavailable('Guardar borrador: use saveDraftConfirmed');
+
     const audit = {
       module: "CONTABILIDAD",
       action: isNew ? "CREAR_ASIENTO" : "EDITAR_ASIENTO",
@@ -225,58 +225,17 @@
   }
 
   async function saveDraftConfirmed(entry) {
-    const result = await BlessERP.services.confirmedFinanceRecord?.save("accounting_journal_entries", () => saveDraft(entry, { prepareOnly: true }));
-    if (!result?.confirmed) return result || { ok: false, errors: ["No está disponible la confirmación del borrador."] };
-    adminService?.addAuditLog?.({ ...result.audit, after: result.serverRecord.payload, result: "exitoso" });
-    return result;
+    const prepared = saveDraft(entry, { prepareOnly: true });
+    if (!prepared.ok) return prepared;
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('accounting_journal_entries', prepared.entry);
+    return { ...prepared, ...ack, entry: clone(ack.serverRecord?.payload || prepared.entry) };
   }
 
   function postEntry(entryId) {
-    const entries = all();
-    const index = entries.findIndex(item => item.id === entryId);
-    if (index < 0) return { ok: false, errors: ["Asiento no encontrado."] };
-    const current = entries[index];
-    if (current.status !== "BORRADOR") return { ok: false, errors: ["Solo se pueden contabilizar asientos en borrador."] };
-    const { entry: normalized, errors } = validateEntry(current);
-    if (errors.length) {
-      adminService?.logFailure?.({
-        module: "CONTABILIDAD",
-        action: "CONTABILIZAR_ASIENTO",
-        entityType: "journal_entry",
-        entityId: current.id,
-        entityLabel: current.entryNumber,
-        documentLabel: current.entryNumber,
-        previousStatus: current.status,
-        nextStatus: current.status,
-        description: "No se pudo contabilizar el asiento por errores de validacion.",
-        reason: errors.join(" | ")
-      }, "error");
-      return { ok: false, errors };
-    }
-    normalized.status = "CONTABILIZADO";
-    normalized.postedBy = currentUser().name;
-    normalized.postedAt = new Date().toISOString();
-    entries[index] = normalized;
-    stateApi.state.db.journalEntries = sortEntries(entries);
-    stateApi.saveDb();
-    adminService?.addAuditLog?.({
-      module: "CONTABILIDAD",
-      action: "CONTABILIZAR_ASIENTO",
-      entityType: "journal_entry",
-      entityId: normalized.id,
-      entityLabel: normalized.entryNumber,
-      documentLabel: normalized.entryNumber,
-      previousStatus: current.status,
-      nextStatus: normalized.status,
-      description: `Asiento ${normalized.entryNumber} contabilizado correctamente.`,
-      before: current,
-      after: normalized,
-      result: "exitoso"
-    });
-    return { ok: true, entry: clone(normalized) };
+    return { ok: false, confirmed: false, code: 'FINANCE_V2_REQUIRED', message: 'La contabilización y reversión requieren Finance V2.', errors: ['FINANCE_V2_REQUIRED: use la acción canónica Finance V2.'] };
   }
 
-  function cancelDraft(entryId) {
+  async function cancelDraft(entryId) {
     const entries = all();
     const index = entries.findIndex(item => item.id === entryId);
     if (index < 0) return { ok: false, message: "Asiento no encontrado." };
@@ -285,102 +244,21 @@
     entries[index].status = "ANULADO";
     entries[index].cancelledBy = currentUser().name;
     entries[index].cancelledAt = new Date().toISOString();
-    stateApi.state.db.journalEntries = sortEntries(entries);
-    stateApi.saveDb();
-    adminService?.addAuditLog?.({
-      module: "CONTABILIDAD",
-      action: "ANULAR_ASIENTO",
-      entityType: "journal_entry",
-      entityId: entries[index].id,
-      entityLabel: entries[index].entryNumber,
-      documentLabel: entries[index].entryNumber,
-      previousStatus: previous.status,
-      nextStatus: entries[index].status,
-      description: `Borrador ${entries[index].entryNumber} marcado como anulado.`,
-      before: previous,
-      after: entries[index],
-      result: "exitoso"
-    });
-    return { ok: true, entry: clone(entries[index]) };
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('accounting_journal_entries', entries[index], {});
+    return { ...ack, entry: clone(ack.serverRecord?.payload || entries[index]) };
   }
 
-  function deleteDraft(entryId) {
+  async function deleteDraft(entryId) {
     const entries = all();
     const target = entries.find(item => item.id === entryId);
     if (!target) return { ok: false, message: "Asiento no encontrado." };
     if (target.status !== "BORRADOR") return { ok: false, message: "Solo se pueden eliminar borradores." };
-    stateApi.state.db.journalEntries = sortEntries(entries.filter(item => item.id !== entryId));
-    stateApi.saveDb();
-    adminService?.addAuditLog?.({
-      module: "CONTABILIDAD",
-      action: "ELIMINAR_BORRADOR_ASIENTO",
-      entityType: "journal_entry",
-      entityId: target.id,
-      entityLabel: target.entryNumber,
-      documentLabel: target.entryNumber,
-      previousStatus: target.status,
-      nextStatus: "ELIMINADO",
-      description: `Se elimino el borrador ${target.entryNumber}.`,
-      before: target,
-      result: "exitoso"
-    });
-    return { ok: true };
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('accounting_journal_entries', target, { remove: true });
+    return { ...ack, entry: clone(ack.serverRecord?.payload || target) };
   }
 
   function reverseEntry(entryId) {
-    const entries = all();
-    const index = entries.findIndex(item => item.id === entryId);
-    if (index < 0) return { ok: false, message: "Asiento no encontrado." };
-    const target = entries[index];
-    if (target.status !== "CONTABILIZADO") return { ok: false, message: "Solo se pueden reversar asientos contabilizados." };
-    const reverse = normalizeEntry({
-      accountingDate: target.accountingDate,
-      accountingPeriod: target.accountingPeriod,
-      concept: `Reverso de ${target.entryNumber} - ${target.concept}`,
-      originModule: "Ajustes",
-      sourceDocument: target.sourceDocument,
-      externalReference: target.entryNumber,
-      status: "CONTABILIZADO",
-      createdBy: currentUser().name,
-      createdById: currentUser().id,
-      createdAt: new Date().toISOString(),
-      postedBy: currentUser().name,
-      postedAt: new Date().toISOString(),
-      observation: `Asiento reverso generado desde ${target.entryNumber}`,
-      reverseOfId: target.id,
-      lines: target.lines.map(line => ({
-        ...line,
-        id: uid("JLN"),
-        debit: line.credit,
-        credit: line.debit
-      }))
-    });
-    const reverseValidation = validateEntry(reverse);
-    if (reverseValidation.errors.length) {
-      return { ok: false, message: reverseValidation.errors.join(" "), errors: reverseValidation.errors };
-    }
-    target.status = "REVERSADO";
-    target.reversedById = reverse.id;
-    target.reversedAt = new Date().toISOString();
-    entries[index] = target;
-    entries.unshift(reverse);
-    stateApi.state.db.journalEntries = sortEntries(entries);
-    stateApi.saveDb();
-    adminService?.addAuditLog?.({
-      module: "CONTABILIDAD",
-      action: "REVERSAR_ASIENTO",
-      entityType: "journal_entry",
-      entityId: reverse.id,
-      entityLabel: reverse.entryNumber,
-      documentLabel: target.entryNumber,
-      previousStatus: "CONTABILIZADO",
-      nextStatus: "REVERSADO",
-      description: `Se genero el reverso ${reverse.entryNumber} para el asiento ${target.entryNumber}.`,
-      before: target,
-      after: reverse,
-      result: "exitoso"
-    });
-    return { ok: true, entry: clone(reverse), source: clone(target) };
+    return { ok: false, confirmed: false, code: 'FINANCE_V2_REQUIRED', message: 'La contabilización y reversión requieren Finance V2.', errors: ['FINANCE_V2_REQUIRED: use la acción canónica Finance V2.'] };
   }
 
   async function postEntryV2(entryOrId, options = {}) {

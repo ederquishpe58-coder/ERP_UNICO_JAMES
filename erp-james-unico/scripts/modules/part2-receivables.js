@@ -1295,7 +1295,7 @@
     try {
       let current = collectCollectionDraft();
       if (!current.id) {
-        const saved = receivableService.saveCollection(current);
+        const saved = await receivableService.saveCollection(current);
         if (!saved.ok) {
           BlessERP.getFinancialV2Repository?.()?.failCollectionTrace?.("COLLECTION_DRAFT", {
             code: "DRAFT_VALIDATION_ERROR", message: (saved.errors || []).join(" | ")
@@ -1444,8 +1444,8 @@
       uiState.collections.draft = collectCollectionDraft();
       BlessERP.layout.renderPage();
     });
-    document.querySelector("[data-collection-save]")?.addEventListener("click", () => {
-      const result = receivableService.saveCollection(collectCollectionDraft());
+    document.querySelector("[data-collection-save]")?.addEventListener("click", async () => {
+      const result = await receivableService.saveCollection(collectCollectionDraft());
       uiState.collections.errors = result.errors || [];
       uiState.collections.message = "";
       if (!result.ok) {

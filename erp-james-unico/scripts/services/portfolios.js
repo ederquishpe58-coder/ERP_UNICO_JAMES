@@ -501,7 +501,7 @@
     const remote = requiresSupplierV2();
     const rows = remote ? [] : payments();
     return {
-      id: "",
+      id: uid("DRAFT"),
       paymentNumber: remote ? "Se asigna al confirmar" : nextPaymentNumber(rows),
       providerId,
       providerName: "",
@@ -525,7 +525,7 @@
   function emptyBatch() {
     const rows = paymentBatches();
     return {
-      id: "",
+      id: uid("DRAFT"),
       batchNumber: nextBatchNumber(rows),
       paymentDate: today(),
       paymentAccountCode: "",
@@ -746,7 +746,7 @@
     return entry;
   }
 
-  function savePayment(payment) {
+  async function savePayment(payment) {
     const { payment: candidate, errors } = validatePayment(payment, { forConfirm: false });
     if (errors.filter(error => !error.includes("Debe seleccionar la cuenta contable de pago")).length) return { ok: false, errors };
     const rows = payments();
@@ -755,21 +755,8 @@
     if (!candidate.paymentNumber) candidate.paymentNumber = nextPaymentNumber(rows);
     if (index >= 0) rows[index] = candidate;
     else rows.unshift(candidate);
-    saveList("payments", rows);
-    adminService?.addAuditLog?.({
-      module: "PAGOS",
-      action: index >= 0 ? "EDITAR_PAGO" : "CREAR_PAGO",
-      entityType: "payment",
-      entityId: candidate.id,
-      entityLabel: candidate.paymentNumber,
-      documentLabel: candidate.paymentNumber,
-      previousStatus: index >= 0 ? payment.status || "" : "",
-      nextStatus: candidate.status,
-      description: `${index >= 0 ? "Se actualizo" : "Se creo"} el pago ${candidate.paymentNumber}.`,
-      after: candidate,
-      result: "exitoso"
-    });
-    return { ok: true, payment: clone(candidate) };
+    const ack = await BlessERP.services.confirmedOperationalWrite.commit('payments', candidate, {});
+    return { ...ack, payment: clone(ack.serverRecord?.payload || candidate) };
   }
 
   function confirmPayment(paymentId) {
@@ -873,70 +860,11 @@
   }
 
   function saveBatch(batch) {
-    const { batch: candidate, errors } = validateBatch(batch, { forConfirm: false });
-    if (errors.filter(error => !error.includes("Debe seleccionar la cuenta de pago del lote")).length) return { ok: false, errors };
-    const rows = paymentBatches();
-    const index = rows.findIndex(item => item.id === candidate.id);
-    candidate.id = candidate.id || uid("LOT");
-    if (!candidate.batchNumber) candidate.batchNumber = nextBatchNumber(rows);
-    if (index >= 0) rows[index] = candidate;
-    else rows.unshift(candidate);
-    saveList("paymentBatches", rows);
-    adminService?.addAuditLog?.({
-      module: "PAGOS",
-      action: index >= 0 ? "EDITAR_LOTE_PAGO" : "CREAR_LOTE_PAGO",
-      entityType: "payment_batch",
-      entityId: candidate.id,
-      entityLabel: candidate.batchNumber,
-      documentLabel: candidate.batchNumber,
-      nextStatus: candidate.status,
-      description: `${index >= 0 ? "Se actualizo" : "Se creo"} el lote ${candidate.batchNumber}.`,
-      after: candidate,
-      result: "exitoso"
-    });
-    return { ok: true, batch: clone(candidate) };
+    return BlessERP.services.confirmedOperationalWrite.unavailable("saveBatch");
   }
 
   function confirmBatch(batchId) {
-    const rows = paymentBatches();
-    const index = rows.findIndex(item => item.id === batchId);
-    if (index < 0) return { ok: false, errors: ["Lote no encontrado."] };
-    if (rows[index].status !== "BORRADOR") return { ok: false, errors: ["Solo se pueden confirmar lotes en borrador."] };
-    const { batch: candidate, errors } = validateBatch(rows[index], { forConfirm: true });
-    if (errors.length) return { ok: false, errors };
-    const defaults = companyService.settings().defaultAccounts || {};
-    if (!defaults.accountsPayableSuppliers) return { ok: false, errors: ["No existe cuenta por pagar proveedores predeterminada."] };
-    const pseudoPayment = {
-      ...candidate,
-      providerName: "Lote de pagos",
-      providerRuc: "",
-      paymentNumber: candidate.batchNumber,
-      total: candidate.totalToPay
-    };
-    const entryDraft = buildPaymentJournalEntry(pseudoPayment, `Lote de pagos ${candidate.batchNumber}`);
-    const savedEntry = journalService.saveDraft(entryDraft);
-    if (!savedEntry.ok) return { ok: false, errors: savedEntry.errors || ["No se pudo guardar el asiento del lote."] };
-    const postedEntry = journalService.postEntry(savedEntry.entry.id);
-    if (!postedEntry.ok) return { ok: false, errors: postedEntry.errors || ["No se pudo contabilizar el asiento del lote."] };
-    candidate.status = "CONFIRMADO";
-    candidate.entryId = postedEntry.entry.id;
-    candidate.entryNumber = postedEntry.entry.entryNumber;
-    rows[index] = candidate;
-    saveList("paymentBatches", rows);
-    adminService?.addAuditLog?.({
-      module: "PAGOS",
-      action: "CONFIRMAR_LOTE_PAGO",
-      entityType: "payment_batch",
-      entityId: candidate.id,
-      entityLabel: candidate.batchNumber,
-      documentLabel: candidate.batchNumber,
-      previousStatus: "BORRADOR",
-      nextStatus: candidate.status,
-      description: `Lote ${candidate.batchNumber} confirmado con asiento ${candidate.entryNumber}.`,
-      after: candidate,
-      result: "exitoso"
-    });
-    return { ok: true, batch: clone(candidate), entry: clone(postedEntry.entry) };
+    return BlessERP.services.confirmedOperationalWrite.unavailable("confirmBatch");
   }
 
   function annulBatch(batchId) {

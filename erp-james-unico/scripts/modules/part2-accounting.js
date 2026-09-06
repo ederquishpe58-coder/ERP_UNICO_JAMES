@@ -489,15 +489,15 @@
       if (result.ok) await accountingReadService()?.refreshActive?.();
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-journal-cancel]").forEach(button => button.addEventListener("click", () => {
-      const result = journalService.cancelDraft(button.dataset.journalCancel);
+    document.querySelectorAll("[data-journal-cancel]").forEach(button => button.addEventListener("click", async () => {
+      const result = await journalService.cancelDraft(button.dataset.journalCancel);
       uiState.journal.message = result.ok ? "Borrador anulado." : (result.message || "");
       uiState.journal.errors = [];
       if (result.ok) void accountingReadService()?.refreshActive?.();
       BlessERP.layout.renderPage();
     }));
-    document.querySelectorAll("[data-journal-delete]").forEach(button => button.addEventListener("click", () => {
-      const result = journalService.deleteDraft(button.dataset.journalDelete);
+    document.querySelectorAll("[data-journal-delete]").forEach(button => button.addEventListener("click", async () => {
+      const result = await journalService.deleteDraft(button.dataset.journalDelete);
       uiState.journal.message = result.ok ? "Borrador eliminado." : (result.message || "");
       uiState.journal.errors = [];
       if (result.ok) void accountingReadService()?.refreshActive?.();

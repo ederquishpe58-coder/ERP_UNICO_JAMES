@@ -1784,8 +1784,8 @@
       state.message = "";
       BlessERP.layout.renderPage();
     });
-    document.querySelector(`[data-movement-save="${formId}"]`)?.addEventListener("click", () => {
-      const result = inventoryService.saveMovement(collectMovementDraft(formId));
+    document.querySelector(`[data-movement-save="${formId}"]`)?.addEventListener("click", async () => {
+      const result = await inventoryService.saveMovement(collectMovementDraft(formId));
       state.errors = result.errors || [];
       state.message = "";
       if (!result.ok) return BlessERP.layout.renderPage();
@@ -1793,17 +1793,8 @@
       state.message = `Movimiento ${result.movement.movementNumber} guardado en borrador.`;
       BlessERP.layout.renderPage();
     });
-    document.querySelector(`[data-movement-confirm="${formId}"]`)?.addEventListener("click", () => {
-      let current = collectMovementDraft(formId);
-      if (!current.id) {
-        const saved = inventoryService.saveMovement(current);
-        if (!saved.ok) {
-          state.errors = saved.errors || [];
-          return BlessERP.layout.renderPage();
-        }
-        current = saved.movement;
-      }
-      const result = inventoryService.confirmMovement(current.id);
+    document.querySelector(`[data-movement-confirm="${formId}"]`)?.addEventListener("click", async () => {
+      const result = inventoryService.confirmMovement(collectMovementDraft(formId).id);
       state.errors = result.errors || [];
       state.message = "";
       if (!result.ok) return BlessERP.layout.renderPage();
