@@ -62,19 +62,24 @@ const { identityRuc } = require('./api/sri/_lib/certificate-precheck.cjs');
 const { identityDiagnostics } = require('./api/sri/_lib/certificate-identity-metadata.cjs');
 const pair = forge.pki.rsa.generateKeyPair(2048);
 const otherPair = forge.pki.rsa.generateKeyPair(2048);
-function p12({ company = BLESS, expired = false, future = false, unknown = false, ambiguous = false, noKey = false, wrongKey = false, extensions = [], subjectExtra = [] } = {}) {
+const RUC_OID = '1.3.6.1.4.1.37746.3.11';
+const textExtension = (id, value, type = forge.asn1.Type.UTF8) => ({ id, value: forge.asn1.toDer(forge.asn1.create(0, type, false, value)).getBytes() });
+function p12({ company = BLESS, expired = false, future = false, unknown = false, ambiguous = false, noKey = false, wrongKey = false, extensions = [], subjectExtra = [], issuer = 'SECURITY DATA S.A. 2', rucValue = rucs[company] } = {}) {
   const cert = forge.pki.createCertificate();
   cert.publicKey = pair.publicKey;
   cert.serialNumber = '01abcdef';
   cert.validity.notBefore = new Date(Date.now() + (future ? 86400000 : -86400000));
-  cert.validity.notAfter = new Date(Date.now() + (expired ? -1000 : 86400000 * 365));
+  cert.validity.notAfter = expired ? new Date(Date.now() - 1000) : new Date(company === BLESS ? '2029-03-28T00:00:00Z' : '2030-06-19T00:00:00Z');
   const attrs = [{ name: 'commonName', value: 'Synthetic ' + rucs[company] }];
-  if (!unknown) attrs.push({ type: '2.5.4.5', value: rucs[company] });
-  if (ambiguous) attrs.push({ type: '2.5.4.97', value: rucs[company === BLESS ? IMPERIO : BLESS] });
+  if (!unknown) attrs.push({ type: '2.5.4.5', value: rucs[company].slice(0, 10) });
   attrs.push(...subjectExtra);
   cert.setSubject(attrs);
-  cert.setIssuer([{ name: 'organizationName', value: 'Isolated test issuer' }]);
-  cert.setExtensions(extensions);
+  cert.setIssuer([{ name: 'organizationName', value: issuer }, { name: 'countryName', value: 'EC' }]);
+  const identityExtensions = unknown ? [] : [textExtension(RUC_OID, rucValue),
+    textExtension('1.3.6.1.4.1.37746.3.1', rucs[company].slice(0, 10)),
+    textExtension('1.3.6.1.4.1.37746.3.8', company === BLESS ? '0981357267' : '0992645720')];
+  if (ambiguous) identityExtensions.push(textExtension(RUC_OID, rucs[company === BLESS ? IMPERIO : BLESS]));
+  cert.setExtensions([...identityExtensions, ...extensions]);
   cert.sign(pair.privateKey, forge.md.sha256.create());
   const asn = forge.pkcs12.toPkcs12Asn1(noKey ? null : wrongKey ? otherPair.privateKey : pair.privateKey, [cert], syntheticPassword, { algorithm: '3des', count: 2048 });
   return Buffer.from(forge.asn1.toDer(asn).getBytes(), 'binary').toString('base64');
@@ -94,7 +99,7 @@ async function invoke(file, company = BLESS, options = {}) {
   assert.ok(!text.includes(syntheticPassword) && !text.includes(file));
   const data = value.data;
   if (data) {
-    assert.deepEqual(Object.keys(data).sort(), ['valid','crypto_valid','validity_valid','identity_diagnostics','company_id','ruc_match','subject_safe_summary','issuer','serial_number','not_before','not_after','expired','private_key_present','private_key_usable','secret_resolution','certificate_format'].sort());
+    assert.deepEqual(Object.keys(data).sort(), ['valid','crypto_valid','validity_valid','identity_diagnostics','company_id','ruc_match','identity_ruc','identity_ruc_oid','subject_safe_summary','issuer','serial_number','not_before','not_after','expired','private_key_present','private_key_usable','secret_resolution','certificate_format'].sort());
     assert.ok(!data.subject_safe_summary.includes(rucs[company]));
   }
   return { status: response.statusCode, ...value };
@@ -108,6 +113,7 @@ try {
   await test('A: both valid companies, canonical RUC, usable private key, SRI OFF and no settings', async () => {
     for (const [id, file] of [[BLESS, bless], [IMPERIO, imperio]]) {
       const r = await invoke(file, id); assert.equal(r.status, 200); assert.equal(r.data.valid, true); assert.equal(r.data.ruc_match, 'PASS'); assert.equal(r.data.private_key_usable, true);
+      assert.equal(r.data.identity_ruc, rucs[id]); assert.equal(r.data.identity_ruc_oid, RUC_OID);
     }
   });
   await test('B/C: both certificate cross-company swaps rejected', async () => {
@@ -156,7 +162,56 @@ try {
   });
   await test('Unknown/ambiguous RUC stays UNPROVEN; CN/name is not identity authority', async () => {
     for (const opts of [{ unknown: true }, { ambiguous: true }]) { const r = await invoke(p12(opts)); assert.equal(r.data.ruc_match, 'UNPROVEN'); assert.equal(r.data.valid, false); assert.equal(r.data.crypto_valid, true); assert.equal(r.data.validity_valid, true); }
-    assert.equal(identityRuc({ subject: { attributes: [{ type: '2.5.4.5', value: '1717637084' }] } }), rucs[BLESS]);
+    assert.equal(identityRuc({ subject: { attributes: [{ type: '2.5.4.5', value: '1717637084' }] } }), null);
+  });
+  await test('Security Data RUC OID is authoritative before conflicting secondary cedula/subject', async () => {
+    const r = await invoke(p12({ subjectExtra: [{ type: '2.5.4.97', value: rucs[IMPERIO] }] }));
+    assert.equal(r.data.identity_ruc, rucs[BLESS]); assert.equal(r.data.ruc_match, 'PASS');
+  });
+  await test('Only exact 13-digit RUC scalar accepted; no trimming, substring, prefix or length repair', async () => {
+    for (const value of ['', '1717637084', '17176370840010', '171763708400X', ' 1717637084001', '1717637084001\n', 'RUC:1717637084001', '１７１７６３７０８４００１']) {
+      const r = await invoke(p12({ rucValue: value }));
+      assert.equal(r.data.ruc_match, 'UNPROVEN'); assert.equal(r.data.valid, false); assert.equal(r.data.identity_ruc, null);
+    }
+  });
+  await test('Unsupported issuer cannot authorize Security Data OID even with matching subject RUC', async () => {
+    for (const issuer of ['Other provider', 'SECURITY DATA S.A. 2 impostor', 'SECURITY DATA S.A.']) {
+      const r = await invoke(p12({ issuer, subjectExtra: [{ type: '2.5.4.97', value: rucs[BLESS] }] }));
+      assert.equal(r.data.ruc_match, 'UNPROVEN'); assert.equal(r.data.valid, false);
+    }
+  });
+  await test('Missing .3.11: cedula, .3.1, .3.8 phone and unknown enterprise OIDs never prove RUC', async () => {
+    for (const id of ['1.3.6.1.4.1.37746.3.1', '1.3.6.1.4.1.37746.3.8', '1.3.6.1.4.1.37746.3.111', '1.3.6.1.4.1.55555.11']) {
+      for (const value of [rucs[BLESS].slice(0, 10), rucs[BLESS]]) {
+        const r = await invoke(p12({ unknown: true, subjectExtra: [{ type: '2.5.4.5', value: rucs[BLESS].slice(0, 10) }], extensions: [textExtension(id, value)] }));
+        assert.equal(r.data.ruc_match, 'UNPROVEN'); assert.equal(r.data.identity_ruc, null); assert.equal(r.data.valid, false);
+      }
+    }
+  });
+  await test('Strict DER: reject corrupt, trailing, composite and duplicate RUC encodings', async () => {
+    const scalar = textExtension(RUC_OID, rucs[BLESS]).value;
+    const composite = forge.asn1.toDer(forge.asn1.create(0, 16, true, [forge.asn1.create(0, 12, false, rucs[BLESS])])).getBytes();
+    for (const value of [rucs[BLESS], 'corrupt', scalar + 'extra', composite]) {
+      const r = await invoke(p12({ unknown: true, extensions: [{ id: RUC_OID, value }] }));
+      assert.equal(r.data.ruc_match, 'UNPROVEN'); assert.equal(r.data.valid, false);
+    }
+    const duplicate = await invoke(p12({ extensions: [textExtension(RUC_OID, rucs[BLESS])] }));
+    assert.equal(duplicate.data.ruc_match, 'UNPROVEN'); assert.equal(duplicate.data.valid, false);
+  });
+  await test('Issuer profile is exact and country compatible, never subject-name authority', async () => {
+    const certificate = { issuer: { attributes: [{ type: '2.5.4.10', value: 'SECURITY DATA S.A. 2' }, { type: '2.5.4.6', value: 'EC' }] }, extensions: [textExtension(RUC_OID, rucs[BLESS])] };
+    assert.equal(identityRuc(certificate), rucs[BLESS]);
+    certificate.issuer.attributes[1].value = 'US'; assert.equal(identityRuc(certificate), null);
+    certificate.issuer.attributes = [{ type: '2.5.4.10', value: 'Other' }, { type: '2.5.4.3', value: 'SECURITY DATA S.A. 2' }];
+    assert.equal(identityRuc(certificate), null);
+  });
+  await test('Supported scalar DER encodings and bounded OCTET wrapper preserve exact RUC', async () => {
+    for (const type of [12, 19, 22, 30, 18]) {
+      const r = await invoke(p12({ unknown: true, extensions: [textExtension(RUC_OID, rucs[BLESS], type)] }));
+      assert.equal(r.data.ruc_match, 'PASS'); assert.equal(r.data.identity_ruc, rucs[BLESS]);
+    }
+    const wrapped = forge.asn1.toDer(forge.asn1.create(0, 4, false, textExtension(RUC_OID, rucs[BLESS]).value)).getBytes();
+    assert.equal((await invoke(p12({ unknown: true, extensions: [{ id: RUC_OID, value: wrapped }] }))).data.ruc_match, 'PASS');
   });
   await test('Unknown provider extension metadata exposes OID/candidate, NEVER changes UNPROVEN to PASS', async () => {
     const value = forge.asn1.toDer(forge.asn1.create(0, 12, false, '1717637084')).getBytes();
@@ -213,7 +268,7 @@ try {
     fetch: async (url, options) => {
       requestCount++; assert.equal(url, '/api/sri?action=validate-certificate'); assert.equal(options.headers.authorization, 'Bearer erp-user-jwt');
       assert.deepEqual(Object.keys(JSON.parse(options.body)).sort(), ['certificate_file','company_id']);
-      return { ok: !networkFail, async json() { return networkFail ? { ok: false, error: { message: 'Fallo controlado' } } : { ok: true, data: { valid: true, crypto_valid: true, validity_valid: true, company_id: responseCompany, ruc_match: 'PASS', not_after: '2027-09-06T00:00:00Z', private_key_usable: true } }; } };
+      return { ok: !networkFail, async json() { return networkFail ? { ok: false, error: { message: 'Fallo controlado' } } : { ok: true, data: { valid: true, crypto_valid: true, validity_valid: true, company_id: responseCompany, ruc_match: 'PASS', identity_ruc: rucs[responseCompany], identity_ruc_oid: RUC_OID, not_after: responseCompany === BLESS ? '2029-03-28T00:00:00Z' : '2030-06-19T00:00:00Z', private_key_usable: true } }; } };
     } };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(root + '/scripts/services/sri/sri-api-client.js', 'utf8'), ctx);
@@ -241,6 +296,11 @@ try {
     const panel = { isConnected: true, querySelector: s => s.includes('-diagnostic-text') ? diagnosticText : s.includes('-diagnostic') ? diagnostic : s.includes('-file') ? input : s.includes('-validate') ? button : output };
     erp.sriCertificatePrecheck.bind({ querySelector: () => panel });
     await click(); assert.match(output.textContent, /Certificado válido/); assert.equal(input.value, ''); assert.equal(button.disabled, false);
+    assert.match(output.textContent, /Certificado criptográficamente válido: sí/);
+    assert.match(output.textContent, /RUC demostrado: 1717637084001/); assert.match(output.textContent, /Vence: 2029-03-28/);
+    uiCompany = IMPERIO; responseCompany = IMPERIO; erp.sriCertificatePrecheck.bind({ querySelector: () => panel });
+    await click(); assert.match(output.textContent, /RUC demostrado: 1727970137001/); assert.match(output.textContent, /Vence: 2030-06-19/);
+    uiCompany = BLESS; responseCompany = BLESS; erp.sriCertificatePrecheck.bind({ querySelector: () => panel });
     networkFail = true; await click(); assert.equal(output.textContent, 'Fallo controlado'); assert.equal(input.value, ''); networkFail = false;
     const original = erp.sriApi.validateCertificate;
     erp.sriApi.validateCertificate = async () => ({ valid: false, crypto_valid: true, validity_valid: true, ruc_match: 'UNPROVEN', company_id: BLESS, private_key_usable: true, identity_diagnostics: { diagnostic_only: true } });

@@ -44,6 +44,8 @@
         const result = await BlessERP.sriApi.validateCertificate(companyId, file);
         if (!current()) return;
         const ruc = result.ruc_match === "PASS" ? "RUC coincide" : result.ruc_match === "FAIL" ? "RUC no coincide" : "RUC no demostrado";
+        const identity = typeof result.identity_ruc === "string" && result.identity_ruc.length === 13
+          && /^[0-9]{13}$/.test(result.identity_ruc) ? result.identity_ruc : "no demostrado";
         const expiry = /^\d{4}-\d{2}-\d{2}T/.test(result.not_after || "") ? result.not_after.slice(0, 10) : "no disponible";
         let status = "No fue posible validar criptográficamente el certificado";
         if (result.crypto_valid === true) {
@@ -52,11 +54,12 @@
           else if (result.ruc_match === "FAIL") status = "Certificado válido; identidad tributaria no coincide con esta empresa";
           else if (result.valid === true && result.ruc_match === "PASS") status = "Certificado válido; identidad tributaria coincide";
         }
-        output.textContent = `${status}. ${ruc}. Vence: ${expiry}. Clave privada utilizable: ${result.private_key_usable === true ? "sí" : "no"}.`;
+        output.textContent = `${status}. Certificado criptográficamente válido: ${result.crypto_valid === true ? "sí" : "no"}. RUC demostrado: ${identity}. ${ruc}. Vence: ${expiry}. Clave privada utilizable: ${result.private_key_usable === true ? "sí" : "no"}.`;
         if (result.identity_diagnostics) {
           diagnosticText.value = JSON.stringify({
             company_id: result.company_id, valid: result.valid, crypto_valid: result.crypto_valid,
             validity_valid: result.validity_valid, ruc_match: result.ruc_match,
+            identity_ruc: result.identity_ruc, identity_ruc_oid: result.identity_ruc_oid,
             serial_number: result.serial_number, not_before: result.not_before, not_after: result.not_after,
             issuer: result.issuer, identity: result.identity_diagnostics
           }, null, 2);

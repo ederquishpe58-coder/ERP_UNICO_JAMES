@@ -11,16 +11,51 @@ const SECRET_REFERENCES = Object.freeze({
   "ab60abdc-fe53-4289-9ae2-8f749ee21cff": "SRI_P12_PASSWORD_IMPERIO"
 });
 
+const SECURITY_DATA_RUC_OID = "1.3.6.1.4.1.37746.3.11";
+
+function securityDataProfile(certificate) {
+  // Select the demonstrated issuer profile, not arbitrary enterprise OIDs. This is
+  // profile compatibility, not a new certification-path/revocation trust policy.
+  const attributes = certificate.issuer?.attributes || [];
+  const organizations = attributes.filter(a => a.type === "2.5.4.10");
+  const names = organizations.length ? organizations : attributes.filter(a => a.type === "2.5.4.3");
+  const countries = attributes.filter(a => a.type === "2.5.4.6");
+  return names.length === 1 && names[0].value === "SECURITY DATA S.A. 2"
+    && countries.every(a => a.value === "EC");
+}
+
+function extensionRuc(value) {
+  if (typeof value !== "string" || !value.length || value.length > 128) return null;
+  try {
+    // extnValue contains DER, never scan arbitrary bytes for a matching substring.
+    // Accept only a single textual scalar, optionally OCTET-wrapped, with no tail.
+    let node;
+    for (let depth = 0; depth < 3; depth++) {
+      const bytes = forge.util.createBuffer(value, "raw");
+      node = forge.asn1.fromDer(bytes, true);
+      if (bytes.length() || node.tagClass !== 0 || node.constructed || typeof node.value !== "string") return null;
+      if (node.type !== forge.asn1.Type.OCTETSTRING) break;
+      value = node.value;
+    }
+    const supportedStrings = [forge.asn1.Type.UTF8, forge.asn1.Type.PRINTABLESTRING,
+      forge.asn1.Type.IA5STRING, forge.asn1.Type.BMPSTRING, 18 /* NumericString */];
+    if (!supportedStrings.includes(node.type)) return null;
+    const ruc = node.value;
+    // Same structural contract as the ERP SRI settings/readiness validator: 13 digits.
+    // No trimming, prefix stripping, cedula derivation or invented checksum policy.
+    return ruc.length === 13 && /^[0-9]{13}$/.test(ruc) ? ruc : null;
+  } catch { return null; }
+}
+
 function identityRuc(certificate) {
-  // Only explicit subject identity attributes count. CN, filenames, issuer and arbitrary
-  // numeric subject text do not prove an Ecuadorian taxpayer identity.
-  const candidates = (certificate.subject?.attributes || [])
-    .filter(a => a.type === "2.5.4.5" || a.type === "2.5.4.97")
-    .map(a => String(a.value || "").trim().match(/^(?:PNOEC-|VATEC-)?(\d{10}|\d{13})$/)?.[1])
-    .filter(Boolean)
-    .map(id => id.length === 10 ? `${id}001` : id);
-  const unique = [...new Set(candidates)];
-  return unique.length === 1 ? unique[0] : null;
+  if (!securityDataProfile(certificate)) return null;
+  const extensions = (certificate.extensions || []).filter(e => e.id === SECURITY_DATA_RUC_OID);
+  // A duplicate/ambiguous extension is not an authoritative identity. Missing or
+  // unsupported identity remains UNPROVEN, even if subject/CN contains company RUC.
+  if (extensions.length !== 1) return null;
+  // Security Data's published OID catalog: .3.11 = RUC; .3.1 = cedula; .3.8 = phone.
+  // https://www.securitydata.net.ec/wp-content/downloads/descargas/Manuales/Oids/OID.pdf
+  return extensionRuc(extensions[0].value);
 }
 
 function safeName(name) {
@@ -49,7 +84,7 @@ function boundedDer(node, depth = 0) {
 function validateInMemory(bytes, password, companyId, expectedRuc, now = new Date()) {
   const result = {
     valid: false, crypto_valid: false, validity_valid: false, identity_diagnostics: null,
-    company_id: companyId, ruc_match: "UNPROVEN",
+    company_id: companyId, ruc_match: "UNPROVEN", identity_ruc: null, identity_ruc_oid: null,
     subject_safe_summary: "", issuer: "", serial_number: "",
     not_before: null, not_after: null, expired: false,
     private_key_present: false, private_key_usable: false,
@@ -88,6 +123,8 @@ function validateInMemory(bytes, password, companyId, expectedRuc, now = new Dat
     result.serial_number = /^[a-f0-9]{1,128}$/i.test(certificate.serialNumber) ? certificate.serialNumber : "";
     result.issuer = safeName(certificate.issuer);
     const ruc = identityRuc(certificate);
+    result.identity_ruc = ruc;
+    result.identity_ruc_oid = ruc ? SECURITY_DATA_RUC_OID : null;
     result.ruc_match = ruc ? (ruc === expectedRuc ? "PASS" : "FAIL") : "UNPROVEN";
     result.subject_safe_summary = ruc ? "Identidad tributaria presente" : "Identidad tributaria no demostrada";
     result.valid = result.ruc_match === "PASS" && result.private_key_usable && !result.expired && start <= now;
