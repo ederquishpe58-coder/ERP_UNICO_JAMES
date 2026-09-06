@@ -4,10 +4,22 @@
   const money=value=>new Intl.NumberFormat("es-EC",{style:"currency",currency:"USD"}).format(Number(value||0));
   const number=(value,decimals=2)=>new Intl.NumberFormat("es-EC",{minimumFractionDigits:decimals,maximumFractionDigits:decimals}).format(Number(value||0));
   const today=()=>new Date().toISOString().slice(0,10);
-  const ui={loading:false,loaded:false,error:"",operation:"",employeeDraft:null,policyDraft:null,runPeriod:"",runNotes:"",runDrafts:{},runEditorId:""};
+  const freshState=()=>({loading:false,loaded:false,error:"",operation:"",employeeDraft:null,policyDraft:null,runPeriod:"",runNotes:"",runDrafts:{},runEditorId:""});
+  const ui={...freshState(),context:null};
+  let loadRequest=0,realtimeTimer;
   const service=()=>BlessERP.services?.payrollV2;
   const repo=()=>BlessERP.getPayrollV2Repository?.();
 
+  function resetContext(context){
+    clearTimeout(realtimeTimer);loadRequest++;
+    Object.assign(ui,freshState(),{context});
+  }
+  function alignContext(){const current=repo().context();if(ui.context!==current)resetContext(current);return current;}
+  const current=context=>repo().isContextCurrent(context)&&ui.context===context;
+  repo().onContextChange(context=>{
+    resetContext(context);
+    if(String(BlessERP.state?.state?.route||'').startsWith('payroll-'))rerender();
+  });
   function data(){return service()?.snapshot?.()||{employees:[],operationalRoles:[],performancePolicies:[],policyAssignments:[],periods:[],roles:[]};}
   function permissions(){return repo()?.healthStatus?.()?.data?.permissions||{};}
   function value(row,snake,camel=snake){return row?.[snake]??row?.[camel];}
@@ -21,12 +33,16 @@
   function assignedPolicies(id,d=data()){return employeeAssignments(id,d).map(row=>policyById(value(row,"policy_id","policyId"),d)).filter(Boolean);}
   function notify(result,success){BlessERP.layout?.toast?.(result?.ok?success:(result?.message||"Operación no confirmada."));return result?.ok;}
   function rerender(){BlessERP.layout?.renderPage?.();}
-  async function load(force=false){
-    if(ui.loading)return;
+  async function load(force=false,captured=alignContext()){
+    if(!current(captured)||(ui.loading&&!force))return;
+    const requestId=++loadRequest,valid=()=>current(captured)&&requestId===loadRequest;
     ui.loading=true;ui.error="";
-    const health=await service()?.health?.({force});
+    const health=await service().health({force,context:captured});
+    if(!valid())return;
     if(!health?.ok){ui.error=health?.message||"Nómina V2 no disponible.";ui.loaded=false;ui.loading=false;return rerender();}
-    const result=await service().refresh();ui.loading=false;ui.loaded=Boolean(result?.ok);ui.error=result?.ok?"":result?.message||"No se pudo cargar Nómina V2.";rerender();
+    const result=await service().refresh(null,{context:captured});
+    if(!valid())return;
+    ui.loading=false;ui.loaded=Boolean(result?.ok);ui.error=result?.ok?"":result?.message||"No se pudo cargar Nómina V2.";rerender();
   }
   function header(route){return `<section class="payroll-page-header"><div><p class="section-kicker">TALENTO HUMANO · NÓMINA V2</p><h1>${esc(route.title)}</h1><p>${esc(route.description)}</p></div><span class="status-badge authorized">SUPABASE CANÓNICO</span></section>`;}
   function unavailable(route){const health=repo()?.healthStatus?.()||{};return `<section class="payroll-page">${header(route)}<article class="panel-card"><h3>${ui.loading?"Verificando Nómina V2…":"Módulo no disponible"}</h3><p>${esc(ui.error||health.error?.message||"El backend debe confirmarse antes de operar.")}</p><button class="secondary-button" data-payroll-v2-retry>Reintentar health-check</button></article></section>`;}
@@ -121,34 +137,60 @@
   function renderApproved(route){const d=data(),perms=permissions();return `<section class="payroll-page">${header(route)}${perms.post?`<form class="panel-card payroll-form-grid" data-payroll-v2-accounting><h3 class="payroll-form-span">Configuración contable</h3>${field("Nómina por pagar",`<input name="payrollPayableAccountCode" value="${esc(d.accountingSettings?.payroll_payable_account_code||"")}" required>`)}${field("Cuenta descuentos / recuperaciones",`<input name="deductionAccountCode" value="${esc(d.accountingSettings?.payroll_deduction_account_code||"")}" required>`)}${field("Centro de costo",`<input name="costCenter" value="${esc(d.accountingSettings?.cost_center||"")}">`)}<button class="secondary-button">Guardar</button></form>`:""}${(d.roles||[]).map(r=>roleCard(r,perms)).join("")||'<article class="panel-card">Sin roles.</article>'}</section>`;}
 
   function formData(form){return Object.fromEntries(new FormData(form).entries());}
-  async function runLocked(label,action){if(ui.operation)return;ui.operation=label;rerender();try{const result=await action();notify(result,label+" confirmado.");return result;}finally{ui.operation="";rerender();}}
+  async function runLocked(label,action){
+    const captured=ui.context;
+    if(!current(captured))return repo().contextError();
+    if(ui.operation)return;
+    const operation={label,context:captured};ui.operation=operation;rerender();
+    try{
+      const result=await action(captured);
+      if(!current(captured)||ui.operation!==operation)return repo().contextError();
+      notify(result,label+" confirmado.");return result;
+    }finally{if(current(captured)&&ui.operation===operation){ui.operation="";rerender();}}
+  }
   function editEmployee(id){ui.employeeDraft=(data().employees||[]).find(row=>employeeId(row)===String(id))||null;rerender();}
   function versionPolicy(id){const policy=policyById(id);if(!policy)return;ui.policyDraft=policyDraftFrom(policy);rerender();}
   function mount(container){
-    container.querySelector('[data-payroll-v2-retry]')?.addEventListener('click',()=>load(true));
-    container.querySelector('[data-payroll-v2-employee-reset]')?.addEventListener('click',()=>{ui.employeeDraft=null;rerender();});
-    container.querySelectorAll('[data-payroll-v2-employee-edit]').forEach(button=>button.addEventListener('click',()=>editEmployee(button.dataset.payrollV2EmployeeEdit)));
-    container.querySelector('[data-payroll-v2-employee-form]')?.addEventListener('submit',event=>{event.preventDefault();const payload=formData(event.currentTarget);const expected=payload.expectedVersion?Number(payload.expectedVersion):null;runLocked('Empleado',async()=>{const result=await service().upsertEmployee(payload,{expectedVersion:expected});if(result?.ok)ui.employeeDraft=null;return result;});});
-    container.querySelector('[data-payroll-v2-policy-reset]')?.addEventListener('click',()=>{ui.policyDraft=null;rerender();});
-    container.querySelectorAll('[data-payroll-v2-policy-version]').forEach(button=>button.addEventListener('click',()=>versionPolicy(button.dataset.payrollV2PolicyVersion)));
-    container.querySelector('[data-payroll-v2-policy-form]')?.addEventListener('submit',event=>{event.preventDefault();const payload=formData(event.currentTarget);payload.operationalRole=payload.operationalRole||payload.operationalRoleFallback;payload.primaryUnit=payload.primaryUnit||payload.primaryUnitFallback;const options={priorPolicyId:payload.priorPolicyId||null,expectedVersion:payload.expectedVersion?Number(payload.expectedVersion):null};runLocked('Política',async()=>{const result=await service().savePerformancePolicy(payload,options);if(result?.ok)ui.policyDraft=null;return result;});});
-    container.querySelectorAll('[data-payroll-v2-policy-assign]').forEach(button=>button.addEventListener('click',()=>{const row=button.closest('[data-payroll-v2-employee-row]');const policy=row?.querySelector('[data-payroll-v2-policy-select]')?.value;const validFrom=row?.querySelector('[data-payroll-v2-policy-from]')?.value;if(!policy)return BlessERP.layout?.toast?.('Seleccione una política vigente.');runLocked('Asignación',()=>service().assignPerformancePolicy({employeeId:button.dataset.payrollV2PolicyAssign,policyId:policy,validFrom}));}));
-    container.querySelector('[data-payroll-v2-run-form]')?.addEventListener('submit',event=>{event.preventDefault();const period=ui.runPeriod||event.currentTarget.elements.period.value;const [year,month]=period.split('-').map(Number);const last=new Date(year,month,0).getDate();const d=data();const existing=(d.periods||[]).find(p=>Number(p.year)===year&&Number(p.month)===month);const existingRole=roleForPeriod(period,d);const selected=(d.employees||[]).filter(employee=>ui.runDrafts[employeeId(employee)]?.selected);if(!selected.length)return BlessERP.layout?.toast?.('Seleccione empleados.');for(const employee of selected){const draft=hydrateDraft(employee,d);if(Number(draft.baseAmount)<0)return BlessERP.layout?.toast?.('El valor base no puede ser negativo.');if(Math.abs(Number(draft.baseAmount)-Number(draft.baseReference))>.000001&&!String(draft.baseAdjustmentReason||'').trim())return BlessERP.layout?.toast?.(`Ingrese el motivo del ajuste para ${value(employee,'full_name','fullName')}.`);}runLocked('Rol',async()=>{let periodId=value(existing,"period_id","periodId");if(!periodId){const made=await service().createPeriod({year,month,dateFrom:`${period}-01`,dateTo:`${period}-${String(last).padStart(2,'0')}`});if(!made.ok)return made;periodId=made.result?.periodId;}const items=selected.map(employee=>{const draft=hydrateDraft(employee,d);return{employeeId:employeeId(employee),baseAmount:Number(draft.baseAmount||0),baseAdjustmentReason:String(draft.baseAdjustmentReason||'').trim(),consideredWorkdays:Number(draft.consideredWorkdays||21),notes:String(draft.notes||'').trim(),concepts:draft.lines.filter(line=>Number(line.amount)>0).map(line=>({code:line.code,kind:line.kind,label:String(line.label||'').trim(),amount:Number(line.amount),quantity:Number(line.quantity||0),notes:String(line.notes||'').trim()}))};});return service().calculateRole(periodId,{items,notes:ui.runNotes},{expectedVersion:existingRole?Number(existingRole.version):null});});});
-    container.querySelector('[name="period"]')?.addEventListener('change',event=>{ui.runPeriod=event.currentTarget.value;ui.runDrafts={};ui.runEditorId='';rerender();});
-    container.querySelector('[name="notes"]')?.addEventListener('input',event=>{ui.runNotes=event.currentTarget.value;});
-    container.querySelectorAll('[data-payroll-select-employee]').forEach(input=>input.addEventListener('change',()=>{const employee=(data().employees||[]).find(row=>employeeId(row)===input.dataset.payrollSelectEmployee);if(employee)hydrateDraft(employee).selected=input.checked;}));
-    container.querySelectorAll('[data-payroll-edit-run]').forEach(button=>button.addEventListener('click',()=>{ui.runEditorId=button.dataset.payrollEditRun;const employee=(data().employees||[]).find(row=>employeeId(row)===ui.runEditorId);if(employee)hydrateDraft(employee).selected=true;rerender();}));
-    container.querySelector('[data-payroll-close-editor]')?.addEventListener('click',()=>{ui.runEditorId='';rerender();});
-    container.querySelectorAll('[data-payroll-draft-field]').forEach(input=>input.addEventListener('input',()=>{const draft=ui.runDrafts[ui.runEditorId];if(!draft)return;const key=input.dataset.payrollDraftField;draft[key]=input.type==='number'?Number(input.value||0):input.value;}));
-    container.querySelectorAll('[data-payroll-line]').forEach(row=>row.querySelectorAll('[data-payroll-line-field]').forEach(input=>input.addEventListener('input',()=>{const draft=ui.runDrafts[ui.runEditorId];const line=draft?.lines.find(item=>item.key===row.dataset.payrollLine);if(!line)return;const key=input.dataset.payrollLineField;line[key]=input.type==='number'?Number(input.value||0):input.value;})));
-    container.querySelectorAll('[data-payroll-add-line]').forEach(button=>button.addEventListener('click',()=>{const draft=ui.runDrafts[ui.runEditorId];if(!draft)return;const kind=button.dataset.payrollAddLine;draft.lines.push(blankLine({code:kind==='EARNING'?'OTHER_INCOME':'OTHER_DISCOUNTS',kind,custom:true}));rerender();}));
-    container.querySelectorAll('[data-payroll-remove-line]').forEach(button=>button.addEventListener('click',()=>{const draft=ui.runDrafts[ui.runEditorId];if(!draft)return;draft.lines=draft.lines.filter(line=>line.key!==button.dataset.payrollRemoveLine);rerender();}));
-    container.querySelectorAll('[data-payroll-v2-approve]').forEach(button=>button.addEventListener('click',()=>runLocked('Aprobación',()=>service().approveRole(button.dataset.payrollV2Approve,Number(button.dataset.version)))));
-    container.querySelectorAll('[data-payroll-v2-post]').forEach(button=>button.addEventListener('click',()=>runLocked('Contabilización',()=>service().postRole(button.dataset.payrollV2Post,Number(button.dataset.version)))));
-    container.querySelectorAll('[data-payroll-v2-print]').forEach(button=>button.addEventListener('click',()=>BlessERP.payrollV2Print?.print(button.dataset.payrollV2Print,button.dataset.item||'')));
-    container.querySelector('[data-payroll-v2-accounting]')?.addEventListener('submit',event=>{event.preventDefault();runLocked('Configuración',()=>service().saveAccountingSettings(formData(event.currentTarget)));});
+    const captured=ui.context;
+    const on=(node,type,handler)=>node?.addEventListener(type,event=>{
+      if(!current(captured)){
+        event.preventDefault?.();
+        if(type==='submit'||type==='click')notify(repo().contextError());
+        return;
+      }
+      return handler(event);
+    });
+    on(container.querySelector('[data-payroll-v2-retry]'),'click',()=>load(true));
+    on(container.querySelector('[data-payroll-v2-employee-reset]'),'click',()=>{ui.employeeDraft=null;rerender();});
+    container.querySelectorAll('[data-payroll-v2-employee-edit]').forEach(button=>on(button,'click',()=>editEmployee(button.dataset.payrollV2EmployeeEdit)));
+    on(container.querySelector('[data-payroll-v2-employee-form]'),'submit',event=>{event.preventDefault();const payload=formData(event.currentTarget);const expected=payload.expectedVersion?Number(payload.expectedVersion):null;runLocked('Empleado',async context=>{const result=await service().upsertEmployee(payload,{expectedVersion:expected,context});if(result?.ok&&current(context))ui.employeeDraft=null;return result;});});
+    on(container.querySelector('[data-payroll-v2-policy-reset]'),'click',()=>{ui.policyDraft=null;rerender();});
+    container.querySelectorAll('[data-payroll-v2-policy-version]').forEach(button=>on(button,'click',()=>versionPolicy(button.dataset.payrollV2PolicyVersion)));
+    on(container.querySelector('[data-payroll-v2-policy-form]'),'submit',event=>{event.preventDefault();const payload=formData(event.currentTarget);payload.operationalRole=payload.operationalRole||payload.operationalRoleFallback;payload.primaryUnit=payload.primaryUnit||payload.primaryUnitFallback;const options={priorPolicyId:payload.priorPolicyId||null,expectedVersion:payload.expectedVersion?Number(payload.expectedVersion):null};runLocked('Política',async context=>{const result=await service().savePerformancePolicy(payload,{...options,context});if(result?.ok&&current(context))ui.policyDraft=null;return result;});});
+    container.querySelectorAll('[data-payroll-v2-policy-assign]').forEach(button=>on(button,'click',()=>{const row=button.closest('[data-payroll-v2-employee-row]');const policy=row?.querySelector('[data-payroll-v2-policy-select]')?.value;const validFrom=row?.querySelector('[data-payroll-v2-policy-from]')?.value;if(!policy)return BlessERP.layout?.toast?.('Seleccione una política vigente.');runLocked('Asignación',context=>service().assignPerformancePolicy({employeeId:button.dataset.payrollV2PolicyAssign,policyId:policy,validFrom},{context}));}));
+    on(container.querySelector('[data-payroll-v2-run-form]'),'submit',event=>{event.preventDefault();const period=ui.runPeriod||event.currentTarget.elements.period.value;const [year,month]=period.split('-').map(Number);const last=new Date(year,month,0).getDate();const d=data();const existing=(d.periods||[]).find(p=>Number(p.year)===year&&Number(p.month)===month);const existingRole=roleForPeriod(period,d);const selected=(d.employees||[]).filter(employee=>ui.runDrafts[employeeId(employee)]?.selected);if(!selected.length)return BlessERP.layout?.toast?.('Seleccione empleados.');for(const employee of selected){const draft=hydrateDraft(employee,d);if(Number(draft.baseAmount)<0)return BlessERP.layout?.toast?.('El valor base no puede ser negativo.');if(Math.abs(Number(draft.baseAmount)-Number(draft.baseReference))>.000001&&!String(draft.baseAdjustmentReason||'').trim())return BlessERP.layout?.toast?.(`Ingrese el motivo del ajuste para ${value(employee,'full_name','fullName')}.`);}const notes=ui.runNotes;runLocked('Rol',async context=>{const items=selected.map(employee=>{const draft=hydrateDraft(employee,d);return{employeeId:employeeId(employee),baseAmount:Number(draft.baseAmount||0),baseAdjustmentReason:String(draft.baseAdjustmentReason||'').trim(),consideredWorkdays:Number(draft.consideredWorkdays||21),notes:String(draft.notes||'').trim(),concepts:draft.lines.filter(line=>Number(line.amount)>0).map(line=>({code:line.code,kind:line.kind,label:String(line.label||'').trim(),amount:Number(line.amount),quantity:Number(line.quantity||0),notes:String(line.notes||'').trim()}))};});let periodId=value(existing,"period_id","periodId");if(!periodId){const made=await service().createPeriod({year,month,dateFrom:`${period}-01`,dateTo:`${period}-${String(last).padStart(2,'0')}`},{context});if(!current(context))return repo().contextError();if(!made.ok)return made;periodId=made.result?.periodId;}return service().calculateRole(periodId,{items,notes},{context,expectedVersion:existingRole?Number(existingRole.version):null});});});
+    on(container.querySelector('[name="period"]'),'change',event=>{ui.runPeriod=event.currentTarget.value;ui.runDrafts={};ui.runEditorId='';rerender();});
+    on(container.querySelector('[name="notes"]'),'input',event=>{ui.runNotes=event.currentTarget.value;});
+    container.querySelectorAll('[data-payroll-select-employee]').forEach(input=>on(input,'change',()=>{const employee=(data().employees||[]).find(row=>employeeId(row)===input.dataset.payrollSelectEmployee);if(employee)hydrateDraft(employee).selected=input.checked;}));
+    container.querySelectorAll('[data-payroll-edit-run]').forEach(button=>on(button,'click',()=>{ui.runEditorId=button.dataset.payrollEditRun;const employee=(data().employees||[]).find(row=>employeeId(row)===ui.runEditorId);if(employee)hydrateDraft(employee).selected=true;rerender();}));
+    on(container.querySelector('[data-payroll-close-editor]'),'click',()=>{ui.runEditorId='';rerender();});
+    container.querySelectorAll('[data-payroll-draft-field]').forEach(input=>on(input,'input',()=>{const draft=ui.runDrafts[ui.runEditorId];if(!draft)return;const key=input.dataset.payrollDraftField;draft[key]=input.type==='number'?Number(input.value||0):input.value;}));
+    container.querySelectorAll('[data-payroll-line]').forEach(row=>row.querySelectorAll('[data-payroll-line-field]').forEach(input=>on(input,'input',()=>{const draft=ui.runDrafts[ui.runEditorId];const line=draft?.lines.find(item=>item.key===row.dataset.payrollLine);if(!line)return;const key=input.dataset.payrollLineField;line[key]=input.type==='number'?Number(input.value||0):input.value;})));
+    container.querySelectorAll('[data-payroll-add-line]').forEach(button=>on(button,'click',()=>{const draft=ui.runDrafts[ui.runEditorId];if(!draft)return;const kind=button.dataset.payrollAddLine;draft.lines.push(blankLine({code:kind==='EARNING'?'OTHER_INCOME':'OTHER_DISCOUNTS',kind,custom:true}));rerender();}));
+    container.querySelectorAll('[data-payroll-remove-line]').forEach(button=>on(button,'click',()=>{const draft=ui.runDrafts[ui.runEditorId];if(!draft)return;draft.lines=draft.lines.filter(line=>line.key!==button.dataset.payrollRemoveLine);rerender();}));
+    container.querySelectorAll('[data-payroll-v2-approve]').forEach(button=>on(button,'click',()=>runLocked('Aprobación',context=>service().approveRole(button.dataset.payrollV2Approve,Number(button.dataset.version),{context}))));
+    container.querySelectorAll('[data-payroll-v2-post]').forEach(button=>on(button,'click',()=>runLocked('Contabilización',context=>service().postRole(button.dataset.payrollV2Post,Number(button.dataset.version),null,{context}))));
+    container.querySelectorAll('[data-payroll-v2-print]').forEach(button=>on(button,'click',()=>BlessERP.payrollV2Print?.print(button.dataset.payrollV2Print,button.dataset.item||'')));
+    on(container.querySelector('[data-payroll-v2-accounting]'),'submit',event=>{event.preventDefault();const payload=formData(event.currentTarget);runLocked('Configuración',context=>service().saveAccountingSettings(payload,{context}));});
   }
-  function render(container,route){if(!ui.loaded){container.innerHTML=unavailable(route);mount(container);if(!ui.loading&&!ui.error)queueMicrotask(()=>load());return;}const map={"payroll-employees":renderEmployees,"payroll-generation":renderGeneration,"payroll-approved":renderApproved};container.innerHTML=(map[route.id]||renderGeneration)(route);mount(container);}
-  if(!window.__PAYROLL_V2_REALTIME_BOUND__){window.__PAYROLL_V2_REALTIME_BOUND__=true;let timer;window.addEventListener('erp:canonical-record-updated',event=>{if(!String(event.detail?.entity||'').startsWith('payroll_v2_'))return;clearTimeout(timer);timer=setTimeout(async()=>{if(!String(BlessERP.state?.state?.route||'').startsWith('payroll-'))return;await service()?.refresh?.();rerender();},120);});}
+  function render(container,route){const captured=alignContext();if(!ui.loaded){container.innerHTML=unavailable(route);mount(container);if(!ui.loading&&!ui.error)queueMicrotask(()=>{if(current(captured))load(false,captured);});return;}const map={"payroll-employees":renderEmployees,"payroll-generation":renderGeneration,"payroll-approved":renderApproved};container.innerHTML=(map[route.id]||renderGeneration)(route);mount(container);}
+  window.addEventListener('erp:canonical-record-updated',event=>{
+    const captured=alignContext(),recordCompany=event.detail?.companyId||event.detail?.company_id;
+    if(!String(event.detail?.entity||'').startsWith('payroll_v2_')||recordCompany!==captured.companyId)return;
+    clearTimeout(realtimeTimer);
+    realtimeTimer=setTimeout(()=>{
+      if(current(captured)&&String(BlessERP.state?.state?.route||'').startsWith('payroll-'))load(true,captured);
+    },120);
+  });
   BlessERP.modules=BlessERP.modules||{};BlessERP.modules.payroll={render};
 })();

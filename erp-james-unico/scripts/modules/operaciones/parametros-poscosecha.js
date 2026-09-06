@@ -658,6 +658,7 @@
   }
 
   function mount(container, appState) {
+    const payrollContext = payrollRepository()?.context?.();
     mountController?.abort?.();
     mountController = new AbortController();
     const { signal } = mountController;
@@ -666,6 +667,7 @@
     }
     container.querySelectorAll("[data-ops-payroll-link]").forEach(button => button.addEventListener("click", async () => {
       if (button.disabled) return;
+      if (!payrollRepository()?.isContextCurrent?.(payrollContext)) return BlessERP.layout?.toast?.(payrollRepository()?.contextError?.().message);
       const type = String(button.dataset.type || "");
       const role = PAYROLL_LINK_TYPES[type];
       const store = BlessERP.operacionesState.getStore(appState);
@@ -678,7 +680,8 @@
         operationalRole: role,
         operationalWorkerId: operationalWorkerId(worker),
         validFrom: new Date().toISOString().slice(0, 10)
-      });
+      }, { context: payrollContext });
+      if (!payrollRepository()?.isContextCurrent?.(payrollContext)) return;
       BlessERP.layout?.toast?.(result?.ok ? "Vínculo Empleado V2 confirmado por Supabase." : (result?.message || "No se pudo confirmar el vínculo V2."));
       if (result?.ok) BlessERP.layout?.renderPage?.();
       else button.disabled = false;

@@ -1340,6 +1340,10 @@
   }
 
   async function applyRemoteRecord(serverRecord, options = {}) {
+    // Payroll opts into this fence: a company switch may occur during the IndexedDB await.
+    const contextCurrent=()=>!options.isContextCurrent || options.isContextCurrent();
+    const contextMismatch=()=>({ok:false,code:"PAYROLL_COMPANY_CONTEXT_MISMATCH"});
+    if(!contextCurrent())return contextMismatch();
     const db = BlessERP.state?.state?.db;
     if (!db || !serverRecord?.entity || !serverRecord?.record_id) return { ok: false };
     if (options.source === "REALTIME") {
@@ -1358,6 +1362,7 @@
       || hasFailedLocalCapture(serverRecord.entity, serverRecord.record_id)
       || (!options.ignoreEditGuard && BlessERP.layout?.isEditing?.())
     ) {
+      if(options.isContextCurrent)return {ok:false,code:"PAYROLL_CACHE_DEFERRED"};
       const key = `${serverRecord.company_id}:${serverRecord.entity}:${serverRecord.record_id}`;
       const existing = deferredRemoteRecords.get(key);
       const existingVersion = Number(existing?.version || 0);
@@ -1382,6 +1387,7 @@
       serverRecord.entity,
       serverRecord.record_id
     );
+    if(!contextCurrent())return contextMismatch();
     if (!options.force && pending && pending.status !== "synced") {
       // La operación conserva su base y su parche. El servidor fusionará campos
       // distintos y auditará solamente los campos concurrentes; no se bloquea.
@@ -1402,6 +1408,7 @@
         || ["ATOMIC_ORDER_SAVE", "INCREMENTAL_PULL", "REALTIME", "RECORD_CONFIRMATION"].includes(options.source)
     });
     await store().putEntity(serverRecord);
+    if(!contextCurrent())return contextMismatch();
     if (applied.ignoredOlder) {
       syncLog("REMOTE_IGNORED_OLDER_VERSION", {
         entity: serverRecord.entity,
