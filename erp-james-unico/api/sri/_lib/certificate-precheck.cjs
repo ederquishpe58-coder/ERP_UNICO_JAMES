@@ -1,6 +1,7 @@
 const forge = require("node-forge");
 const { randomBytes } = require("node:crypto");
 const { getSupabaseAdmin, getSupabaseUserContext } = require("./supabase-admin.cjs");
+const { identityDiagnostics } = require("./certificate-identity-metadata.cjs");
 
 const CAPABILITY = "tax.parameters.manage";
 const MAX_BYTES = 3 * 1024 * 1024;
@@ -47,7 +48,8 @@ function boundedDer(node, depth = 0) {
 
 function validateInMemory(bytes, password, companyId, expectedRuc, now = new Date()) {
   const result = {
-    valid: false, company_id: companyId, ruc_match: "UNPROVEN",
+    valid: false, crypto_valid: false, validity_valid: false, identity_diagnostics: null,
+    company_id: companyId, ruc_match: "UNPROVEN",
     subject_safe_summary: "", issuer: "", serial_number: "",
     not_before: null, not_after: null, expired: false,
     private_key_present: false, private_key_usable: false,
@@ -76,17 +78,20 @@ function validateInMemory(bytes, password, companyId, expectedRuc, now = new Dat
     const challenge = randomBytes(32).toString("binary");
     const digest = forge.md.sha256.create().update(challenge);
     result.private_key_usable = certificate.publicKey.verify(digest.digest().getBytes(), key.sign(digest));
+    result.crypto_valid = result.private_key_usable;
     const start = certificate.validity.notBefore;
     const end = certificate.validity.notAfter;
     result.not_before = start.toISOString();
     result.not_after = end.toISOString();
     result.expired = end <= now;
+    result.validity_valid = !result.expired && start <= now;
     result.serial_number = /^[a-f0-9]{1,128}$/i.test(certificate.serialNumber) ? certificate.serialNumber : "";
     result.issuer = safeName(certificate.issuer);
     const ruc = identityRuc(certificate);
     result.ruc_match = ruc ? (ruc === expectedRuc ? "PASS" : "FAIL") : "UNPROVEN";
     result.subject_safe_summary = ruc ? "Identidad tributaria presente" : "Identidad tributaria no demostrada";
     result.valid = result.ruc_match === "PASS" && result.private_key_usable && !result.expired && start <= now;
+    result.identity_diagnostics = identityDiagnostics(certificate, matching[0].attributes);
   } catch {
     // Never propagate parser/crypto exceptions, which can contain certificate or secret data.
     result.valid = false;

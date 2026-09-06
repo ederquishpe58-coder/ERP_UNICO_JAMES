@@ -59,9 +59,10 @@ process.env.SRI_P12_PASSWORD_BLESS = syntheticPassword;
 process.env.SRI_P12_PASSWORD_IMPERIO = syntheticPassword;
 const handler = require('./api/sri.js');
 const { identityRuc } = require('./api/sri/_lib/certificate-precheck.cjs');
+const { identityDiagnostics } = require('./api/sri/_lib/certificate-identity-metadata.cjs');
 const pair = forge.pki.rsa.generateKeyPair(2048);
 const otherPair = forge.pki.rsa.generateKeyPair(2048);
-function p12({ company = BLESS, expired = false, future = false, unknown = false, ambiguous = false, noKey = false, wrongKey = false } = {}) {
+function p12({ company = BLESS, expired = false, future = false, unknown = false, ambiguous = false, noKey = false, wrongKey = false, extensions = [], subjectExtra = [] } = {}) {
   const cert = forge.pki.createCertificate();
   cert.publicKey = pair.publicKey;
   cert.serialNumber = '01abcdef';
@@ -70,8 +71,10 @@ function p12({ company = BLESS, expired = false, future = false, unknown = false
   const attrs = [{ name: 'commonName', value: 'Synthetic ' + rucs[company] }];
   if (!unknown) attrs.push({ type: '2.5.4.5', value: rucs[company] });
   if (ambiguous) attrs.push({ type: '2.5.4.97', value: rucs[company === BLESS ? IMPERIO : BLESS] });
+  attrs.push(...subjectExtra);
   cert.setSubject(attrs);
   cert.setIssuer([{ name: 'organizationName', value: 'Isolated test issuer' }]);
+  cert.setExtensions(extensions);
   cert.sign(pair.privateKey, forge.md.sha256.create());
   const asn = forge.pkcs12.toPkcs12Asn1(noKey ? null : wrongKey ? otherPair.privateKey : pair.privateKey, [cert], syntheticPassword, { algorithm: '3des', count: 2048 });
   return Buffer.from(forge.asn1.toDer(asn).getBytes(), 'binary').toString('base64');
@@ -91,7 +94,7 @@ async function invoke(file, company = BLESS, options = {}) {
   assert.ok(!text.includes(syntheticPassword) && !text.includes(file));
   const data = value.data;
   if (data) {
-    assert.deepEqual(Object.keys(data).sort(), ['valid','company_id','ruc_match','subject_safe_summary','issuer','serial_number','not_before','not_after','expired','private_key_present','private_key_usable','secret_resolution','certificate_format'].sort());
+    assert.deepEqual(Object.keys(data).sort(), ['valid','crypto_valid','validity_valid','identity_diagnostics','company_id','ruc_match','subject_safe_summary','issuer','serial_number','not_before','not_after','expired','private_key_present','private_key_usable','secret_resolution','certificate_format'].sort());
     assert.ok(!data.subject_safe_summary.includes(rucs[company]));
   }
   return { status: response.statusCode, ...value };
@@ -152,8 +155,39 @@ try {
     assert.equal((await invoke(bless, BLESS, { method: 'GET' })).status, 405);
   });
   await test('Unknown/ambiguous RUC stays UNPROVEN; CN/name is not identity authority', async () => {
-    for (const opts of [{ unknown: true }, { ambiguous: true }]) { const r = await invoke(p12(opts)); assert.equal(r.data.ruc_match, 'UNPROVEN'); assert.equal(r.data.valid, false); }
+    for (const opts of [{ unknown: true }, { ambiguous: true }]) { const r = await invoke(p12(opts)); assert.equal(r.data.ruc_match, 'UNPROVEN'); assert.equal(r.data.valid, false); assert.equal(r.data.crypto_valid, true); assert.equal(r.data.validity_valid, true); }
     assert.equal(identityRuc({ subject: { attributes: [{ type: '2.5.4.5', value: '1717637084' }] } }), rucs[BLESS]);
+  });
+  await test('Unknown provider extension metadata exposes OID/candidate, NEVER changes UNPROVEN to PASS', async () => {
+    const value = forge.asn1.toDer(forge.asn1.create(0, 12, false, '1717637084')).getBytes();
+    const r = await invoke(p12({ unknown: true, extensions: [{ id: '1.3.6.1.4.1.55555.1', value }] }));
+    assert.equal(r.data.crypto_valid, true); assert.equal(r.data.ruc_match, 'UNPROVEN'); assert.equal(r.data.valid, false);
+    const candidate = r.data.identity_diagnostics.candidate_identifiers.find(c => c.oid === '1.3.6.1.4.1.55555.1');
+    assert.equal(candidate.value, '1717637084'); assert.equal(candidate.authority, 'UNVERIFIED');
+  });
+  await test('SAN otherName/UID and explicit IDCEC prefix are observable, not silently normalized', async () => {
+    const nested = forge.asn1.create(0, 16, true, [forge.asn1.create(128, 0, true, [
+      forge.asn1.create(0, 6, false, forge.asn1.oidToDer('1.3.6.1.4.1.55555.2').getBytes()),
+      forge.asn1.create(128, 0, true, [forge.asn1.create(0, 12, false, '1727970137')])
+    ])]);
+    const r = await invoke(p12({ company: IMPERIO, unknown: true,
+      subjectExtra: [{ type: '0.9.2342.19200300.100.1.1', value: '1727970137' }, { type: '2.5.4.5', value: 'IDCEC-1727970137' }],
+      extensions: [{ id: '2.5.29.17', value: forge.asn1.toDer(nested).getBytes() }] }), IMPERIO);
+    assert.equal(r.data.valid, false); assert.equal(r.data.ruc_match, 'UNPROVEN');
+    const d = r.data.identity_diagnostics;
+    assert.ok(d.subject_alt_name_types.includes('otherName'));
+    assert.ok(d.extensions[0].embedded_oids.includes('1.3.6.1.4.1.55555.2'));
+    assert.ok(d.candidate_identifiers.some(c => c.identity_prefix === 'IDCEC-' && c.value === '1727970137'));
+  });
+  await test('Diagnostics redact names, emails, friendlyName and binary values; tolerate corrupt extension', async () => {
+    const d = identityDiagnostics({ subject: { attributes: [{ type: '2.5.4.3', value: 'SENSITIVE_NAME' }, { type: '1.2.840.113549.1.9.1', value: 'sensitive@example.invalid' }] },
+      issuer: { attributes: [] }, extensions: [{ id: '2.5.29.17', altNames: [{ type: 1, value: 'sensitive@example.invalid' }], value: 'RAW_SECRET_DER_SENTINEL' }] },
+      { friendlyName: ['PRIVATE_FRIENDLY_NAME'], localKeyId: ['PRIVATE_BINARY'] });
+    const text = JSON.stringify(d);
+    for (const secret of ['SENSITIVE_NAME', 'sensitive@example.invalid', 'RAW_SECRET_DER_SENTINEL', 'PRIVATE_FRIENDLY_NAME', 'PRIVATE_BINARY']) assert.ok(!text.includes(secret));
+    assert.deepEqual(d.subject_alt_name_types, ['rfc822Name']);
+    assert.equal(d.pkcs12_attributes.friendly_name_present, true);
+    assert.equal(d.pkcs12_attributes.authority, 'AUXILIARY_ONLY');
   });
   await test('No private key or unrelated private key fails closed', async () => {
     for (const opts of [{ noKey: true }, { wrongKey: true }]) { const r = await invoke(p12(opts)); assert.equal(r.data.valid, false); assert.equal(r.data.private_key_usable, false); }
@@ -179,7 +213,7 @@ try {
     fetch: async (url, options) => {
       requestCount++; assert.equal(url, '/api/sri?action=validate-certificate'); assert.equal(options.headers.authorization, 'Bearer erp-user-jwt');
       assert.deepEqual(Object.keys(JSON.parse(options.body)).sort(), ['certificate_file','company_id']);
-      return { ok: !networkFail, async json() { return networkFail ? { ok: false, error: { message: 'Fallo controlado' } } : { ok: true, data: { valid: true, company_id: responseCompany, ruc_match: 'PASS', not_after: '2027-09-06T00:00:00Z', private_key_usable: true } }; } };
+      return { ok: !networkFail, async json() { return networkFail ? { ok: false, error: { message: 'Fallo controlado' } } : { ok: true, data: { valid: true, crypto_valid: true, validity_valid: true, company_id: responseCompany, ruc_match: 'PASS', not_after: '2027-09-06T00:00:00Z', private_key_usable: true } }; } };
     } };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(root + '/scripts/services/sri/sri-api-client.js', 'utf8'), ctx);
@@ -203,13 +237,23 @@ try {
     const input = { files: [file], value: 'selected', disabled: false };
     const button = { disabled: false, addEventListener: (event, cb) => { assert.equal(event, 'click'); click = cb; } };
     const output = { textContent: '' };
-    const panel = { isConnected: true, querySelector: s => s.includes('-file') ? input : s.includes('-validate') ? button : output };
+    const diagnostic = { hidden: true }, diagnosticText = { value: '' };
+    const panel = { isConnected: true, querySelector: s => s.includes('-diagnostic-text') ? diagnosticText : s.includes('-diagnostic') ? diagnostic : s.includes('-file') ? input : s.includes('-validate') ? button : output };
     erp.sriCertificatePrecheck.bind({ querySelector: () => panel });
     await click(); assert.match(output.textContent, /Certificado válido/); assert.equal(input.value, ''); assert.equal(button.disabled, false);
     networkFail = true; await click(); assert.equal(output.textContent, 'Fallo controlado'); assert.equal(input.value, ''); networkFail = false;
     const original = erp.sriApi.validateCertificate;
+    erp.sriApi.validateCertificate = async () => ({ valid: false, crypto_valid: true, validity_valid: true, ruc_match: 'UNPROVEN', company_id: BLESS, private_key_usable: true, identity_diagnostics: { diagnostic_only: true } });
+    await click(); assert.match(output.textContent, /Certificado válido; identidad tributaria no pudo demostrarse/);
+    assert.equal(diagnostic.hidden, false); assert.equal(JSON.parse(diagnosticText.value).valid, false);
+    erp.sriApi.validateCertificate = async () => ({ valid: false, crypto_valid: true, validity_valid: true, ruc_match: 'FAIL', company_id: BLESS, private_key_usable: true });
+    await click(); assert.match(output.textContent, /no coincide con esta empresa/); assert.equal(diagnostic.hidden, true); assert.equal(diagnosticText.value, '');
+    erp.sriApi.validateCertificate = async () => ({ valid: false, crypto_valid: true, validity_valid: false, ruc_match: 'PASS', company_id: BLESS, private_key_usable: true });
+    await click(); assert.match(output.textContent, /fuera de vigencia/);
+    erp.sriApi.validateCertificate = async () => ({ valid: false, crypto_valid: false, validity_valid: false, ruc_match: 'UNPROVEN', company_id: BLESS });
+    await click(); assert.match(output.textContent, /No fue posible validar criptográficamente/);
     erp.sriApi.validateCertificate = async () => { uiCompany = IMPERIO; return { valid: true }; };
-    await click(); assert.equal(output.textContent, ''); assert.equal(input.value, ''); erp.sriApi.validateCertificate = original;
+    await click(); assert.equal(output.textContent, ''); assert.equal(input.value, ''); assert.equal(diagnostic.hidden, true); assert.equal(diagnosticText.value, ''); erp.sriApi.validateCertificate = original;
   });
   assert.equal(calls.writes, 0); assert.equal(calls.storage, 0);
 } finally {
