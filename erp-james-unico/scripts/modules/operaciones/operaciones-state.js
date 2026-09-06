@@ -2431,6 +2431,7 @@
     const result = {
       id: uuid(),
       assignmentId: assignment.id,
+      workdayId: assignment.workdayId || "",
       dateTime: nowLabel(),
       quality,
       nationalStems,
@@ -2471,6 +2472,7 @@
         variety: assignment.variety,
         bunches: 0,
         stems: assignment.totalStems,
+        workdayId: assignment.workdayId || "",
         observation: `${result.observation}. Nacional/rechazo: ${nationalStems} tallos. Exportable estimado: ${result.exportableStems}.`
       });
     }
@@ -3718,21 +3720,36 @@
     return { ...reception, ok: true, confirmed: true, operationId, wasUpdated: simulation.result.wasUpdated === true };
   }
 
-  async function registerClassifierAssignmentConfirmed(appState) {
-    const hydrated = await hydrateYieldWorkday(appState);
-    const canonicalWorkday = hydrated?.workday || null;
-    const canonicalWorkdayId = String(canonicalWorkday?.id || "").trim();
-    const canonicalWorkdayIsActive = hydrated?.ok === true
-      && hydrated?.confirmed === true
-      && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(canonicalWorkdayId)
-      && String(canonicalWorkday?.status || "").toUpperCase() === "ACTIVA"
-      && !String(canonicalWorkday?.endedAt || "").trim();
-    if (!canonicalWorkdayIsActive) {
-      const message = hydrated?.message || "OPERATIONS_ACTIVE_WORKDAY_REQUIRED";
-      setNotice(appState, message, "warning", false);
-      return { ok: false, confirmed: false, error: "OPERATIONS_ACTIVE_WORKDAY_REQUIRED", message };
+  function classificationContextFailure(appState, error) {
+    const message = error.message || "OPERATIONS_CANONICAL_CONTEXT_REQUIRED";
+    setNotice(appState, message, "danger", false);
+    return { ok: false, confirmed: false, error: message.split(":")[0], message };
+  }
+
+  async function confirmedClassificationContext(appState, assignmentId = "") {
+    const repository = operationsV2Repository();
+    const companyId = repository?.activeCompanyUuid?.();
+    // Copy the selected form before awaiting reads; never carry a different company's state into the command.
+    const state = { ...appState, db: { ...appState.db, operations: clone(ensureStore(appState)) } };
+    const context = await repository.classificationContext(assignmentId);
+    if (!companyId || companyId !== repository.activeCompanyUuid() || context.companyId !== companyId) throw new Error("OPERATIONS_COMPANY_CHANGED: vuelva a abrir la entrega.");
+    state.db.operations.yieldWorkday = clone(context.workday);
+    if (context.assignment) {
+      const row = { ...clone(context.assignment.payload), __syncVersion: context.assignment.version, __syncUpdatedAt: context.assignment.updated_at || "" };
+      const index = state.db.operations.classifierAssignments.findIndex(item => item.id === assignmentId);
+      if (index >= 0) state.db.operations.classifierAssignments[index] = row;
+      else state.db.operations.classifierAssignments.unshift(row);
+      state.db.operations.ui.classificationResultDraft.assignmentId = assignmentId;
     }
-    const simulation = simulateLegacyMutation(appState, shadowState => registerClassifierAssignmentLegacy(shadowState));
+    return { ...context, state };
+  }
+
+  async function registerClassifierAssignmentConfirmed(appState) {
+    let context;
+    try { context = await confirmedClassificationContext(appState); }
+    catch (error) { return classificationContextFailure(appState, error); }
+    const canonicalWorkdayId = context.workday.id;
+    const simulation = simulateLegacyMutation(context.state, shadowState => registerClassifierAssignmentLegacy(shadowState));
     if (!simulation.result) {
       propagateSimulationNotice(appState, simulation.nextStore, "La entrega al clasificador contiene datos inválidos.");
       return null;
@@ -3756,7 +3773,7 @@
       assignmentIds: (simulation.result.entries || []).map(item => item.id),
       workdayId: canonicalWorkdayId,
       records
-    }, { operationId });
+    }, { operationId, companyId: context.companyId });
     if (!persisted.ok) {
       setNotice(appState, persisted.message || "La entrega al clasificador fue rechazada por Supabase.", "danger", false);
       return { ok: false, confirmed: false, operationId, error: persisted.error, message: persisted.message };
@@ -3768,7 +3785,12 @@
   }
 
   async function registerClassificationResultConfirmed(appState) {
-    const simulation = simulateLegacyMutation(appState, shadowState => {
+    const assignmentId = String(appState.db.operations?.ui?.classificationResultDraft?.assignmentId || "").trim();
+    if (!assignmentId) return classificationContextFailure(appState, new Error("OPERATIONS_CLASSIFICATION_ASSIGNMENT_REQUIRED: seleccione la entrega."));
+    let context;
+    try { context = await confirmedClassificationContext(appState, assignmentId); }
+    catch (error) { return classificationContextFailure(appState, error); }
+    const simulation = simulateLegacyMutation(context.state, shadowState => {
       const result = registerClassificationResultLegacy(shadowState);
       if (!result) return result;
       const row = shadowState.db.operations.classificationResults.find(item => item.id === result.id);
@@ -3788,14 +3810,17 @@
       "operations_classifier_assignments",
       "operations_performances"
     ]);
+    const mismatched = records.filter(record => ["operations_classification_results", "operations_classifier_assignments", "operations_performances"].includes(record.entity) && record.payload.workdayId !== context.workday.id);
+    if (mismatched.length) return classificationContextFailure(appState, new Error("OPERATIONS_COMMAND_WORKDAY_MISMATCH: la entrega y sus registros deben conservar la jornada " + context.workday.id));
     const operationId = uuid();
     const persisted = await executeOperationsCommand("REGISTER_CLASSIFICATION_RESULT", {
       assignmentId: simulation.result.assignmentId,
       resultId: simulation.result.id,
       nationalStems: simulation.result.nationalStems,
       quality: simulation.result.quality,
+      workdayId: context.workday.id,
       records
-    }, { operationId });
+    }, { operationId, companyId: context.companyId });
     if (!persisted.ok) {
       setNotice(appState, persisted.message || "El resultado fue rechazado por Supabase.", "danger", false);
       return { ok: false, confirmed: false, operationId, error: persisted.error, message: persisted.message };
