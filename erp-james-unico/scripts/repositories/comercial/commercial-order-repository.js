@@ -296,8 +296,8 @@
       p_company_id: companyId,
       p_record_id: recordId,
       p_order_year: orderYear,
-      p_establishment_code: String(series.establishment || "001").padStart(3, "0"),
-      p_emission_point_code: String(series.emissionPoint || "001").padStart(3, "0"),
+      p_establishment_code: null,
+      p_emission_point_code: null,
       p_document_type: "01"
     });
     if (error) {
@@ -305,7 +305,7 @@
         ok: false,
         mode: "SUPABASE_ERROR",
         error,
-        message: error.message || "No se pudo reservar el numero del pedido y la factura en Supabase."
+        message: error.message || "No se pudo reservar el número interno del pedido en Supabase."
       };
     }
     if (!data || typeof data !== "object") {
@@ -342,14 +342,17 @@
       ? (BlessERP.syncEntityRegistry?.serializableRecord?.(options.basePayload) || { ...options.basePayload })
       : {};
     const fieldChanges = BlessERP.offlineSync?.buildFieldChanges?.(basePayload, payload) || [];
+    if (activeCompanyUuid() !== companyId) {
+      return { ok: false, confirmed: false, mode: "COMPANY_CHANGED", message: "La empresa cambió antes de guardar el pedido. Abra el pedido en su empresa." };
+    }
     const { data, error } = await BlessERP.getSupabaseClient().rpc("erp_save_commercial_order", {
       p_operation_id: operationId,
       p_company_id: companyId,
       p_device_id: deviceId,
       p_record_id: recordId,
       p_order_year: orderYear,
-      p_establishment_code: String(series.establishment || "001").padStart(3, "0"),
-      p_emission_point_code: String(series.emissionPoint || "001").padStart(3, "0"),
+      p_establishment_code: null,
+      p_emission_point_code: null,
       p_payload: payload,
       p_base_payload: basePayload,
       p_field_changes: fieldChanges,
@@ -367,7 +370,10 @@
     }
     const result = Array.isArray(data) ? data[0] : data;
     const serverRecord = result?.serverRecord || result?.server_record || null;
-    if (!result?.ok || !serverRecord?.record_id || !serverRecord?.payload) {
+    if (!result?.ok || serverRecord?.record_id !== recordId || serverRecord?.company_id !== companyId
+      || activeCompanyUuid() !== companyId || !serverRecord?.payload || serverRecord?.deleted_at
+      || Number(serverRecord.version) < 1 || !Number.isSafeInteger(Number(serverRecord.version))
+      || !/^PED-COM-\d{4}-\d{4,8}$/.test(String(serverRecord.payload.number || ""))) {
       return {
         ok: false,
         mode: "INVALID_RESPONSE",

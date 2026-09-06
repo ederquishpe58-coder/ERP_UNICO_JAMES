@@ -265,6 +265,14 @@ async function createDraft(client, input, actorUserId) {
       "Calificacion tributaria": exporterLegend
     });
   }
+  if (documentType === "01") {
+    const sourceOrderId = String(payload.erpEmission?.sourceOrderId || input.sourceOrderId || "").trim();
+    const idempotencyKey = String(input.idempotencyKey || payload.erpEmission?.idempotencyKey || "").trim();
+    if (!sourceOrderId && !idempotencyKey) {
+      throw new SriValidationError("La factura requiere un pedido de origen o una clave de idempotencia estable.");
+    }
+    payload.erpEmission = { ...(payload.erpEmission || {}), ...(sourceOrderId ? { sourceOrderId } : { idempotencyKey }) };
+  }
   const numericCode = generateNumericCode();
   const rpc = await client.rpc("create_electronic_document_draft", {
     p_company_id: companyId,

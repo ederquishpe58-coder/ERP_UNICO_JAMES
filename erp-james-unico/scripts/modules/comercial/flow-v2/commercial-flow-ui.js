@@ -153,7 +153,7 @@
     const usesInventory = flow.orderUsesInventory(order);
     return `<section class="commercial-v2-order-strip">
       <div><span>Pedido</span><strong>${esc(order.number || "Se asigna al guardar")}</strong></div>
-      <div><span>Factura</span><strong>${esc(BlessERP.comercialInvoiceSequence?.visibleInvoiceNumber?.(order) || "Se asigna al guardar")}</strong></div>
+      <div><span>Factura</span><strong>${esc(BlessERP.comercialInvoiceSequence?.visibleInvoiceNumber?.(order) || "Pendiente de generar comprobante")}</strong></div>
       <div><span>Mercado</span><strong>${local ? "LOCAL" : "EXPORTACIÓN"}</strong></div>
       <div><span>Operación</span><strong>${usesInventory ? "CON INVENTARIO" : "SIN INVENTARIO"}</strong></div>
       <div><span>Cajas</span><strong>${totals.boxes}</strong></div>

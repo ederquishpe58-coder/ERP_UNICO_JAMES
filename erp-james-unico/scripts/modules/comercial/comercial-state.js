@@ -2900,37 +2900,11 @@
 
   function applyAtomicOrderIdentifiers(appState, order, reservation, series) {
     const orderNumber = String(reservation.orderNumber || "").trim();
-    const fullNumber = String(reservation.fullNumber || "").trim();
-    const invoiceSequential = String(reservation.invoiceSequential || "").replace(/\D/g, "").padStart(9, "0").slice(-9);
-    if (!orderNumber || !/^\d{3}-\d{3}-\d{9}$/.test(fullNumber) || !/^\d{9}$/.test(invoiceSequential)) {
-      return { ok: false, error: "Supabase devolvio una reserva incompleta para el pedido o la factura." };
+    if (!/^PED-COM-\d{4}-\d{4,8}$/.test(orderNumber)) {
+      return { ok: false, error: "Supabase no confirmó el número interno del pedido." };
     }
-
-    const previousFullNumber = String(order.sriInvoiceNumber || "").trim();
     order.number = orderNumber;
     order.numberPending = false;
-    order.sriInvoiceNumber = fullNumber;
-    order.sriSequential = invoiceSequential;
-    order.packingListNumber = invoiceSequential;
-    order.invoicePackingNumber = invoiceSequential;
-    order.clientInvoiceNumber = invoiceSequential;
-    order.invoiceSequence = invoiceSequential;
-    order.sriSeriesCode = series.code || (utils.isLocalOrder(order) ? "FAC_LOCAL" : "FAC_EXPORT");
-    order.sriMarket = series.market || (utils.isLocalOrder(order) ? "LOCAL" : "EXPORTACION");
-    order.establishmentCode = String(reservation.establishmentCode || series.establishment || "001");
-    order.emissionPointCode = String(reservation.emissionPointCode || series.emissionPoint || "001");
-    order.sriSequenceStatus = "RESERVADO";
-    order.sriSequenceSource = "SUPABASE_ATOMICO";
-    order.sriSequenceReservationId = String(reservation.invoiceReservationId || "");
-    order.sriSequenceAllocatedAt = String(reservation.reservedAt || new Date().toISOString());
-    if (previousFullNumber && previousFullNumber !== fullNumber) {
-      order.sriAccessKey = "";
-      order.sriAuthorizationNumber = "";
-      order.sriAuthorizedXml = "";
-      order.sriRemoteDocumentId = "";
-      order.sriQueueStatus = "PENDIENTE";
-      order.sriQueuedAt = new Date().toISOString();
-    }
     return { ok: true };
   }
 
@@ -2945,7 +2919,7 @@
     const series = configuredInvoiceSeries(appState, order);
     const reservation = await repository.reserveIdentifiers(order, series);
     if (!reservation?.ok) {
-      const error = reservation?.message || "No se pudo reservar el numero del pedido y la factura en Supabase.";
+      const error = reservation?.message || "No se pudo reservar el número interno del pedido en Supabase.";
       setNotice(appState, error, "danger");
       return { ok: false, error, reservation };
     }
@@ -2975,34 +2949,7 @@
     if (utils.isLocalOrder(order)) utils.applyLocalOrderDefaults(order);
     order.issuedAt = String(order.issuedAt || BlessERP.utils.today()).slice(0, 10);
     order.sriIssueDate = order.issuedAt;
-    const allocation = deferIdentifiers
-      ? { ok: true, mode: "SUPABASE_PENDING", series: configuredInvoiceSeries(appState, order) }
-      : enforceOrderInvoiceSeries(appState, order, {
-          allocate: true,
-          commitCounter: true
-        });
-    if (allocation.error) {
-      setNotice(appState, allocation.error, "danger");
-      return { ok: false, error: allocation.error };
-    }
-    if (!deferIdentifiers) {
-      const assignedParts = invoiceSequence.fullNumberParts(order.sriInvoiceNumber);
-      const assignedSequence = invoiceSequence.visibleInvoiceNumber(order);
-      const assignedSeries = configuredInvoiceSeries(appState, order);
-      const sequenceIsValid = Boolean(
-        assignedParts
-        && assignedSequence
-        && assignedParts.sequence === assignedSequence
-        && assignedParts.establishment === String(assignedSeries.establishment || "001")
-        && assignedParts.emissionPoint === String(assignedSeries.emissionPoint || "001")
-        && invoiceSequence.isSynchronized(order)
-      );
-      if (!sequenceIsValid) {
-        const error = "No se pudo confirmar el secuencial de la factura. Revise la serie configurada y vuelva a guardar el pedido.";
-        setNotice(appState, error, "danger");
-        return { ok: false, error };
-      }
-    }
+    const allocation = { ok: true, mode: deferIdentifiers ? "SUPABASE_PENDING" : "ORDER_ONLY" };
     order.unsavedDraft = false;
     order.savedAt = order.savedAt || new Date().toISOString();
     store.ui.orderWorkspaceMode = "EDIT";
@@ -3053,7 +3000,7 @@
   function saveCurrentOrder(appState) {
     const prepared = prepareCurrentOrderSave(appState);
     if (!prepared.ok) return prepared;
-    setNotice(appState, `Pedido guardado con factura ${prepared.order.sriInvoiceNumber}. Quedo pendiente en Documentos electronicos SRI.`, "success");
+    setNotice(appState, `Pedido ${prepared.order.number} guardado. La factura se generará por separado.`, "success");
     saveDb();
     return prepared;
   }
@@ -3082,7 +3029,7 @@
       }
       const { order, allocation } = prepared;
       prepareOrderDraftCommit(appState, order);
-      const series = configuredInvoiceSeries(appState, order);
+      const series = {};
       let confirmation = null;
       try {
         confirmation = await repository.saveConfirmedOrder(order, series, {
@@ -3118,7 +3065,7 @@
           const savedOrder = findOrder(appState, orderId) || order;
           setNotice(
             appState,
-            `Pedido ${savedOrder.number} guardado con factura ${savedOrder.sriInvoiceNumber}. Confirmado en Supabase y visible para los demas dispositivos.`,
+            `Pedido ${savedOrder.number} confirmado en Supabase y visible para los demás dispositivos.`,
             "success"
           );
           return {
@@ -3185,8 +3132,8 @@
       setNotice(
         appState,
         localOnlyConfirmed
-          ? `Pedido guardado localmente con factura ${savedOrder.sriInvoiceNumber} y visible en el historial de este equipo.`
-          : `Pedido guardado con factura ${savedOrder.sriInvoiceNumber}. Confirmado en Supabase y visible en el historial.`,
+          ? `Pedido ${savedOrder.number} guardado localmente y visible en el historial de este equipo.`
+          : `Pedido ${savedOrder.number} confirmado en Supabase y visible en el historial.`,
         "success"
       );
       return {

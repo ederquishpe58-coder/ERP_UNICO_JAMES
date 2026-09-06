@@ -790,14 +790,6 @@
     draft = normalizeOrderTransportPayload(draft);
     const remoteIdentifiers = options.remoteIdentifiers === true && !existing?.sriInvoiceNumber;
     const confirmedId = existing?.id || draft.id || BlessERP.utils.uid("COM-ORD");
-    const series = invoiceSequence.saleSeries(
-      activeCompanyId(appState),
-      isLocalOrder(draft, appState) ? "LOCAL" : "EXPORTACION",
-      draft.transportType
-    );
-    const sequence = remoteIdentifiers
-      ? { ...series, sequence: "000000000" }
-      : nextInvoice(appState, draft, existing);
     const usesInventory = orderUsesInventory(draft);
     const created = data.createOrder({
       ...clone(draft),
@@ -806,15 +798,15 @@
       numberPending: false,
       unsavedDraft: false,
       status: usesInventory && existing?.status && existing.status !== "BORRADOR_LOCAL" ? existing.status : "GUARDADO",
-      sriInvoiceNumber: existing?.sriInvoiceNumber || invoiceSequence.formatFullNumber(sequence.sequence, sequence.establishment, sequence.emissionPoint),
-      sriSequential: existing?.sriSequential || sequence.sequence,
-      packingListNumber: existing?.packingListNumber || sequence.sequence,
-      invoicePackingNumber: existing?.invoicePackingNumber || sequence.sequence,
-      clientInvoiceNumber: existing?.clientInvoiceNumber || sequence.sequence,
-      establishmentCode: existing?.establishmentCode || sequence.establishment,
-      emissionPointCode: existing?.emissionPointCode || sequence.emissionPoint,
-      sriSeriesCode: existing?.sriSeriesCode || sequence.code,
-      sriMarket: existing?.sriMarket || sequence.market,
+      sriInvoiceNumber: existing?.sriInvoiceNumber || "",
+      sriSequential: existing?.sriSequential || "",
+      packingListNumber: existing?.packingListNumber || "",
+      invoicePackingNumber: existing?.invoicePackingNumber || "",
+      clientInvoiceNumber: existing?.clientInvoiceNumber || "",
+      establishmentCode: existing?.establishmentCode || "",
+      emissionPointCode: existing?.emissionPointCode || "",
+      sriSeriesCode: existing?.sriSeriesCode || "",
+      sriMarket: existing?.sriMarket || "",
       inventoryMode: usesInventory ? "WITH_INVENTORY" : "NO_INVENTORY",
       affectsInventory: usesInventory,
       warehouseEligible: usesInventory,
@@ -934,7 +926,7 @@
       }
       return { ok: true, mode: "LOCAL_ONLY", order };
     }
-    const result = await repository.saveConfirmedOrder(order, orderSeries(appState, order), {
+    const result = await repository.saveConfirmedOrder(order, {}, {
       basePayload: baseOrder || {},
       baseVersion: number(baseOrder?.__syncVersion || baseOrder?.version)
     });
