@@ -313,10 +313,10 @@
                 : adminService.roleOptions.map(item => `<option value="${esc(item.code)}" ${membership.roleCode === item.code ? "selected" : ""}>${esc(item.label)}</option>`).join("")}
             </select>
           </label>
-          ${remoteCanonical ? `
+          ${remoteCanonical && !stored?.cloudManaged ? `
             <label class="compact-field">
               <span>Perfil canónico</span>
-              <select data-user-company-profile="${esc(selectedCompanyId)}" ${membership.enabled && !stored?.cloudManaged ? "required" : "disabled"}>
+              <select data-user-company-profile="${esc(selectedCompanyId)}" ${membership.enabled ? "required" : "disabled"}>
                 <option value="">Seleccione un perfil</option>
                 ${canonicalProfiles.map(profile => `<option value="${esc(profile.id)}" ${membership.profileId === profile.id ? "selected" : ""}>${esc(profile.name)} (${esc(profile.id)})</option>`).join("")}
               </select>
@@ -559,6 +559,7 @@
     if (planRoot) BlessERP.userAccessOverrides?.mount(planRoot, {
       targetUserId: uiState.users.draft.id,
       companyKey: uiState.users.accessCompanyId,
+      openImmediately: !userAccessFor(uiState.users.draft, uiState.users.accessCompanyId).profileId,
       onConfirmed: result => {
         const access = userAccessFor(uiState.users.draft, uiState.users.accessCompanyId);
         access.profileId = result.profile_id;

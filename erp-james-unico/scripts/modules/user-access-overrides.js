@@ -17,7 +17,7 @@
         <p>GRANT: ${esc(grants.join(", ") || "Ninguno")}</p><p>DENY: ${esc(denies.join(", ") || "Ninguno")}</p>
         <p>EFECTIVOS: ${esc(capabilities.join(", ") || "Ninguno")}</p></details>`;
   }
-  function mount(root, { targetUserId, companyKey, onConfirmed }) {
+  function mount(root, { targetUserId, companyKey, onConfirmed, openImmediately = false }) {
     if (!root) return;
     const epoch = ++generation;
     const current = () => root.isConnected && epoch === generation && activeCompany() === companyKey;
@@ -54,9 +54,12 @@
         .filter(node => node.value).map(node => ({ capability_id: node.dataset.accessPlanCapability, effect: node.value, reason }));
       return { ...scope, profileId, overrides, reason };
     }
-    open.addEventListener("click", () => run(async () => {
+    const loadCatalog = () => run(async () => {
       loaded = requireResult(await erp.remoteUserAccess.previewAccessPlan(scope));
       if (!current()) return;
+      if (!Array.isArray(loaded.profiles) || !loaded.profiles.length) {
+        throw new Error("CANONICAL_PROFILE_CATALOG_EMPTY: no hay perfiles canónicos disponibles. Vuelva a consultar el servidor.");
+      }
       // Separate this atomic membership plan from the legacy identity/multi-company editor.
       const editor = root.closest(".user-access-editor");
       editor?.querySelectorAll("input,select,textarea,button").forEach(node => {
@@ -91,7 +94,9 @@
         onConfirmed?.(result);
       }));
       feedback("Acceso actual leído del servidor. No se han guardado cambios.");
-    }));
+    });
+    open.addEventListener("click", loadCatalog);
+    if (openImmediately) void loadCatalog();
   }
   erp.userAccessOverrides = { mount };
 })();
