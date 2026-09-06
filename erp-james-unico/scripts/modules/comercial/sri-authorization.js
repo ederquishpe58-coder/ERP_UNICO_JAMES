@@ -1588,19 +1588,20 @@
   }
 
   function emissionPointForOrder(order) {
-    if (!order) return activeEmissionPoint();
-    const companyId = order.sellingCompanyId || order.selling_company_id || order.companyId || order.company_id || "";
-    const series = BlessERP.comercialInvoiceSequence?.saleSeries?.(
-      companyId,
-      order.saleType || order.sale_type,
-      order.transportType || order.transport_type
-    ) || {};
-    const points = (ui.configuration?.emissionPoints || []).filter(point => point.active !== false
-      && String(point.environment || "TEST").toUpperCase() === "TEST");
-    return points.find(point => (
-      String(point.establishment_code || "").padStart(3, "0") === String(series.establishment || "001").padStart(3, "0")
-      && String(point.emission_point_code || "").padStart(3, "0") === String(series.emissionPoint || "001").padStart(3, "0")
-    )) || null;
+    if (!order) return null;
+    const api = BlessERP.sriApi;
+    const activeCompany = api?.activeCompany?.();
+    const companyReference = order.sellingCompanyId || order.selling_company_id || order.companyId || order.company_id || "";
+    let orderCompany;
+    try { orderCompany = companyReference ? api?.companyIdentity?.(companyReference) : null; }
+    catch { return null; }
+    if (!activeCompany?.companyId || activeCompany.key !== ui.companyKey || !companyReference
+        || orderCompany?.key !== ui.companyKey) return null;
+    return BlessERP.comercialInvoiceSequence?.resolveEmissionPoint?.(ui.configuration || {}, {
+      companyId: activeCompany.companyId,
+      saleType: order.saleType || order.sale_type,
+      transportType: order.transportType || order.transport_type
+    }) || null;
   }
 
   function localOrder(appState, orderId) {
@@ -2023,7 +2024,7 @@
         rerenderFor(container, appState, viewMode);
         try {
           const order = localOrder(appState, row.orderId);
-          const emissionPoint = emissionPointForOrder(order) || activeEmissionPoint();
+          const emissionPoint = order ? emissionPointForOrder(order) : activeEmissionPoint();
           if (!emissionPoint) throw new Error("No existe un punto de emision SRI activo para PRUEBAS.");
           const detail = await processRow(appState, row, emissionPoint);
           const document = detail?.document || detail || {};

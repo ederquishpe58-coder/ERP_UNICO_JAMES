@@ -10,16 +10,29 @@
   const DEFAULT_EMISSION_POINT = "001";
 
   function saleSeries(companyId = "", saleType = "", transportType = "") {
-    const imperio = /IMPERIO/i.test(String(companyId || ""));
     const local = /LOCAL/i.test(String(saleType || "")) || /TERRESTRE|LOCAL/i.test(String(transportType || ""));
     return {
       code: local ? "FAC_LOCAL" : "FAC_EXPORT",
       establishment: "001",
-      emissionPoint: imperio
-        ? (local ? "002" : "001")
-        : (local ? "003" : "002"),
+      emissionPoint: local ? "003" : "002",
       market: local ? "LOCAL" : "EXPORTACION"
     };
+  }
+
+  // Approved market series; the UUID must still resolve from this company's canonical catalog.
+  function resolveEmissionPoint(configuration = {}, context = {}) {
+    const companyId = String(context.companyId || "").trim();
+    const settings = configuration.settings || {};
+    const environment = String(settings.environment || "").toUpperCase();
+    if (!companyId || String(settings.company_id || "") !== companyId || environment !== "TEST") return null;
+    const series = saleSeries(companyId, context.saleType, context.transportType);
+    const matches = (configuration.emissionPoints || []).filter(point => (
+      point.id && String(point.company_id || "") === companyId
+      && point.active === true && point.environment === environment
+      && point.establishment_code === series.establishment
+      && point.emission_point_code === series.emissionPoint
+    ));
+    return matches.length === 1 ? matches[0] : null;
   }
 
   function digits(value) {
@@ -124,6 +137,7 @@
     nextSequence,
     orderSequence,
     resolveSequence,
+    resolveEmissionPoint,
     saleSeries,
     sequenceText,
     synchronize,
