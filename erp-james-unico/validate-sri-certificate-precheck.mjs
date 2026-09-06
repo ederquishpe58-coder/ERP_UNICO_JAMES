@@ -293,7 +293,7 @@ try {
     const button = { disabled: false, addEventListener: (event, cb) => { assert.equal(event, 'click'); click = cb; } };
     const output = { textContent: '' };
     const diagnostic = { hidden: true }, diagnosticText = { value: '' };
-    const panel = { isConnected: true, querySelector: s => s.includes('-diagnostic-text') ? diagnosticText : s.includes('-diagnostic') ? diagnostic : s.includes('-file') ? input : s.includes('-validate') ? button : output };
+    const panel = { isConnected: true, querySelector: s => s.includes('-dry-run') || s.includes('-fixture') ? null : s.includes('-diagnostic-text') ? diagnosticText : s.includes('-diagnostic') ? diagnostic : s.includes('-file') ? input : s.includes('-validate') ? button : output };
     erp.sriCertificatePrecheck.bind({ querySelector: () => panel });
     await click(); assert.match(output.textContent, /Certificado válido/); assert.equal(input.value, ''); assert.equal(button.disabled, false);
     assert.match(output.textContent, /Certificado criptográficamente válido: sí/);

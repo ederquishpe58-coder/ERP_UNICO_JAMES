@@ -325,7 +325,7 @@
       && BlessERP.capabilityRuntime?.can?.("tax.parameters.manage") ? companyId : "";
   }
 
-  async function validateCertificate(companyId, file) {
+  async function certificateValidationRequest(companyId, file, action, fixture = {}) {
     if (!companyId || companyId !== certificatePrecheckCompany()) throw new Error("Seleccione la empresa y verifique sus permisos tributarios.");
     if (!file || !/\.(p12|pfx)$/i.test(file.name || "") || file.size < 1 || file.size > 3 * 1024 * 1024) {
       throw new Error("Seleccione un archivo .p12 o .pfx de hasta 3 MB.");
@@ -342,11 +342,11 @@
       if (companyId !== certificatePrecheckCompany()) throw new Error("La empresa cambió. Vuelva a seleccionar el archivo.");
       // This pre-configuration action deliberately does not call ensureActiveCompany:
       // no SRI settings, SRI activation, certificate upload or storage is required.
-      const response = await fetch("/api/sri?action=validate-certificate", {
+      const response = await fetch("/api/sri?action=" + action, {
         method: "POST", cache: "no-store", headers: {
           "content-type": "application/json", authorization: `Bearer ${activeSession.access_token}`
         },
-        body: JSON.stringify({ company_id: companyId, certificate_file: btoa(binary) })
+        body: JSON.stringify({ company_id: companyId, certificate_file: btoa(binary), ...fixture })
       });
       binary = "";
       const payload = await response.json();
@@ -358,6 +358,20 @@
       binary = "";
       bytes?.fill(0);
     }
+  }
+
+  function validateCertificate(companyId, file) {
+    return certificateValidationRequest(companyId, file, "validate-certificate");
+  }
+
+  function validateXmlSignatureDryRun(companyId, file, documentType, commercialContext) {
+    const invoice = documentType === "01" && ["LOCAL", "EXPORT"].includes(commercialContext);
+    const retention = documentType === "07" && commercialContext == null
+      && companyId === "cf331b82-7ac3-4065-9e38-d0bbcde96cd5";
+    if (!invoice && !retention) return Promise.reject(new Error("Seleccione una prueba permitida para esta empresa."));
+    return certificateValidationRequest(companyId, file, "validate-xml-signature-dry-run", {
+      document_type: documentType, ...(invoice ? { commercial_context: commercialContext } : {})
+    });
   }
 
   async function download(fileId) {
@@ -605,6 +619,7 @@
     post,
     certificatePrecheckCompany,
     validateCertificate,
+    validateXmlSignatureDryRun,
     download,
     subscribe,
     unsubscribe,

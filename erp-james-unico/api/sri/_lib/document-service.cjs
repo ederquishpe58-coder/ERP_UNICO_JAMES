@@ -1,7 +1,7 @@
 const { generateNumericCode } = require("./access-key.cjs");
 const { ecuadorDate, emissionDatePolicy } = require("./emission-date.cjs");
 const { storeArtifact, loadArtifact } = require("./artifact-store.cjs");
-const { resolveCertificatePassword, parsePkcs12 } = require("./certificate.cjs");
+const { resolveCertificatePassword, parsePkcs12, canonicalCertificateCompany, assertStoredCertificateScope, releaseCertificateMaterial } = require("./certificate.cjs");
 const { SriBackendError, SriConfigurationError, SriValidationError } = require("./errors.cjs");
 const { signXadesBes } = require("./xades-signer.cjs");
 const { buildDocumentXml, normalizeSriText } = require("./xml-builders.cjs");
@@ -527,48 +527,53 @@ async function generateXml(client, companyId, documentId, actorUserId) {
 async function signDocument(client, companyId, documentId, actorUserId) {
   const detail = await getDocumentDetail(client, companyId, documentId);
   const document = detail.document;
+  if (document.company_id !== companyId) throw new SriValidationError("El comprobante no pertenece a la empresa solicitada.");
   if (["FIRMADO", "ENVIADO_SRI", "RECIBIDO_SRI", "AUTORIZADO"].includes(document.status)) return detail;
   if (document.status !== "XML_GENERADO") throw new SriValidationError("El comprobante debe tener un XML validado antes de firmarse.");
   const settings = dbError(await client.from("sri_settings").select("*").eq("company_id", companyId).single(), "Configuracion SRI");
-  if (settings.environment !== "TEST") throw new SriValidationError("La firma esta habilitada solamente para ambiente de pruebas en esta etapa.");
+  if (settings.environment !== "TEST" || settings.production_enabled) throw new SriValidationError("La firma esta habilitada solamente para ambiente de pruebas en esta etapa.");
+  const company = await canonicalCertificateCompany(client, companyId);
+  if (settings.ruc !== company.tax_id) throw new SriValidationError("La configuracion SRI no coincide con el RUC canonico.");
   const certificateRow = dbError(await client.from("digital_certificates").select("*")
     .eq("company_id", companyId).eq("active", true).single(), "Certificado activo");
+  assertStoredCertificateScope(certificateRow, document.company_id);
   const unsigned = await loadArtifact(client, documentId, "UNSIGNED_XML");
   const { data: p12Blob, error: p12Error } = await client.storage.from(certificateRow.storage_bucket).download(certificateRow.storage_object_path);
   if (p12Error) throw p12Error;
   const password = resolveCertificatePassword(certificateRow.password_secret_name);
   let certificate;
+  let certificateBytes;
   try {
-    certificate = parsePkcs12(Buffer.from(await p12Blob.arrayBuffer()), password, {
-      expectedRuc: settings.ruc,
+    certificateBytes = Buffer.from(await p12Blob.arrayBuffer());
+    certificate = parsePkcs12(certificateBytes, password, {
+      companyId, expectedRuc: company.tax_id,
       expirationWarningDays: 30
     });
-  } catch (error) {
-    await client.from("digital_certificates").update({
-      validation_status: /vencido/i.test(error.message) ? "EXPIRED" : (/RUC/i.test(error.message) ? "RUC_MISMATCH" : "INVALID"),
-      validation_message: error.message,
+    if (certificate.metadata.fingerprintSha256.toLowerCase() !== certificateRow.fingerprint_sha256) {
+      throw new SriValidationError("El archivo almacenado no coincide con la huella canonica del certificado.");
+    }
+    const signedXml = await signXadesBes({ xml: unsigned.buffer.toString("utf8"), certificate });
+    await assertOfficialXsd({ documentType: document.document_type, version: document.xml_version, xml: signedXml });
+    await storeArtifact(client, { companyId, documentId, fileType: "SIGNED_XML", content: signedXml, schemaVersion: document.xml_version, createdBy: actorUserId });
+    dbError(await client.from("digital_certificates").update({
+      certificate_serial: certificate.metadata.serialNumber,
+      subject_name: certificate.metadata.subject,
+      subject_ruc: certificate.metadata.holderRuc,
+      issuer_name: certificate.metadata.issuer,
+      valid_from: certificate.metadata.notBefore,
+      valid_until: certificate.metadata.notAfter,
+      fingerprint_sha256: String(certificate.metadata.fingerprintSha256 || "").toLowerCase(),
+      validation_status: "VALID",
+      validation_message: certificate.metadata.expirationWarning ? "Certificado proximo a vencer" : null,
       last_validated_at: new Date().toISOString()
-    }).eq("id", certificateRow.id);
-    throw error;
+    }).eq("id", certificateRow.id), "Actualizacion de certificado");
+    dbError(await client.from("electronic_documents").update({ certificate_id: certificateRow.id }).eq("id", documentId), "Certificado del comprobante");
+    await transition(client, document, "FIRMADO", actorUserId, "Firma XAdES-BES verificada en backend");
+    return getDocumentDetail(client, companyId, documentId);
+  } finally {
+    certificateBytes?.fill(0);
+    releaseCertificateMaterial(certificate);
   }
-  const signedXml = await signXadesBes({ xml: unsigned.buffer.toString("utf8"), certificate });
-  await assertOfficialXsd({ documentType: document.document_type, version: document.xml_version, xml: signedXml });
-  await storeArtifact(client, { companyId, documentId, fileType: "SIGNED_XML", content: signedXml, schemaVersion: document.xml_version, createdBy: actorUserId });
-  dbError(await client.from("digital_certificates").update({
-    certificate_serial: certificate.metadata.serialNumber,
-    subject_name: certificate.metadata.subject,
-    subject_ruc: certificate.metadata.holderRuc,
-    issuer_name: certificate.metadata.issuer,
-    valid_from: certificate.metadata.notBefore,
-    valid_until: certificate.metadata.notAfter,
-    fingerprint_sha256: String(certificate.metadata.fingerprintSha256 || "").toLowerCase(),
-    validation_status: "VALID",
-    validation_message: certificate.metadata.expirationWarning ? "Certificado proximo a vencer" : null,
-    last_validated_at: new Date().toISOString()
-  }).eq("id", certificateRow.id), "Actualizacion de certificado");
-  dbError(await client.from("electronic_documents").update({ certificate_id: certificateRow.id }).eq("id", documentId), "Certificado del comprobante");
-  await transition(client, document, "FIRMADO", actorUserId, "Firma XAdES-BES verificada en backend");
-  return getDocumentDetail(client, companyId, documentId);
 }
 
 async function listDocuments(client, companyId, filters = {}) {

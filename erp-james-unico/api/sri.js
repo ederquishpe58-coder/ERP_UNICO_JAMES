@@ -1,4 +1,4 @@
-const { parsePkcs12, resolveCertificatePassword, SECRET_NAME_PATTERN } = require("./sri/_lib/certificate.cjs");
+const { parsePkcs12, resolveCertificatePassword, certificateSecretName, canonicalCertificateCompany, releaseCertificateMaterial } = require("./sri/_lib/certificate.cjs");
 const { handleCertificatePrecheck } = require("./sri/_lib/certificate-precheck.cjs");
 const { SriError, SriValidationError } = require("./sri/_lib/errors.cjs");
 const {
@@ -206,53 +206,67 @@ async function saveDocumentSequence(client, companyId, userId, input) {
 }
 
 async function uploadCertificate(client, companyId, userId, input) {
-  const secretName = String(input.passwordSecretName || "").trim();
-  if (!SECRET_NAME_PATTERN.test(secretName)) throw new SriValidationError("Nombre de secreto P12 no permitido.");
-  const encoded = String(input.p12Base64 || "").replace(/^data:[^;]+;base64,/, "");
-  const buffer = Buffer.from(encoded, "base64");
-  if (!buffer.length || buffer.length > 5 * 1024 * 1024) throw new SriValidationError("El P12 debe pesar entre 1 byte y 5 MB.");
-  const { data: settings, error: settingsError } = await client.from("sri_settings").select("ruc")
-    .eq("company_id", companyId).single();
-  if (settingsError) throw settingsError;
-  const parsed = parsePkcs12(buffer, resolveCertificatePassword(secretName), { expectedRuc: settings.ruc });
-  const fingerprintSha256 = parsed.metadata.fingerprintSha256.toLowerCase();
-  const path = `companies/${companyId}/certificates/${fingerprintSha256}.p12`;
-  const { error: uploadError } = await client.storage.from("sri-private").upload(path, buffer, {
-    contentType: "application/x-pkcs12",
-    upsert: false,
-    cacheControl: "private, no-store"
-  });
-  if (uploadError && Number(uploadError.statusCode) !== 409 && !/already exists/i.test(uploadError.message || "")) throw uploadError;
-  if (input.active !== false) {
-    const { error } = await client.from("digital_certificates").update({ active: false, updated_by: userId })
-      .eq("company_id", companyId).eq("active", true);
-    if (error) throw error;
+  if (Object.keys(input).some(key => !["passwordSecretName", "p12Base64", "alias", "active"].includes(key))) {
+    throw new SriValidationError("La carga admite solo archivo y metadata; no contrasena ni identidad elegida por el cliente.");
   }
-  const row = {
-    company_id: companyId,
-    alias: String(input.alias || "Certificado SRI"),
-    storage_bucket: "sri-private",
-    storage_object_path: path,
-    password_secret_name: secretName,
-    certificate_serial: parsed.metadata.serialNumber,
-    subject_name: parsed.metadata.subject,
-    subject_ruc: parsed.metadata.holderRuc,
-    issuer_name: parsed.metadata.issuer,
-    valid_from: parsed.metadata.notBefore,
-    valid_until: parsed.metadata.notAfter,
-    fingerprint_sha256: fingerprintSha256,
-    active: input.active !== false,
-    last_validated_at: new Date().toISOString(),
-    validation_status: "VALID",
-    validation_message: parsed.metadata.expirationWarning ? "Certificado proximo a vencer" : null,
-    created_by: userId,
-    updated_by: userId
-  };
-  const { data, error } = await client.from("digital_certificates").upsert(row, {
-    onConflict: "company_id,fingerprint_sha256"
-  }).select("id, alias, subject_name, subject_ruc, valid_from, valid_until, fingerprint_sha256, active, validation_status, validation_message").single();
-  if (error) throw error;
-  return data;
+  const secretName = certificateSecretName(companyId, input.passwordSecretName);
+  const encoded = String(input.p12Base64 || "").replace(/^data:[^;]+;base64,/, "");
+  if (!encoded.length || encoded.length > 4 * 1024 * 1024 || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) {
+    throw new SriValidationError("Seleccione un PKCS12 de hasta 3 MB.");
+  }
+  const buffer = Buffer.from(encoded, "base64");
+  let parsed;
+  try {
+    if (buffer.toString("base64") !== encoded) throw new SriValidationError("Archivo PKCS12 invalido.");
+    const company = await canonicalCertificateCompany(client, companyId);
+    parsed = parsePkcs12(buffer, resolveCertificatePassword(secretName), { companyId, expectedRuc: company.tax_id });
+    const { data: settings, error: settingsError } = await client.from("sri_settings").select("ruc")
+      .eq("company_id", companyId).single();
+    if (settingsError) throw settingsError;
+    if (settings?.ruc !== company.tax_id) throw new SriValidationError("La configuracion SRI no coincide con el RUC canonico de la empresa.");
+    const fingerprintSha256 = parsed.metadata.fingerprintSha256.toLowerCase();
+    const path = `companies/${companyId}/certificates/${fingerprintSha256}.p12`;
+    const { error: uploadError } = await client.storage.from("sri-private").upload(path, buffer, {
+      contentType: "application/x-pkcs12",
+      upsert: false,
+      cacheControl: "private, no-store"
+    });
+    if (uploadError && Number(uploadError.statusCode) !== 409 && !/already exists/i.test(uploadError.message || "")) throw uploadError;
+    if (input.active !== false) {
+      const { error } = await client.from("digital_certificates").update({ active: false, updated_by: userId })
+        .eq("company_id", companyId).eq("active", true);
+      if (error) throw error;
+    }
+    const row = {
+      company_id: companyId,
+      alias: String(input.alias || "Certificado SRI"),
+      storage_bucket: "sri-private",
+      storage_object_path: path,
+      password_secret_name: secretName,
+      certificate_serial: parsed.metadata.serialNumber,
+      subject_name: parsed.metadata.subject,
+      subject_ruc: parsed.metadata.holderRuc,
+      issuer_name: parsed.metadata.issuer,
+      valid_from: parsed.metadata.notBefore,
+      valid_until: parsed.metadata.notAfter,
+      fingerprint_sha256: fingerprintSha256,
+      active: input.active !== false,
+      last_validated_at: new Date().toISOString(),
+      validation_status: "VALID",
+      validation_message: parsed.metadata.expirationWarning ? "Certificado proximo a vencer" : null,
+      created_by: userId,
+      updated_by: userId
+    };
+    const { data, error } = await client.from("digital_certificates").upsert(row, {
+      onConflict: "company_id,fingerprint_sha256"
+    }).select("id, alias, subject_name, subject_ruc, valid_from, valid_until, fingerprint_sha256, active, validation_status, validation_message").single();
+    if (error) throw error;
+    return data;
+  } finally {
+    buffer.fill(0);
+    releaseCertificateMaterial(parsed);
+    delete input.p12Base64;
+  }
 }
 
 async function saveAccountingRule(client, companyId, userId, input) {
@@ -390,6 +404,9 @@ module.exports = async function handler(request, response) {
   response.setHeader("x-content-type-options", "nosniff");
   if (queryValue(request, "action") === "validate-certificate" || request.body?.action === "validate-certificate") {
     return handleCertificatePrecheck(request, response);
+  }
+  if (queryValue(request, "action") === "validate-xml-signature-dry-run" || request.body?.action === "validate-xml-signature-dry-run") {
+    return handleCertificatePrecheck(request, response, { dryRun: true });
   }
   if (request.method === "OPTIONS") {
     response.statusCode = 204;

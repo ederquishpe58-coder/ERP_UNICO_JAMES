@@ -11,6 +11,15 @@
         <input type="file" accept=".p12,.pfx" data-certificate-file>
       </label>
       <button type="button" class="secondary-button" data-certificate-validate>Validar certificado</button>
+      <label>Prueba de XML y firma en memoria
+        <select data-certificate-fixture>
+          <option value="01:LOCAL">Factura LOCAL · 001-003</option>
+          <option value="01:EXPORT">Factura EXPORTACIÓN · 001-002</option>
+          ${companyId === "cf331b82-7ac3-4065-9e38-d0bbcde96cd5" ? '<option value="07">Retención · 001-002</option>' : ''}
+        </select>
+      </label>
+      <button type="button" class="secondary-button" data-certificate-dry-run>Validar XML y firma</button>
+      <p>Usa el archivo seleccionado solo en memoria. No guarda certificados ni comprobantes, no consume secuenciales y no transmite al SRI.</p>
       <p role="status" aria-live="polite" data-certificate-result></p>
       <details data-certificate-diagnostic hidden>
         <summary>Diagnóstico seguro de identidad</summary>
@@ -26,23 +35,38 @@
     const companyId = BlessERP.sriApi.certificatePrecheckCompany();
     const input = panel.querySelector("[data-certificate-file]");
     const button = panel.querySelector("[data-certificate-validate]");
+    const dryButton = panel.querySelector("[data-certificate-dry-run]");
+    const fixtureSelect = panel.querySelector("[data-certificate-fixture]");
     const output = panel.querySelector("[data-certificate-result]");
     const diagnostic = panel.querySelector("[data-certificate-diagnostic]");
     const diagnosticText = panel.querySelector("[data-certificate-diagnostic-text]");
     const current = () => panel.isConnected && companyId === BlessERP.sriApi.certificatePrecheckCompany();
-    button.addEventListener("click", async () => {
-      if (button.disabled) return;
+    const run = async (dryRun) => {
+      if (button.disabled || dryButton?.disabled) return;
       if (!current()) { input.value = ""; output.textContent = "La empresa cambió. Abra nuevamente Parámetros tributarios."; diagnostic.hidden = true; diagnosticText.value = ""; return; }
       let file = input.files?.[0];
       if (!file) { output.textContent = "Seleccione el certificado de esta empresa."; return; }
       button.disabled = true;
+      if (dryButton) dryButton.disabled = true;
+      if (fixtureSelect) fixtureSelect.disabled = true;
       input.disabled = true;
       output.textContent = "Validando certificado…";
       diagnostic.hidden = true;
       diagnosticText.value = "";
       try {
-        const result = await BlessERP.sriApi.validateCertificate(companyId, file);
+        const [type, context] = String(fixtureSelect?.value || "").split(":");
+        const result = dryRun
+          ? await BlessERP.sriApi.validateXmlSignatureDryRun(companyId, file, type, context)
+          : await BlessERP.sriApi.validateCertificate(companyId, file);
         if (!current()) return;
+        if (dryRun) {
+          const stage = value => ["PASS", "FAIL", "UNPROVEN", "NOT_EXECUTED"].includes(value) ? value : "NOT_EXECUTED";
+          const confirmed = result.valid === true && result.certificate_validation === "PASS" && result.ruc_match === "PASS"
+            && result.xml_build === "PASS" && result.xades_sign === "PASS" && result.schema_validation === "PASS"
+            && result.environment === "TEST" && result.writes === 0;
+          output.textContent = `${confirmed ? "Prueba XML y firma válida" : "Prueba XML y firma no completada"}. Certificado: ${stage(result.certificate_validation)}. RUC: ${stage(result.ruc_match)}. XML: ${stage(result.xml_build)}. XAdES: ${stage(result.xades_sign)}. Esquema: ${stage(result.schema_validation)}. Ambiente: ${result.environment === "TEST" ? "TEST" : "NO CONFIRMADO"}. Escrituras: ${result.writes === 0 ? "0" : "NO CONFIRMADO"}.`;
+          return;
+        }
         const ruc = result.ruc_match === "PASS" ? "RUC coincide" : result.ruc_match === "FAIL" ? "RUC no coincide" : "RUC no demostrado";
         const identity = typeof result.identity_ruc === "string" && result.identity_ruc.length === 13
           && /^[0-9]{13}$/.test(result.identity_ruc) ? result.identity_ruc : "no demostrado";
@@ -72,9 +96,13 @@
         input.value = "";
         input.disabled = false;
         button.disabled = false;
+        if (dryButton) dryButton.disabled = false;
+        if (fixtureSelect) fixtureSelect.disabled = false;
         if (!current()) { output.textContent = ""; diagnostic.hidden = true; diagnosticText.value = ""; }
       }
-    });
+    };
+    button.addEventListener("click", () => run(false));
+    dryButton?.addEventListener("click", () => run(true));
   }
 
   BlessERP.sriCertificatePrecheck = { render, bind };
