@@ -308,9 +308,24 @@
   }
 
   function journalPayload(purchase, draft, lines) {
+    // Revalidate with the canonical parameter resolver at the accounting boundary.
+    lines = selectedLines({ ...draft, retentionLines: lines });
     const defaults = BlessERP.services?.companySettings?.settings?.()?.defaultAccounts || {};
     const contract = BlessERP.services?.purchaseAccountContract;
     const debitAccount = String(contract?.enabled() ? contract.payableForDocument(purchase) : (defaults.accountsPayableSuppliers || "")).trim();
+    const account = debitAccount ? BlessERP.services?.chartOfAccounts?.findByCode?.(debitAccount) : null;
+    const company = BlessERP.services?.companyContext?.activeCompany?.();
+    const activeId = BlessERP.services?.companyContext?.activeCompanyId?.();
+    const access = BlessERP.state?.state?.db?.authAccess || {};
+    const companyIds = new Set([activeId, company?.id, company?.company_key,
+      access.activeCompanyUuid, access.activeCompanyKey].filter(Boolean));
+    if (!debitAccount || !account || !companyIds.size || account.deleted_at
+        || (account.company_id && !companyIds.has(account.company_id))
+        || (account.companyId && !companyIds.has(account.companyId))
+        || account.status !== "Activa" || account.isMovement !== true) {
+      throw new Error("Configure la CxP canónica de la compra: debe existir en la empresa actual, estar activa y ser de movimiento.");
+    }
+    if (!lines.length) throw new Error("Seleccione al menos una retención con valor mayor que cero; 332 / 0% no genera pasivo.");
     const accountingLines = [{
       accountCode: debitAccount,
       debit: round2(lines.reduce((sum, line) => sum + line.retainedAmount, 0)),
@@ -327,7 +342,6 @@
       lineDescription: `Retención ${line.taxType} ${line.sriCode || line.code}`,
       documentReference: purchase.documentNumber
     }));
-    if (accountingLines.some(line => !line.accountCode)) throw new Error("Configure las cuentas contables de CxP y retenciones antes de crear el comprobante.");
     return {
       accountingDate: draft.retentionDate,
       concept: `Retención emitida sobre compra ${purchase.documentNumber}`,

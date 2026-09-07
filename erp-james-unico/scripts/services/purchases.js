@@ -1838,11 +1838,19 @@
   function validateWithholdingAccount(code, label) {
     const account = code ? chartService.findByCode(code) : null;
     const errors = [];
+    const company = BlessERP.services?.companyContext?.activeCompany?.();
+    const activeId = BlessERP.services?.companyContext?.activeCompanyId?.();
+    const access = stateApi.state.db.authAccess || {};
+    const companyIds = new Set([activeId, company?.id, company?.company_key,
+      access.activeCompanyUuid, access.activeCompanyKey].filter(Boolean));
     if (!code) errors.push(`Debe configurar la cuenta ${label}.`);
     else if (!account) errors.push(`La cuenta ${label} no existe.`);
     else {
+      if (!companyIds.size || (account.company_id && !companyIds.has(account.company_id))
+          || (account.companyId && !companyIds.has(account.companyId))) errors.push(`La cuenta ${label} no pertenece a la empresa actual.`);
+      if (account.deleted_at) errors.push(`La cuenta ${label} esta eliminada.`);
       if (account.status !== "Activa") errors.push(`La cuenta ${label} esta inactiva.`);
-      if (!account.isMovement) errors.push(`La cuenta ${label} debe ser de movimiento.`);
+      if (account.isMovement !== true) errors.push(`La cuenta ${label} debe ser de movimiento.`);
     }
     return { account, errors };
   }
