@@ -83,7 +83,8 @@
     const result = Array.isArray(data) ? data[0] : data;
     const required = ["employeeTable","operationalRoleTable","periodTable","roleTable","snapshotTable","financialDependency","postharvestParameterLink",
       "performancePolicyTable","policyAssignmentTable","policySnapshotTable"];
-    if (!result?.ok || result.component !== "PAYROLL_CORE_V2" || result.migration !== "202608210003"
+    if (result?.functionalCore !== "PAYROLL_GO_LIVE_20260907" || result?.okContract !== "PAYROLL_COMMAND_CONFIRMATION_V1"
+      || !result?.ok || result.component !== "PAYROLL_CORE_V2" || result.migration !== "202608210003"
       || result.performancePolicy !== "VERSIONED_MEASUREMENT_V2" || result.salaryImpact !== "NONE"
       || result.manualRoleValues !== true || result.serverTotals !== true || result.baseAdjustmentAudit !== true || result.performanceDetailsOnDemand !== true
       || required.some(key => result[key] !== true)) {
@@ -129,9 +130,11 @@
     const result=Array.isArray(data)?data[0]:data; const records=Array.isArray(result?.records)?result.records:[];
     if(!matchesCompany(result,captured) || records.some(row=>row.company_id!==companyId)) return contextError();
     if (!result?.ok) return { ok:false,mode:"INVALID_RESPONSE",operationId,message:result?.message||"Respuesta inválida de Nómina V2." };
+    if(!BlessERP.payrollV2Contract?.ack(rpcName,result,companyId,operationId,parameters))return BlessERP.payrollV2Contract?.failure()||{ok:false,confirmed:false,code:"PAYROLL_CANONICAL_ACK_REQUIRED"};
+    let refreshWarning="";
     try { const applied=await applyCanonical(records,options.source||"PAYROLL_CORE_V2",captured); if(!applied.ok)return applied; }
-    catch(error){ if(!isContextCurrent(captured))return contextError(); return { ok:false,mode:"CANONICAL_CACHE_ERROR",operationId,message:error.message }; }
-    return { ok:true,confirmed:true,mode:"SUPABASE_TRANSACTION_CONFIRMED",operationId,records,result:result.result||{},serverTime:result.serverTime };
+    catch(error){ if(!isContextCurrent(captured))return contextError(); refreshWarning=BlessERP.payrollV2Contract.refreshWarning; }
+    return { ok:true,confirmed:true,mode:"SUPABASE_TRANSACTION_CONFIRMED",operationId,records,result:result.result,serverTime:result.serverTime,refreshWarning };
   }
   async function readRpc(name,parameters={},options={}) {
     const captured=options.context||context();
@@ -150,8 +153,22 @@
     return result;
   }
 
+  async function getPrintBundle(companyId,roleId){
+    const captured=context();
+    if(!isContextCurrent(captured)||companyId!==captured.companyId||!roleId)return contextError();
+    const {data,error}=await BlessERP.getSupabaseClient().rpc("erp_payroll_core_v2_get_print_bundle",{p_company_id:companyId,p_role_id:roleId});
+    // A company switch must not rewrite an already requested document. A user/session switch still cancels it.
+    if(!context().actorId||context().actorId!==captured.actorId)return contextError();
+    if(error)return {ok:false,message:error.message||"No se pudo consultar el rol para imprimir."};
+    const result=Array.isArray(data)?data[0]:data;
+    if(result?.ok!==true||result.contract!=="PAYROLL_PRINT_V1"||result.companyId!==companyId||result.company?.company_id!==companyId
+      ||result.role?.company_id!==companyId||result.role?.role_id!==roleId
+      ||result.period?.company_id!==companyId||result.period?.period_id!==result.role?.period_id
+      ||!matchesCompany(result,{companyId}))return {ok:false,code:"PAYROLL_PRINT_CANONICAL_COMPANY_REQUIRED",message:"No se pudo validar la empresa y el período del documento."};
+    return result;
+  }
   const repository=Object.freeze({
-    activeCompanyUuid,configured,canExecute,healthStatus,probeBackend,uuid,context,isContextCurrent,matchesCompany,contextError,onContextChange,
+    activeCompanyUuid,configured,canExecute,healthStatus,probeBackend,uuid,context,isContextCurrent,matchesCompany,contextError,onContextChange,getPrintBundle,
     getBundle: (roleId,options={})=>readRpc("erp_payroll_core_v2_get_bundle",{ p_role_id:roleId||null },options),
     getPerformance:(employeeId,periodId,options={})=>readRpc("erp_payroll_core_v2_get_performance",{ p_employee_id:employeeId,p_period_id:periodId },options),
     upsertEmployee:(payload,options={})=>command("erp_payroll_core_v2_upsert_employee",{ p_payload:payload,p_expected_version:options.expectedVersion??null,p_local_created_at:new Date().toISOString() },{...options,payloadContext:payload,source:"PAYROLL_V2_EMPLOYEE"}),
@@ -162,7 +179,7 @@
     calculateRole:(periodId,payload,options={})=>command("erp_payroll_core_v2_calculate_role",{ p_period_id:periodId,p_payload:payload,p_expected_version:options.expectedVersion??null,p_local_created_at:new Date().toISOString() },{...options,payloadContext:payload,source:"PAYROLL_V2_ROLE_CALCULATE"}),
     approveRole:(roleId,version,options={})=>command("erp_payroll_core_v2_approve_role",{ p_role_id:roleId,p_expected_version:Number(version),p_local_created_at:new Date().toISOString() },{...options,source:"PAYROLL_V2_ROLE_APPROVE"}),
     postRole:(roleId,version,accountingDate,options={})=>command("erp_payroll_core_v2_post_role",{ p_role_id:roleId,p_expected_version:Number(version),p_accounting_date:accountingDate||null,p_local_created_at:new Date().toISOString() },{...options,source:"PAYROLL_V2_ROLE_POST"}),
-    saveAccountingSettings:(payload,options={})=>command("erp_payroll_core_v2_save_accounting_settings",{ p_payroll_payable_account_code:payload.payrollPayableAccountCode,p_deduction_account_code:payload.deductionAccountCode,p_cost_center:payload.costCenter||"" },{...options,payloadContext:payload,source:"PAYROLL_V2_ACCOUNTING_SETTINGS"})
+    saveAccountingSettings:(payload,options={})=>command("erp_payroll_core_v2_save_accounting_settings",{ p_payroll_payable_account_code:payload.payrollPayableAccountCode,p_deduction_account_code:payload.deductionAccountCode,p_cost_center:payload.costCenter||"",p_default_expense_account_code:payload.defaultExpenseAccountCode||"" },{...options,payloadContext:payload,source:"PAYROLL_V2_ACCOUNTING_SETTINGS"})
   });
   BlessERP.getPayrollV2Repository=()=>repository;
 })();

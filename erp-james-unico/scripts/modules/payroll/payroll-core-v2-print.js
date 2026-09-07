@@ -1,43 +1,103 @@
 (function(){
-  const BlessERP=window.BlessERP=window.BlessERP||{};
-  const esc=value=>BlessERP.utils?.esc?.(value??"")??String(value??"");
-  const money=value=>new Intl.NumberFormat("es-EC",{style:"currency",currency:"USD"}).format(Number(value||0));
-  const number=(value,decimals=2)=>new Intl.NumberFormat("es-EC",{minimumFractionDigits:decimals,maximumFractionDigits:decimals}).format(Number(value||0));
-  function company(){
-    const active=BlessERP.authAccess?.activeAccess?.()?.activeCompany||{};
-    const settings=BlessERP.services?.companySettings?.settings?.()||{};
-    return { name:active.commercialName||active.legalName||settings.commercialName||"Empresa",taxId:active.taxId||settings.taxId||"",address:settings.address||"" };
-  }
-  function roleBundle(roleId){
-    const data=BlessERP.services?.payrollV2?.snapshot?.()||{};
-    return { role:(data.roles||[]).find(row=>String(row.role_id||row.roleId)===String(roleId)),periods:data.periods||[] };
-  }
-  function render(roleId,itemId=""){
-    const {role,periods}=roleBundle(roleId); if(!role)return "";
-    const period=periods.find(row=>String(row.period_id||row.periodId)===String(role.period_id||role.periodId))||{};
-    const items=(role.items||[]).filter(item=>!itemId||String(item.role_item_id||item.roleItemId)===String(itemId)); const business=company();
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(role.role_number||role.roleNumber)}</title><style>
-      @page{size:A4;margin:11mm}*{box-sizing:border-box}body{font:11px Arial,sans-serif;color:#111;margin:0}h1{font-size:18px;margin:0 0 4px}h2{font-size:14px;margin:0 0 3px}h3{font-size:11px;margin:10px 0 3px;text-transform:uppercase}
-      .head{display:flex;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:10px}.meta{text-align:right}.employee{page-break-inside:avoid;margin:0 0 13px}.employee-meta{display:grid;grid-template-columns:1fr 1fr;gap:3px 12px}.note{margin-top:6px;padding:6px;border:1px solid #bbb}.signatures{display:grid;grid-template-columns:1fr 1fr;gap:35px;margin-top:30px}.signature{border-top:1px solid #222;text-align:center;padding-top:5px}
-      table{width:100%;border-collapse:collapse;margin-top:5px}th,td{border:1px solid #aaa;padding:5px;text-align:left;vertical-align:top}th{background:#eee}.num{text-align:right}.totals{font-weight:700}.draft{border:1px solid #555;padding:4px 8px}.split{display:grid;grid-template-columns:1fr 1fr;gap:8px}.adjustment{font-size:10px;color:#333;margin-top:3px}
-      </style></head><body><header class="head"><div><h1>${esc(business.name)}</h1><div>RUC ${esc(business.taxId)}</div><div>${esc(business.address)}</div></div>
-      <div class="meta"><strong>ROL DE PAGOS</strong><div>${esc(role.role_number||role.roleNumber)}</div><div>${esc(period.date_from||period.dateFrom)} a ${esc(period.date_to||period.dateTo)}</div><div class="draft">${esc(role.status)}</div></div></header>
-      ${items.map(item=>{const policies=item.performance_policy_snapshots||item.performancePolicySnapshots||[];const lines=item.lines||[];const earnings=lines.filter(line=>(line.line_kind||line.lineKind)==="EARNING");const deductions=lines.filter(line=>(line.line_kind||line.lineKind)==="DEDUCTION");const adjusted=Math.abs(Number(item.base_amount_used??item.baseAmountUsed??0)-Number(item.reference_base_salary??item.referenceBaseSalary??0))>.000001;return `<section class="employee"><h2>${esc(item.employee_name_snapshot||item.employeeName)}</h2><div class="employee-meta"><span><strong>Identificación:</strong> ${esc(item.employee_identification_snapshot||item.employeeIdentification||"")}</span><span><strong>Código:</strong> ${esc(item.employee_code_snapshot||item.employeeCode)}</span><span><strong>Cargo:</strong> ${esc(item.position_snapshot||item.position)}</span><span><strong>Modalidad:</strong> ${esc(item.calculation_mode_snapshot||item.calculationMode)}</span></div>
-        ${policies.length?`<h3>Control de rendimiento (informativo)</h3><table><thead><tr><th>Función</th><th>Meta</th><th>Real</th><th>Cumplimiento</th><th>Referencia tallos</th></tr></thead><tbody>${policies.map(policy=>{const op=policy.operational_role||policy.operationalRole;const unit=(policy.primary_unit||policy.primaryUnit)==="BUNCH"?"ramos":"mallas";return `<tr><td>${op==="BUNCHER"?"Embonche":"Clasificación"}</td><td>${number(policy.period_target||policy.periodTarget,0)} ${unit}</td><td>${number(policy.actual_units||policy.actualUnits,0)} ${unit}</td><td><strong>${number(policy.performance_percentage||policy.performancePercentage,2)} %</strong></td><td>${number(policy.reference_stems_actual||policy.referenceStemsActual,0)} / ${number(policy.reference_stems_target||policy.referenceStemsTarget,0)}</td></tr>`;}).join("")}</tbody></table><div class="adjustment">El cumplimiento no modifica automáticamente la remuneración.</div>`:""}
-        <div class="split"><div><h3>Ingresos</h3><table><thead><tr><th>Concepto</th><th>Observación</th><th class="num">Valor</th></tr></thead><tbody>${earnings.map(line=>`<tr><td>${esc(line.concept_label||line.conceptLabel)}</td><td>${esc(line.line_notes||line.lineNotes||line.source_reference||"")}</td><td class="num">${money(line.amount)}</td></tr>`).join("")||'<tr><td colspan="3">Sin ingresos.</td></tr>'}<tr class="totals"><td colspan="2">TOTAL INGRESOS</td><td class="num">${money(item.total_income||item.totalIncome)}</td></tr></tbody></table></div>
-        <div><h3>Descuentos</h3><table><thead><tr><th>Concepto</th><th>Observación</th><th class="num">Valor</th></tr></thead><tbody>${deductions.map(line=>`<tr><td>${esc(line.concept_label||line.conceptLabel)}</td><td>${esc(line.line_notes||line.lineNotes||line.source_reference||"")}</td><td class="num">${money(line.amount)}</td></tr>`).join("")||'<tr><td colspan="3">Sin descuentos.</td></tr>'}<tr class="totals"><td colspan="2">TOTAL DESCUENTOS</td><td class="num">${money(item.total_discounts||item.totalDiscounts)}</td></tr></tbody></table></div></div>
-        <table><tr class="totals"><td>NETO A PAGAR</td><td class="num">${money(item.net_total||item.netTotal)}</td></tr></table>${adjusted?`<div class="adjustment"><strong>Valor base ajustado para este período:</strong> referencia ${money(item.reference_base_salary||item.referenceBaseSalary)} · utilizado ${money(item.base_amount_used||item.baseAmountUsed)} · motivo: ${esc(item.base_adjustment_reason||item.baseAdjustmentReason)}</div>`:""}${item.employee_notes||item.employeeNotes?`<div class="note"><strong>Observaciones:</strong> ${esc(item.employee_notes||item.employeeNotes)}</div>`:""}${itemId?'<div class="signatures"><div class="signature">Trabajador</div><div class="signature">Responsable / autorización</div></div>':""}</section>`;}).join("")}
-      ${!itemId?`<table><tr class="totals"><td>Total ingresos</td><td class="num">${money(role.total_income||role.totalIncome)}</td><td>Total descuentos</td><td class="num">${money(role.total_discounts||role.totalDiscounts)}</td><td>TOTAL NÓMINA</td><td class="num">${money(role.net_total||role.netTotal)}</td></tr></table>${role.notes?`<div class="note"><strong>Observación general:</strong> ${esc(role.notes)}</div>`:""}`:""}
-      </body></html>`;
-  }
-  function print(roleId,itemId=""){
-    const repo=BlessERP.getPayrollV2Repository?.();
-    if(!repo?.canExecute?.()||!repo.healthStatus()?.data?.capabilities?.includes('payroll.roles.print')){
-      BlessERP.layout?.toast?.('No tiene permiso para imprimir roles de pago.');return false;
+  const erp=window.BlessERP=window.BlessERP||{},contract=()=>erp.payrollV2Contract;
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const status=v=>({DRAFT:'Borrador',CALCULATED:'Calculado · pendiente de aprobación',APPROVED:'Aprobado',POSTED:'Contabilizado'})[v]||v;
+  function validate(bundle){
+    const {role,period,company}=bundle||{},c=contract();
+    if(bundle?.ok!==true||bundle.contract!=='PAYROLL_PRINT_V1'||!role||!period||!company
+      ||role.company_id!==bundle.companyId||company.company_id!==role.company_id||period.company_id!==role.company_id
+      ||period.period_id!==role.period_id||!Array.isArray(role.items)||!role.items.length
+      ||!(company.commercial_name||company.legal_name))throw Error('PAYROLL_PRINT_CANONICAL_COMPANY_REQUIRED');
+    let income=0n,deductions=0n,net=0n;
+    for(const item of role.items){
+      if(item.company_id!==role.company_id||item.role_id!==role.role_id||!Array.isArray(item.lines))throw Error('PAYROLL_PRINT_ITEM_CONTEXT');
+      let earned=0n,discount=0n,salary=0n,overtime=0n,other=0n;
+      for(const line of item.lines){
+        const amount=c.micros(line.amount);
+        if(line.company_id!==role.company_id||line.role_item_id!==item.role_item_id||amount<0n)throw Error('PAYROLL_PRINT_LINE_CONTEXT');
+        if(line.line_kind==='EARNING'){
+          earned+=amount;
+          if(['BASE_AMOUNT','SALARY'].includes(line.concept_code))salary+=amount;
+          else if(['ADDITIONAL_HOURS','OVERTIME'].includes(line.concept_code))overtime+=amount;
+          else other+=amount;
+        }else if(line.line_kind==='DEDUCTION')discount+=amount;
+        else throw Error('PAYROLL_PRINT_LINE_KIND');
+      }
+      if(earned!==c.micros(item.total_income)||discount!==c.micros(item.total_discounts)||earned-discount!==c.micros(item.net_total)
+        ||salary!==c.micros(item.summary?.salary)||overtime!==c.micros(item.summary?.overtime)||other!==c.micros(item.summary?.otherIncome)
+        ||discount!==c.micros(item.summary?.otherDeductions))throw Error('PAYROLL_PRINT_TOTALS_INVALID');
+      income+=earned;deductions+=discount;net+=earned-discount;
     }
-    const html=render(roleId,itemId); if(!html)return BlessERP.layout?.toast?.("Rol V2 no encontrado.");
-    const popup=window.open("","_blank","noopener,noreferrer"); if(!popup)return BlessERP.layout?.toast?.("Permita ventanas emergentes para imprimir.");
-    popup.document.open();popup.document.write(html);popup.document.close();popup.focus();setTimeout(()=>popup.print(),180);
+    if(income!==c.micros(role.total_income)||deductions!==c.micros(role.total_discounts)||net!==c.micros(role.net_total))throw Error('PAYROLL_PRINT_TOTALS_INVALID');
+    return bundle;
   }
-  BlessERP.payrollV2Print=Object.freeze({render,print});
+  function render(bundle,itemId=''){
+    validate(bundle);
+    const {role,period,company}=bundle,c=contract(),money=c.money,summary=!itemId;
+    const items=summary?role.items:role.items.filter(i=>i.role_item_id===itemId);
+    if(!items.length)throw Error('PAYROLL_PRINT_ITEM_NOT_FOUND');
+    const title=summary?'RESUMEN DE ROL DE PAGOS':'ROL DE PAGOS';
+    const header='<header><div><h1>'+esc(company.commercial_name||company.legal_name)+'</h1>'
+      +(company.legal_name&&company.legal_name!==company.commercial_name?'<div>'+esc(company.legal_name)+'</div>':'')
+      +'<div>RUC: '+esc(company.tax_id||'Sin RUC registrado')+'</div></div><div class="document"><h2>'+title+'</h2><div>'+esc(role.role_number)+'</div>'
+      +'<div>Período: '+esc(period.date_from)+' a '+esc(period.date_to)+'</div><div class="state">'+esc(status(role.status))+'</div></div></header>';
+    const lineTable=(item,kind)=>{
+      const priority=l=>['BASE_AMOUNT','SALARY'].includes(l.concept_code)?0:['ADDITIONAL_HOURS','OVERTIME'].includes(l.concept_code)?1:2;
+      const lines=item.lines.filter(l=>l.line_kind===kind&&c.micros(l.amount)!==0n).sort((a,b)=>priority(a)-priority(b)||a.line_order-b.line_order);
+      return '<table><thead><tr><th>Concepto</th><th>Descripción / observación</th><th class="num">Valor</th></tr></thead><tbody>'
+        +(lines.map(l=>{
+          const manual=['OTHER_INCOME','OTHER_DISCOUNTS','MANUAL_DISCOUNT'].includes(l.concept_code),hours=['OVERTIME','ADDITIONAL_HOURS'].includes(l.concept_code);
+          const description=[manual?l.concept_label:'',hours&&Number(l.quantity)?'Cantidad / referencia: '+l.quantity:'',l.line_notes||l.source_reference||''].filter(Boolean).join(' · ');
+          return '<tr><td>'+esc(c.labels[l.concept_code]||l.concept_label||l.concept_code)+'</td><td>'+esc(description)+'</td><td class="num">'+money(l.amount)+'</td></tr>';
+        }).join('')||'<tr><td colspan="3">Sin conceptos aplicados.</td></tr>')
+        +'</tbody><tfoot><tr><th colspan="2">'+(kind==='EARNING'?'TOTAL INGRESOS':'TOTAL EGRESOS')+'</th><th class="num">'+money(kind==='EARNING'?item.total_income:item.total_discounts)+'</th></tr></tfoot></table>';
+    };
+    let body;
+    if(summary){
+      const totals={salary:0n,overtime:0n,otherIncome:0n,otherDeductions:0n};
+      const rows=items.map(i=>{
+        for(const k of Object.keys(totals))totals[k]+=c.micros(i.summary[k]);
+        return '<tr><td><strong>'+esc(i.employee_name_snapshot)+'</strong><br><small>'+esc(i.employee_code_snapshot)+'</small></td>'
+          +[i.summary.salary,i.summary.overtime,i.summary.otherIncome,i.total_income,i.summary.otherDeductions,i.total_discounts,i.net_total].map(v=>'<td class="num">'+money(v)+'</td>').join('')+'</tr>';
+      }).join('');
+      body='<table class="summary"><thead><tr><th>Empleado</th><th>Sueldo</th><th>Horas extras</th><th>Otros ingresos</th><th>Total ingresos</th><th>Otros egresos</th><th>Total egresos</th><th>Neto</th></tr></thead><tbody>'+rows
+        +'</tbody><tfoot><tr><th>TOTALES DEL PERÍODO</th>'+[c.decimal(totals.salary),c.decimal(totals.overtime),c.decimal(totals.otherIncome),role.total_income,c.decimal(totals.otherDeductions),role.total_discounts,role.net_total].map(v=>'<th class="num">'+money(v)+'</th>').join('')+'</tr></tfoot></table>';
+    }else{
+      const i=items[0];
+      body='<section class="employee"><h2>'+esc(i.employee_name_snapshot)+'</h2><div class="employee-meta"><span>Identificación: '+esc(i.employee_identification_snapshot)+'</span><span>Cargo: '+esc(i.position_snapshot)+'</span>'
+        +(i.employee_area_snapshot?'<span>Área: '+esc(i.employee_area_snapshot)+'</span>':'')+'<span>Código: '+esc(i.employee_code_snapshot)+'</span></div>'
+        +'<h3>INGRESOS</h3>'+lineTable(i,'EARNING')+'<h3>EGRESOS</h3>'+lineTable(i,'DEDUCTION')
+        +'<div class="net"><strong>NETO A PAGAR</strong><strong>'+money(i.net_total)+'</strong></div>'
+        +(i.employee_notes?'<p>Observaciones: '+esc(i.employee_notes)+'</p>':'')
+        +(i.base_adjustment_reason?'<p class="note">Ajuste de base: '+esc(i.base_adjustment_reason)+'</p>':'')
+        +'<div class="signatures"><div>RECIBÍ CONFORME / EMPLEADO</div><div>RESPONSABLE / EMPRESA</div></div><p class="signature-date">Fecha de firma: ____________________</p></section>';
+    }
+    if(role.notes)body+='<p class="note">Observación del período: '+esc(role.notes)+'</p>';
+    return '<!doctype html><html lang="es"><head><meta charset="utf-8"><title>'+esc(title+' '+role.role_number)+'</title><style>'
+      +'@page{size:A4 '+(summary?'landscape':'portrait')+';margin:12mm}*{box-sizing:border-box}body{margin:0;padding:0;background:#fff;color:#17212b;font:12px Arial,sans-serif}h1{font-size:20px;margin:0 0 5px}h2{font-size:16px;margin:0 0 6px}h3{font-size:13px;margin:20px 0 6px}header{display:flex;justify-content:space-between;gap:20px;border-bottom:2px solid #222;padding-bottom:12px;margin-bottom:20px}.document{text-align:right}.state{margin-top:7px}.employee-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px}table{width:100%;border-collapse:collapse}th,td{padding:8px 7px;border:1px solid #bdc3c7;text-align:left}thead,tfoot{background:#f0f2f3}thead{display:table-header-group}.num{text-align:right;white-space:nowrap}tr{break-inside:avoid}.net{display:flex;justify-content:space-between;padding:14px 8px;margin-top:18px;border-top:2px solid #222;border-bottom:2px solid #222;font-size:16px}.signatures{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:60px}.signatures div{border-top:1px solid #333;padding-top:8px;text-align:center;font-size:11px}.signature-date{margin-top:24px}.note{font-size:11px}.summary{font-size:11px}.summary td:first-child{min-width:150px}small{color:#444}'
+      +'</style></head><body>'+header+body+'<p class="note">Los totales se redondean al final y pueden diferir de la suma de los valores mostrados.</p></body></html>';
+  }
+  async function print(roleId,itemId=''){
+    const repo=erp.getPayrollV2Repository?.();
+    if(!repo?.canExecute?.()||!repo.healthStatus()?.data?.capabilities?.includes('payroll.roles.print')){
+      erp.layout?.toast?.('No tiene permiso para imprimir roles de pago.');return false;
+    }
+    // Retain the window handle; noopener in window.open would return null in Chrome.
+    const popup=window.open('','_blank');
+    if(!popup){erp.layout?.toast?.('Permita ventanas emergentes para imprimir.');return false;}
+    try{
+      popup.opener=null;popup.document.body.textContent='Preparando documento…';
+      const bundle=await erp.services.payrollV2.getPrintBundle(roleId);
+      if(!bundle?.ok)throw Error('PAYROLL_PRINT_REQUEST_FAILED');
+      const html=render(bundle,itemId);
+      if(popup.closed)return false;
+      popup.document.open();popup.document.write(html);popup.document.close();
+      setTimeout(()=>{try{if(!popup.closed){popup.focus();popup.print();}}catch(error){erp.layout?.toast?.('El documento está preparado. Use la opción Imprimir del navegador.');}},200);
+      return true;
+    }catch(error){
+      if(!popup.closed)popup.close();
+      erp.layout?.toast?.('No se pudo preparar un documento canónico de Nómina. Recargue el rol y vuelva a intentar.');return false;
+    }
+  }
+  erp.payrollV2Print=Object.freeze({render,print,validate});
 })();

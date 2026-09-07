@@ -3,7 +3,7 @@
   const clone=value=>value===undefined?undefined:(typeof structuredClone==="function"?structuredClone(value):JSON.parse(JSON.stringify(value)));
   const repository=()=>BlessERP.getPayrollV2Repository?.();
   const caches=new Map(); let cacheContext=null,refreshRequest=0;
-  const empty=context=>({companyId:context.companyId,generation:context.generation,employees:[],operationalRoles:[],performancePolicies:[],policyAssignments:[],periods:[],roles:[],accountingSettings:{},loadedAt:0});
+  const empty=context=>({companyId:context.companyId,generation:context.generation,employees:[],operationalRoles:[],performancePolicies:[],policyAssignments:[],periods:[],roles:[],accountingSettings:{},accountOptions:[],accountDefaults:{},conceptSettings:[],refreshRequired:false,loadedAt:0});
   function reset(context){caches.clear();cacheContext=context;refreshRequest++;caches.set(context.companyId,empty(context));}
   function context(){const current=repository().context();if(cacheContext!==current)reset(current);return current;}
   function snapshot(){const current=context();return clone(caches.get(current.companyId));}
@@ -22,14 +22,14 @@
     const result=await repository().getBundle(roleId,{context:captured});
     if(!repository().isContextCurrent(captured)||requestId!==refreshRequest)return fail();
     if(!result?.ok)return {...(result||{}),ok:false};
-    if(result.companyId!==captured.companyId||!repository().matchesCompany(result,captured))return fail();
+    if(result.functionalCore!=="PAYROLL_GO_LIVE_20260907"||result.companyId!==captured.companyId||!repository().matchesCompany(result,captured))return fail();
     const next=empty(captured);
-    for(const key of ['employees','operationalRoles','performancePolicies','policyAssignments','periods','roles']){
+    for(const key of ['employees','operationalRoles','performancePolicies','policyAssignments','periods','roles','conceptSettings','accountOptions']){
       if(!Array.isArray(result[key])||result[key].some(row=>row.company_id!==captured.companyId))return fail();
       next[key]=result[key];
     }
     if(result.accountingSettings&&Object.keys(result.accountingSettings).length&&result.accountingSettings.company_id!==captured.companyId)return fail();
-    next.accountingSettings=result.accountingSettings||{};next.loadedAt=Date.now();
+    next.accountingSettings=result.accountingSettings||{};next.accountDefaults=result.accountDefaults||{};next.loadedAt=Date.now();
     caches.set(captured.companyId,next);return {ok:true,data:snapshot()};
   }
   async function mutate(method,args,options){
@@ -41,9 +41,11 @@
     const result=await repository()[method](...normalized,options);
     if(!repository().isContextCurrent(captured))return fail();
     if(!result?.ok)return result||{ok:false,message:"Nómina V2 no disponible."};
-    const refreshed=await refresh(null,{context:captured});
+    let refreshed;
+    try { refreshed=await refresh(null,{context:captured}); } catch(error){ refreshed={ok:false}; }
     if(!repository().isContextCurrent(captured))return fail();
-    return refreshed.ok?{...result,data:refreshed.data}:{...result,refreshWarning:refreshed.message};
+    if(!refreshed.ok){const cached=caches.get(captured.companyId);cached.refreshRequired=true;cached.loadedAt=0;}
+    return refreshed.ok?{...result,data:refreshed.data}:{...result,refreshWarning:BlessERP.payrollV2Contract.refreshWarning};
   }
   function employeePayload(value={}){ return {
     employeeId:String(value.employeeId||value.employee_id||""),identification:String(value.identification||"").trim(),
@@ -57,6 +59,11 @@
   }; }
   const service=Object.freeze({
     snapshot,refresh,context,health:options=>repository().probeBackend(options),
+    getPrintBundle(roleId){
+      const data=snapshot(),role=data.roles.find(r=>r.role_id===roleId);
+      if(!role||role.company_id!==data.companyId)return Promise.resolve(fail());
+      return repository().getPrintBundle(role.company_id,role.role_id);
+    },
     upsertEmployee:(value,options={})=>mutate("upsertEmployee",[value],options),
     linkOperationalRole:(value,options={})=>mutate("linkOperationalRole",[value],options),
     savePerformancePolicy:(value,options={})=>mutate("savePerformancePolicy",[value],options),

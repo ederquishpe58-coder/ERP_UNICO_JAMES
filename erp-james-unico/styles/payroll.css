@@ -542,6 +542,11 @@
 .payroll-manual-lines{display:grid;gap:6px}
 .payroll-manual-line{display:grid;grid-template-columns:88px minmax(150px,1.2fr) 120px 130px minmax(180px,1.3fr) auto;gap:7px;align-items:center;padding:7px;border:1px solid #e2e8f0;border-radius:9px;background:#fff}
 .payroll-manual-line input{min-width:0;height:35px}
+.payroll-role-editor .payroll-manual-line{display:flex;flex-wrap:wrap}
+.payroll-role-editor .payroll-manual-line strong{flex:1 1 180px}
+.payroll-role-editor .payroll-manual-line input{flex:1 1 160px;width:160px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;font:inherit}
+.payroll-role-editor .payroll-manual-line [data-payroll-line-field="amount"]{flex:0 1 135px}
+.payroll-role-editor .payroll-manual-line [data-payroll-line-field="label"],.payroll-role-editor .payroll-manual-line [data-payroll-line-field="notes"]{flex:2 1 220px}
 .payroll-line-kind{display:inline-flex;justify-content:center;padding:4px 7px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.04em}
 .payroll-line-kind.earning{color:#166534;background:#dcfce7}
 .payroll-line-kind.deduction{color:#991b1b;background:#fee2e2}
