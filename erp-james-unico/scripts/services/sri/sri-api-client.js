@@ -348,8 +348,12 @@
     } catch (error) {
       if (error?.name === "AbortError") throw new Error("REQUEST_TIMEOUT: vuelva a revisar el estado antes de repetir el apply.");
       const safe = new Set(["AUTH_REQUIRED","CAPABILITY_REQUIRED","COMPANY_REQUIRED","COMPANY_CHANGED","COMPANY_NOT_APPROVED","CANONICAL_COMPANY_DRIFT","PLAN_DRIFT","BASELINE_DRIFT","PRIVATE_STORAGE_REQUIRED","CERTIFICATE_REQUIRED","CERTIFICATE_INVALID","CERTIFICATE_STORAGE_CONFLICT","CERTIFICATE_STORAGE_MISMATCH","SECRET_REQUIRED","XML_XADES_FAILED","INVALID_INPUT","INVALID_RESPONSE","ACTIVAR_TEST_REQUIRED","APPLY_IN_PROGRESS","OPERATION_LEASE_MISMATCH","RECOVERY_REQUIRED","ROLLBACK_INCOMPLETE","APPLY_FAILED","PRECHECK_REQUIRED"]);
+      safe.add("AUTHORIZATION_CHECK_FAILED");
       const code = safe.has(error?.code) ? error.code : safe.has(error?.message) ? error.message : "REQUEST_FAILED";
-      throw Object.assign(new Error(code), { code });
+      const details = code === "CAPABILITY_REQUIRED" && error?.details?.company_id === companyId
+        && ["tax.parameters.manage", "admin.sequences.manage"].includes(error?.details?.capability_id)
+        ? { capability_id: error.details.capability_id, company_id: companyId } : null;
+      throw Object.assign(new Error(code), { code, details });
     } finally { clearTimeout(timeout); bytes?.fill(0); delete body.certificate_file; }
   }
 

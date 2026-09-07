@@ -9,9 +9,23 @@ const ACTIONS = ["review-sri-test-configuration", "precheck-sri-test-configurati
 const fail = code => { throw Object.assign(new Error(code), { code }); };
 const SAFE = new Set(["AUTH_REQUIRED","CAPABILITY_REQUIRED","COMPANY_NOT_APPROVED","CANONICAL_COMPANY_DRIFT","PLAN_DRIFT","BASELINE_DRIFT","PRIVATE_STORAGE_REQUIRED","CERTIFICATE_REQUIRED","CERTIFICATE_INVALID","CERTIFICATE_STORAGE_CONFLICT","CERTIFICATE_STORAGE_MISMATCH","SECRET_REQUIRED","XML_XADES_FAILED","INVALID_INPUT","ACTIVAR_TEST_REQUIRED","APPLY_IN_PROGRESS","OPERATION_LEASE_MISMATCH","ROLLBACK_HAS_BUSINESS_REFERENCES","STORAGE_CLEANUP_REQUIRED","SEQUENCE_OR_DOCUMENT_DRIFT","SEQUENCE_COUNT_DRIFT","POINT_DRIFT","SETTINGS_DRIFT","RECOVERY_REQUIRED","ROLLBACK_INCOMPLETE","APPLY_FAILED","PRECHECK_REQUIRED"]);
 function safeCode(error) {
+  if (error?.code === "AUTHORIZATION_CHECK_FAILED") return error.code;
   if (SAFE.has(error?.code)) return error.code;
   const message = String(error?.message || "");
   return [...SAFE].find(code => message === code) || "APPLY_FAILED";
+}
+async function authorizeCapability(userClient, companyId, capability) {
+  let result;
+  try { result = await userClient.rpc("erp_security_assert_capability", { p_company_id: companyId, p_capability_id: capability }); }
+  catch { fail("AUTHORIZATION_CHECK_FAILED"); }
+  if (!result || typeof result !== "object" || !("error" in result)) fail("AUTHORIZATION_CHECK_FAILED");
+  const { error } = result;
+  if (!error) return;
+  const denied = error.code === "42501";
+  throw Object.assign(new Error(denied ? "CAPABILITY_REQUIRED" : "AUTHORIZATION_CHECK_FAILED"), {
+    code: denied ? "CAPABILITY_REQUIRED" : "AUTHORIZATION_CHECK_FAILED",
+    details: denied ? { capability_id: capability, company_id: companyId } : undefined
+  });
 }
 function reply(res, status, value) {
   res.statusCode = status;
@@ -35,8 +49,7 @@ function engine({ admin, userClient, companyId, userId, hash, lease = randomUUID
   let operation = null;
   async function authorize() {
     for (const capability of [CAPABILITY, "admin.sequences.manage"]) {
-      const { error } = await userClient.rpc("erp_security_assert_capability", { p_company_id: companyId, p_capability_id: capability });
-      if (error) fail("CAPABILITY_REQUIRED");
+      await authorizeCapability(userClient, companyId, capability);
     }
   }
   async function phase(name, certificate = null, { compensating = false } = {}) {
@@ -180,8 +193,7 @@ async function handleTestApply(request, response) {
     const { hash } = approvedPlan(body.company_id);
     if (body.action !== ACTIONS[0] && body.approved_plan_hash !== hash) fail("PLAN_DRIFT");
     const userClient = getSupabaseUserContext(token);
-    const { error: denied } = await userClient.rpc("erp_security_assert_capability", { p_company_id: body.company_id, p_capability_id: CAPABILITY });
-    if (denied) return reply(response,403,{ok:false,error:{code:"CAPABILITY_REQUIRED"}});
+    await authorizeCapability(userClient, body.company_id, CAPABILITY);
     const action = engine({ admin, userClient, companyId: body.company_id, userId: data.user.id, hash });
     if (body.action === ACTIONS[0]) return reply(response,200,{ok:true,data:await action.review()});
     if (body.action === ACTIONS[2] && body.explicit_confirmation !== "ACTIVAR TEST") fail("ACTIVAR_TEST_REQUIRED");
@@ -190,7 +202,9 @@ async function handleTestApply(request, response) {
     return reply(response,200,{ok:true,data:result});
   } catch (error) {
     const code = safeCode(error);
-    return reply(response,["CAPABILITY_REQUIRED","COMPANY_NOT_APPROVED"].includes(code)?403:422,{ok:false,error:{code,message:code}});
+    const details = code === "CAPABILITY_REQUIRED" && [CAPABILITY, "admin.sequences.manage"].includes(error?.details?.capability_id)
+      ? { capability_id: error.details.capability_id, company_id: body?.company_id } : undefined;
+    return reply(response,code === "AUTHORIZATION_CHECK_FAILED" ? 503 : ["CAPABILITY_REQUIRED","COMPANY_NOT_APPROVED"].includes(code)?403:422,{ok:false,error:{code,message:code,details}});
   } finally { bytes?.fill(0); if (body) delete body.certificate_file; request.body = undefined; }
 }
 module.exports = { ACTIONS, CAPABILITY, engine, handleTestApply, safeCode };

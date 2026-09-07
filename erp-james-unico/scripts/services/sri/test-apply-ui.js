@@ -2,6 +2,14 @@
   const ERP = window.BlessERP = window.BlessERP || {};
   let active = null;
   const bound = new WeakSet();
+  function failure(error) {
+    const code = String(error?.code || error?.message || "REQUEST_FAILED");
+    const safe = /^[A-Z0-9_: .áéíóúñ-]{1,140}$/i.test(code) ? code : "REQUEST_FAILED";
+    const capability = error?.details?.capability_id;
+    return `ERROR = ${safe}` + (["tax.parameters.manage", "admin.sequences.manage"].includes(capability)
+      ? `\nPermiso requerido en esta empresa: ${capability}. Solicite revisión a un administrador autorizado.` : "")
+      + (code === "AUTHORIZATION_CHECK_FAILED" ? "\nNo se pudo verificar la autorización en el servidor. Vuelva a revisar el estado." : "");
+  }
   function state() {
     const company = ERP.sriApi?.certificatePrecheckCompany?.();
     if (!company) { active = null; return null; }
@@ -12,6 +20,7 @@
     if (!state()) return "";
     return `<section class="panel-card" data-sri-test-apply>
       <h3>Configuración SRI TEST</h3>
+      <p>Revisión, precheck y aplicación requieren permisos de parámetros tributarios y administración de secuencias en esta empresa.</p>
       <p><strong style="color:#b91c1c">SRI PRODUCCIÓN PERMANECERÁ DESACTIVADO</strong></p>
       <button type="button" class="secondary-button" data-sri-test-review>REVISAR CONFIGURACIÓN SRI TEST</button>
       <pre data-sri-test-summary></pre>
@@ -45,7 +54,7 @@
       if (el("result")) el("result").textContent = s.message;
       for (const name of ["review","precheck","file","confirmation"]) if (el(name)) el(name).disabled = s.pending;
       if (el("confirmation") && el("confirmation").value !== s.confirmation) el("confirmation").value = s.confirmation;
-      if (el("precheck")) el("precheck").disabled = s.pending || !current || !s.file || current.test_enabled;
+      if (el("precheck")) el("precheck").disabled = s.pending;
       if (el("submit")) el("submit").disabled = s.pending || !current || current.test_enabled || !s.file || s.file !== s.checkedFile || s.confirmation !== "ACTIVAR TEST";
     }
     sync(); if (bound.has(panel)) return; bound.add(panel);
@@ -54,22 +63,29 @@
     async function run(mode) {
       if (s.pending || active !== s || ERP.sriApi.certificatePrecheckCompany() !== s.company) return;
       const selected = s.file;
+      if (mode === "precheck" && (!s.reviewed || !selected || s.reviewed.test_enabled)) {
+        const reason = !s.reviewed ? (s.reviewError || "ERROR = REVIEW_REQUIRED\nPrimero revise la configuración SRI TEST.")
+          : s.reviewed.test_enabled ? "ERROR = ALREADY_APPLIED\nSRI TEST ya está aplicado. Revise la configuración actual."
+          : "ERROR = CERTIFICATE_REQUIRED\nSeleccione el certificado .p12 / .pfx de esta empresa.";
+        s.checkedFile = null; s.message = `PRECHECK = FAIL\n${reason}`; sync(); return;
+      }
       if (mode === "apply" && (!s.reviewed || s.checkedFile !== selected || s.confirmation !== "ACTIVAR TEST")) { s.message = "APPLY = FAIL\nERROR = PRECHECK_REQUIRED"; sync(); return; }
       s.pending = true; s.message = mode === "apply" ? "APLICANDO SRI TEST…" : "VALIDANDO…"; sync();
       try {
         const action = ({ review: "review", precheck: "precheck", apply: "apply" })[mode] + "-sri-test-configuration";
         const result = await ERP.sriApi.testConfigurationRequest(action, s.company, s.reviewed?.approved_plan_hash, s.confirmation, selected);
         if (active !== s || ERP.sriApi.certificatePrecheckCompany() !== s.company) return;
-        if (mode === "review") { s.reviewed = result; s.checkedFile = null; s.message = "PLAN = PASS\nRevise los datos, seleccione el certificado y valide el precheck."; }
-        else if (mode === "precheck") { s.checkedFile = result.status === "PASS" ? selected : null; s.message = `PRECHECK = ${result.status}\nCertificado = ${result.certificate || "PENDIENTE"}\nRUC = ${result.ruc_match || "PENDIENTE"}\nWrites = 0` + (result.recovery_required ? "\nHay una operación incompleta. El siguiente click ejecutará su rollback; después deberá revisar y confirmar nuevamente." : ""); }
+        if (mode === "review") { s.reviewed = result; s.reviewError = null; s.checkedFile = null; s.message = "PLAN = PASS\nRevise los datos, seleccione el certificado y valide el precheck."; }
+        else if (mode === "precheck") { s.checkedFile = result.status === "PASS" ? selected : null; s.message = `PRECHECK = ${result.status === "PASS" ? "PASS" : "FAIL"}\nCertificado = ${result.certificate || "PENDIENTE"}\nRUC = ${result.ruc_match || "PENDIENTE"}\nWrites = 0` + (result.status !== "PASS" ? `\n${failure({ code: result.error || result.status })}` : "") + (result.recovery_required ? "\nHay una operación incompleta. El siguiente click ejecutará su rollback; después deberá revisar y confirmar nuevamente." : ""); }
         else {
           s.reviewed.test_enabled = result.test_enabled;
           s.message = [`APPLY = ${result.status}`,`COMPANY = ${s.reviewed.plan.company}`,`TEST = ${result.test_enabled === null ? "REQUIERE VERIFICACIÓN" : result.test_enabled ? "ON" : "OFF"}`,"PROD = OFF",`ROWS = ${result.rows ?? "REVISAR ESTADO"}`,`STORAGE = ${result.storage ?? "REVISAR ESTADO"}`,"SEQUENCES CONSUMED = 0","DOCUMENTS CREATED = 0",`ERROR = ${result.error || "NONE"}`].join("\n");
         }
       } catch (error) {
         if (active === s) {
-          const code = String(error?.code || error?.message || "REQUEST_FAILED");
-          s.message = `${mode === "apply" ? "APPLY" : "PRECHECK"} = FAIL\nERROR = ${/^[A-Z0-9_: .áéíóúñ-]{1,140}$/i.test(code) ? code : "REQUEST_FAILED"}\nRevise el estado antes de reintentar.`;
+          const reason = failure(error);
+          if (mode === "review") { s.reviewed = null; s.reviewError = reason; }
+          s.message = `${mode === "apply" ? "APPLY" : mode === "review" ? "PLAN" : "PRECHECK"} = FAIL\n${reason}\nRevise el estado antes de reintentar.`;
           s.checkedFile = null;
         }
       } finally {
