@@ -96,6 +96,14 @@
     return providers().find(row => String(row.id || row.providerId) === id || (taxId && normalizedTaxId(row.taxId || row.ruc) === taxId)) || null;
   }
 
+  function canonicalProfileState(value) {
+    // Contrato erp_supplier_providers: PENDING / COMPLETE; default COMPLETE.
+    const state = String(value ?? "").trim().toUpperCase() || "COMPLETE";
+    if (state === "COMPLETE" || state === "COMPLETO") return "COMPLETE";
+    if (state === "PENDING" || state === "PENDIENTE") return "PENDING";
+    throw Object.assign(new Error("Estado de perfil de proveedor no válido."), { code: "SUPPLIER_PROFILE_STATE_INVALID" });
+  }
+
   function providerPayload(candidate = {}, source = "MANUAL") {
     const typeMap = { comercial:"EXTERNAL",floricola:"PRODUCER",productor:"PRODUCER",socio:"PARTNER",servicios:"SERVICE",transporte:"TRANSPORT",insumos:"SUPPLIES",otros:"OTHER" };
     return {
@@ -112,7 +120,7 @@
       paymentCondition: String(candidate.paymentCondition || ""), creditDays: Number(candidate.creditDays || 0),
       currencyCode: String(candidate.currencyCode || "USD"), payableAccountCode: String(candidate.payableAccountCode || ""),
       advanceAccountCode: String(candidate.advanceAccountCode || ""), operationalSupplierId: String(candidate.operationalSupplierId || ""),
-      status: String(candidate.status || "activo"), profileState: String(candidate.profileState || "COMPLETE"),
+      status: String(candidate.status || "activo"), profileState: canonicalProfileState(candidate.profileState),
       source, observation: String(candidate.observation || candidate.notes || "")
     };
   }
@@ -120,7 +128,13 @@
   async function upsertProvider(candidate = {}, options = {}) {
     const repo = repository();
     if (!repo) return { ok:false,errors:["Repositorio de proveedores V2 no disponible."] };
-    const result = await repo.upsertProvider(providerPayload(candidate, options.source || candidate.source || "MANUAL"), options);
+    let payload;
+    try { payload = providerPayload(candidate, options.source || candidate.source || "MANUAL"); }
+    catch (error) {
+      if (error.code !== "SUPPLIER_PROFILE_STATE_INVALID") throw error;
+      return { ok: false, code: error.code, errors: [error.message] };
+    }
+    const result = await repo.upsertProvider(payload, options);
     return result.ok ? { ...result, provider:first(result,"supplier_providers") } : { ...result, errors:result.errors || [result.message || "Proveedor no confirmado."] };
   }
 
@@ -208,7 +222,13 @@
 
   async function postPurchase(purchase = {}, options = {}) {
     const provider = findProvider({ providerId:purchase.supplierId,taxId:purchase.supplierRuc }) || {};
-    const result = await repository().postPurchase(purchasePayload(purchase,provider),options);
+    let payload;
+    try { payload = purchasePayload(purchase,provider); }
+    catch (error) {
+      if (error.code !== "SUPPLIER_PROFILE_STATE_INVALID") throw error;
+      return { ok: false, code: error.code, errors: [error.message] };
+    }
+    const result = await repository().postPurchase(payload,options);
     if (BlessERP.services?.purchaseAccountContract?.enabled() && result?.ok && (!first(result,"supplier_purchase_documents") || !first(result,"financial_journal_entries"))) return { ok:false,errors:["Supabase no confirmó compra y asiento; no se informó éxito."] };
     return result.ok ? { ...result,purchase:canonicalPurchase(first(result,"supplier_purchase_documents") || {}),payable:first(result,"supplier_payables"),
       entry:first(result,"financial_journal_entries") } : { ...result,errors:result.errors || [result.message || "Compra no confirmada."] };
