@@ -199,7 +199,9 @@
       currencyCode:purchase.currencyCode || "USD", exchangeRate:Number(purchase.exchangeRate || 1),
       settlementMode:String(purchase.settlementMode || "CXP").toUpperCase() === "CONTADO" ? "CASH" : "CXP",
       paymentAccountCode:String(purchase.paymentAccountCode || ""),
-      source:purchase.source || "MANUAL", sourcePayload:{ authorizationNumber:purchase.authorizationNumber || "",accessKey:purchase.accessKey || "",
+      source:purchase.source || "MANUAL", sourcePayload:{
+        vatLines: (purchase.lines || []).map((line, index) => ({ lineNumber: index + 1, vatCode: line.vatCode || "", vatCategory: line.vatCategory || "TARIFA" })),
+        authorizationNumber:purchase.authorizationNumber || "",accessKey:purchase.accessKey || "",
         ...(BlessERP.services?.purchaseAccountContract?.enabled() ? { purchaseAccountContract: "BLESS_PURCHASE_V1", vatCreditTreatment: purchase.vatCreditTreatment || "PENDING", taxSupportCode: purchase.taxSupportCode || "" } : {}) },
       retentionDecision:String(purchase.retentionDecision || "PENDIENTE").toUpperCase(),
       retentionDecisionCode:String(purchase.retentionDecisionCode || (purchase.retentionDecision === "NO_SUJETO_332" ? "332" : "")),

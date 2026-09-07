@@ -78,11 +78,11 @@
       || "";
   }
 
-  function vatGroups(lines = [], defaults = companyService.settings().defaultAccounts || {}) {
+  function vatGroups(lines = [], defaults = companyService.settings().defaultAccounts || {}, purchase = {}) {
     const groups = new Map();
     (lines || []).forEach(line => {
       const amount = round2(line.vatValue || 0);
-      if (amount <= 0) return;
+      if (amount <= 0 || (purchaseContract()?.enabled() && purchase.vatCreditTreatment === "NO_CREDIT")) return;
       const rate = Number(line.vatRate || 0);
       const accountCode = vatPurchaseAccountCode(rate, defaults);
       const key = `${accountCode}|${rate}`;
@@ -817,7 +817,7 @@
           errors.push("La cuenta seleccionada para banco o caja no es una cuenta de movimiento activa.");
         }
       }
-      vatGroups(candidate.lines, defaults).forEach(group => {
+      vatGroups(candidate.lines, defaults, candidate).forEach(group => {
         if (!group.accountCode) {
           errors.push(`No existe cuenta IVA compras para la tarifa ${group.rate}%.`);
           return;
@@ -948,14 +948,14 @@
       id: uid("JLN"),
       accountCode: line.accountCode,
       accountName: chartService.findByCode(line.accountCode)?.name || line.accountName || "",
-      debit: round2(line.taxableBase),
+      debit: round2(Number(line.taxableBase) + (contract?.enabled() && purchase.vatCreditTreatment === "NO_CREDIT" ? Number(line.vatValue) : 0)),
       credit: 0,
       costCenter: line.costCenter || "",
       auxiliary: "",
       lineDescription: line.description || "",
       documentReference: purchase.documentNumber
     }));
-    vatGroups(purchase.lines, defaults).forEach(group => {
+    vatGroups(purchase.lines, defaults, purchase).forEach(group => {
       const vatPurchases = chartService.findByCode(group.accountCode);
       if (!vatPurchases) return;
       entry.lines.push({

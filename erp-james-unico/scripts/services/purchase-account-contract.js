@@ -45,46 +45,53 @@
       if (xml) {
         next.vatRateAuthority = "DOCUMENT";
       } else {
-        // A new line or date change resolves from the canonical effective table.
-        const candidates = next.vatRateAuthority === "EFFECTIVE_TABLE" && next.vatRateDate === date
-          ? taxes.filter(t => Number(t.rate) === Number(next.vatRate))
-          : taxes.filter(t => Number(t.rate) > 0);
-        const rates = [...new Set(candidates.map(t => Number(t.rate)))];
-        if (rates.length === 1) {
-          const parameter = candidates.find(t => Number(t.rate) === rates[0]);
-          next.vatRate = rates[0];
-          next.vatCode = parameter.sriCode || "";
-          next.vatParameterId = parameter.id;
-          next.vatRateDate = date;
-          next.vatRateAuthority = "EFFECTIVE_TABLE";
-          next.vatValue = round(Number(next.taxableBase) * next.vatRate / 100);
-          next.totalLine = round(Number(next.taxableBase) + next.vatValue);
+        const selected = taxes.filter(t => t.id === next.vatParameterId);
+        const defaults = taxes.filter(t => t.defaultForManual === true);
+        const candidates = next.vatParameterId ? selected : defaults;
+        if (candidates.length === 1) {
+          const parameter = candidates[0];
+          try {
+            const tax = erp.purchaseVatCore.resolve({ rate: parameter.rate, percentageCode: parameter.sriCode, issueDate: date });
+            next.vatRate = tax.rate;
+            next.vatCode = tax.percentageCode;
+            next.vatCategory = tax.percentageCode === "6" ? "NO_OBJETO" : tax.percentageCode === "7" ? "EXENTO" : "TARIFA";
+            next.vatParameterId = parameter.id;
+            next.vatRateDate = date;
+            next.vatRateAuthority = "EFFECTIVE_TABLE";
+            next.vatValue = round(Number(next.taxableBase) * next.vatRate / 100);
+            next.totalLine = round(Number(next.taxableBase) + next.vatValue);
+          } catch (_) { next.vatRateAuthority = "UNRESOLVED"; }
         } else {
           next.vatRateAuthority = "UNRESOLVED";
-          next.vatParameterId = "";
         }
       }
       return next;
     });
     return purchase;
   }
+  function supportsNoCredit(code) { return ["02", "04", "07"].includes(String(code || "")); }
   function validate(purchase) {
     if (!enabled()) return [];
     const errors = [];
     if (purchase.settlementMode !== "CONTADO" && !payable(purchase)) errors.push("PURCHASE_AP_ACCOUNT_REQUIRED: seleccione la CxP relacionada o no relacionada; debe coincidir con la cuenta canónica del proveedor si existe.");
     const positiveVat = (purchase.lines || []).some(l => Number(l.vatValue) > 0);
-    if (positiveVat && purchase.vatCreditTreatment !== "CREDIT") errors.push("PURCHASE_VAT_TREATMENT_REQUIRED: IVA sin crédito o pendiente requiere tratamiento económico aprobado; no se contabilizará como crédito automáticamente.");
-    if (positiveVat && ["02", "04", "07"].includes(purchase.taxSupportCode)) errors.push("PURCHASE_VAT_SUPPORT_CONFLICT: el sustento sin crédito no es compatible con IVA a crédito tributario.");
-    if (positiveVat && (account("1.01.08")?.nature !== "Deudora" || erp.services?.companySettings?.settings?.().purchaseAccounting?.vatCreditAccountCode !== "1.01.08")) errors.push("PURCHASE_VAT_ACCOUNT_REQUIRED: IVA en compras debe ser una cuenta activa de movimiento de BLESS.");
+    const treatment = purchase.vatCreditTreatment;
+    if (positiveVat && !["CREDIT", "NO_CREDIT"].includes(treatment)) errors.push("PURCHASE_VAT_TREATMENT_REQUIRED: confirme si el IVA tiene derecho a credito tributario.");
+    if ((treatment === "NO_CREDIT" && !supportsNoCredit(purchase.taxSupportCode))
+        || (treatment === "CREDIT" && supportsNoCredit(purchase.taxSupportCode))) errors.push("PURCHASE_VAT_SUPPORT_CONFLICT: el sustento y el tratamiento del IVA son incompatibles.");
+    if (positiveVat && treatment === "CREDIT" && (account("1.01.08")?.nature !== "Deudora" || erp.services?.companySettings?.settings?.().purchaseAccounting?.vatCreditAccountCode !== "1.01.08")) errors.push("PURCHASE_VAT_ACCOUNT_REQUIRED: falta la cuenta canonica de credito tributario.");
     (purchase.lines || []).forEach((line, index) => {
+      if (treatment === "NO_CREDIT" && line.accountCode === "1.01.08") errors.push("PURCHASE_LINE_ACCOUNT_REQUIRED: el IVA sin credito debe usar la cuenta economica de la linea.");
       if (!account(line.accountCode) || ["5.3", "5.5.04"].includes(line.accountCode)) errors.push(`PURCHASE_LINE_ACCOUNT_REQUIRED: línea ${index + 1}; seleccione una cuenta existente, activa y de movimiento para su propósito económico.`);
       if (line.vatRateAuthority === "UNRESOLVED" || !Number.isFinite(Number(line.vatRate)) || Number(line.vatRate) < 0) errors.push(`PURCHASE_VAT_RATE_REQUIRED: línea ${index + 1}; falta tarifa canónica efectiva para la fecha.`);
       if (purchase.source === "XML" && (!purchase.issueDate || !line.vatCode || line.vatRateAuthority !== "DOCUMENT")) errors.push(`PURCHASE_DOCUMENT_TAX_REQUIRED: línea ${index + 1}; falta fecha/código/tarifa del comprobante.`);
       if (purchase.source !== "XML" && !effectiveTaxes(purchase.issueDate).some(t => t.id === line.vatParameterId && Number(t.rate) === Number(line.vatRate))) errors.push(`PURCHASE_VAT_RATE_REQUIRED: línea ${index + 1}; la tarifa no corresponde al parámetro efectivo.`);
+      try { erp.purchaseVatCore.supportingTax(line, purchase.issueDate); }
+      catch (error) { errors.push(`Línea ${index + 1}: ${error.message}`); }
       if (Math.abs(round(Number(line.taxableBase) * Number(line.vatRate) / 100) - Number(line.vatValue)) > 0.02) errors.push(`PURCHASE_VAT_AMOUNT_MISMATCH: línea ${index + 1}; revise base, tarifa y valor del documento.`);
     });
     return errors;
   }
   erp.services = erp.services || {};
-  erp.services.purchaseAccountContract = { enabled, account, payable, payableForDocument, effectiveTaxes, normalize, validate, payableCodes: AP };
+  erp.services.purchaseAccountContract = { enabled, account, payable, payableForDocument, effectiveTaxes, normalize, validate, supportsNoCredit, payableCodes: AP };
 })();

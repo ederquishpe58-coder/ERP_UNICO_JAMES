@@ -56,6 +56,8 @@
         productCode: line.product_code,
         taxableBase: Number(line.taxable_base || line.line_total || 0),
         vatRate: Number(line.tax_rate || 0),
+        vatCode: (row.source_payload?.vatLines || []).find(tax => tax.lineNumber === line.line_number)?.vatCode || "",
+        vatCategory: (row.source_payload?.vatLines || []).find(tax => tax.lineNumber === line.line_number)?.vatCategory || "TARIFA",
         vatValue: Number(line.tax_value || 0),
         amount: Number(line.line_total || line.taxable_base || 0)
       })),
@@ -343,13 +345,7 @@
     const identification = digits(purchase.supplierRuc) || purchase.supplierRuc;
     const identificationType = identification.length === 13 ? "04" : identification.length === 10 ? "05" : "06";
     const source = purchase.sourcePayload || {};
-    const taxes = purchase.lines.map(line => ({
-      code: "2",
-      percentageCode: Number(line.vatRate || 0) === 15 ? "4" : Number(line.vatRate || 0) === 8 ? "8" : Number(line.vatRate || 0) === 5 ? "5" : "0",
-      taxableBase: line.taxableBase,
-      rate: line.vatRate,
-      value: line.vatValue
-    })).filter(item => item.taxableBase > 0 || item.value > 0);
+    const taxes = purchase.lines.map(line => BlessERP.purchaseVatCore.supportingTax(line, purchase.issueDate)).filter(item => item.taxableBase > 0 || item.value > 0);
     const [year, month] = String(draft.retentionDate || "").split("-");
     return {
       buyer: { identificationType, identification, legalName: purchase.supplierName, address: purchase.supplierAddress },

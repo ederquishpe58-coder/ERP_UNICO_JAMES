@@ -401,7 +401,16 @@
     return `<label class="compact-field"><span>Cuenta CxP del proveedor</span><select name="payableAccountCode" ${readOnly ? "disabled" : ""}><option value="">Seleccionar relación / cuenta</option>${options}</select></label>
       <label class="compact-field"><span>Tratamiento del IVA</span><select name="vatCreditTreatment" ${readOnly ? "disabled" : ""}>
       <option value="PENDING">Confirmar tratamiento</option><option value="CREDIT" ${draft.vatCreditTreatment === "CREDIT" ? "selected" : ""}>Con derecho a crédito tributario</option>
-      <option value="NO_CREDIT" ${draft.vatCreditTreatment === "NO_CREDIT" ? "selected" : ""}>Sin crédito - tratamiento pendiente</option></select></label>`;
+      <option value="NO_CREDIT" ${draft.vatCreditTreatment === "NO_CREDIT" ? "selected" : ""} ${contract.supportsNoCredit(draft.taxSupportCode) ? "" : "disabled"}>Sin credito - IVA a la cuenta de cada linea</option></select></label>`;
+  }
+
+  function renderVatRate(line, draft, readOnly) {
+    const contract = BlessERP.services.purchaseAccountContract;
+    if (!contract?.enabled()) return `<input name="vatRate" type="number" step="0.01" min="0" value="${esc(String(line.vatRate || 0))}" ${readOnly ? "disabled" : ""}>`;
+    if (draft.source === "XML") return `<span>${esc(String(line.vatRate))}% · código ${esc(line.vatCode)}</span>`;
+    const parameters = contract.effectiveTaxes(draft.issueDate);
+    const options = parameters.map(t => `<option value="${esc(t.id)}" ${line.vatParameterId === t.id ? "selected" : ""}>${esc(t.name)} — ${esc(String(t.rate))}%</option>`).join("");
+    return `<select name="vatParameterId" ${readOnly ? "disabled" : ""}><option value="">Seleccione tarifa vigente</option>${options}</select>`;
   }
 
   function lineModeBadge(line) {
@@ -449,7 +458,7 @@
                 <td><input name="unitPrice" type="number" step="0.01" min="0" value="${esc(String(line.unitPrice || 0))}" ${readOnly ? "disabled" : ""}></td>
                 <td><input name="discount" type="number" step="0.01" min="0" value="${esc(String(line.discount || 0))}" ${readOnly ? "disabled" : ""}></td>
                 <td><input name="taxableBase" type="number" step="0.01" min="0" value="${esc(String(line.taxableBase || 0))}" ${readOnly ? "disabled" : ""}></td>
-                <td><input name="vatRate" type="number" step="0.01" min="0" value="${esc(String(line.vatRate || 0))}" ${readOnly ? "disabled" : ""}></td>
+                <td>${renderVatRate(line, draft, readOnly)}</td>
                 <td><input name="vatValue" type="number" step="0.01" min="0" value="${esc(String(line.vatValue || 0))}" ${readOnly ? "disabled" : ""}></td>
                 <td><input name="totalLine" type="number" step="0.01" min="0" value="${esc(String(line.totalLine || 0))}" ${readOnly ? "disabled" : ""}></td>
                 <td>
@@ -528,7 +537,7 @@
                 <td><input name="unitPrice" type="number" step="0.01" min="0" value="${esc(String(line.unitPrice || 0))}" ${readOnly ? "disabled" : ""}></td>
                 <td><input name="discount" type="number" step="0.01" min="0" value="${esc(String(line.discount || 0))}" ${readOnly ? "disabled" : ""}></td>
                 <td><input class="readonly-cell-input" name="taxableBase" type="number" step="0.01" min="0" value="${esc(String(line.taxableBase || 0))}" readonly></td>
-                <td><input name="vatRate" type="number" step="0.01" min="0" value="${esc(String(line.vatRate || 0))}" ${readOnly ? "disabled" : ""}></td>
+                <td>${renderVatRate(line, draft, readOnly)}</td>
                 <td><input class="readonly-cell-input" name="vatValue" type="number" step="0.01" min="0" value="${esc(String(line.vatValue || 0))}" readonly></td>
                 <td><input class="readonly-cell-input" name="totalLine" type="number" step="0.01" min="0" value="${esc(String(line.totalLine || 0))}" readonly></td>
                 <td><input name="costCenter" value="${esc(line.costCenter || "")}" ${readOnly ? "disabled" : ""}></td>
@@ -1590,7 +1599,8 @@
       unitPrice: Number(row.querySelector('[name="unitPrice"]')?.value || 0),
       discount: Number(row.querySelector('[name="discount"]')?.value || 0),
       taxableBase: Number(row.querySelector('[name="taxableBase"]')?.value || 0),
-      vatRate: Number(row.querySelector('[name="vatRate"]')?.value || 0),
+      vatParameterId: row.querySelector('[name="vatParameterId"]')?.value ?? base.lines.find(line => line.id === row.dataset.lineId)?.vatParameterId ?? "",
+      vatRate: Number(row.querySelector('[name="vatRate"]')?.value ?? base.lines.find(line => line.id === row.dataset.lineId)?.vatRate ?? 0),
       vatValue: Number(row.querySelector('[name="vatValue"]')?.value || 0),
       totalLine: Number(row.querySelector('[name="totalLine"]')?.value || 0),
       accountCode: row.querySelector('[name="accountCode"]')?.value || "",
@@ -1716,7 +1726,7 @@
       BlessERP.layout.renderPage();
     }));
     document.querySelector("#purchase-manual-form")?.addEventListener("change", event => {
-      if (["supplierId", "voucherType", "purchaseType", "inventoryItemId", "retentionDecision", "settlementMode", "issueDate", "vatCreditTreatment", "payableAccountCode"].includes(event.target.name)) {
+      if (["supplierId", "voucherType", "purchaseType", "inventoryItemId", "retentionDecision", "settlementMode", "issueDate", "taxSupportCode", "vatCreditTreatment", "payableAccountCode"].includes(event.target.name)) {
         uiState.manual.draft = collectManualDraft();
         if (event.target.name === "supplierId" && BlessERP.services.purchaseAccountContract?.enabled()) uiState.manual.draft.payableAccountCode = "";
         if (event.target.name === "purchaseType") {
@@ -1727,7 +1737,7 @@
         return;
       }
       uiState.manual.draft = collectManualDraft();
-      if ((BlessERP.services.purchaseAccountContract?.enabled() || purchaseService.purchaseTypeUsesInventory(uiState.manual.draft.purchaseType)) && ["quantity", "unitPrice", "discount", "taxableBase", "vatRate"].includes(event.target.name)) {
+      if ((BlessERP.services.purchaseAccountContract?.enabled() || purchaseService.purchaseTypeUsesInventory(uiState.manual.draft.purchaseType)) && ["quantity", "unitPrice", "discount", "taxableBase", "vatRate", "vatParameterId"].includes(event.target.name)) {
         BlessERP.layout.renderPage();
         return;
       }
@@ -1898,13 +1908,7 @@
     const identificationDigits = digitsOnly(identification);
     const identificationType = identificationDigits.length === 13 ? "04"
       : identificationDigits.length === 10 ? "05" : "06";
-    const taxes = (purchase.lines || []).map(line => ({
-      code: "2",
-      percentageCode: String(line.vatCode || (Number(line.vatRate || 0) === 15 ? "4" : Number(line.vatRate || 0) === 8 ? "8" : Number(line.vatRate || 0) === 5 ? "5" : "0")),
-      taxableBase: Number(line.taxableBase || line.totalLine || 0),
-      rate: Number(line.vatRate || 0),
-      value: Number(line.vatValue || 0)
-    })).filter(item => item.taxableBase > 0 || item.value > 0);
+    const taxes = (purchase.lines || []).map(line => BlessERP.purchaseVatCore.supportingTax(line, purchase.issueDate)).filter(item => item.taxableBase > 0 || item.value > 0);
     const retentionLines = (retention.retentionLines || []).filter(line => line.code).map(line => ({
       code: line.taxType === "IVA" ? "2" : "1",
       retentionCode: String(line.sriCode || line.code || ""),

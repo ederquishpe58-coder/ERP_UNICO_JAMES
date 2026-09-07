@@ -1,4 +1,5 @@
 const { create } = require("xmlbuilder2");
+const purchaseVatCore = require("../../../scripts/services/purchase-vat-core.js");
 const { SriValidationError } = require("./errors.cjs");
 const { validateAccessKey } = require("./access-key.cjs");
 const softwareProvider = require("../../../scripts/config/software-provider.js");
@@ -414,6 +415,7 @@ function buildWithholdingXml(payload = {}) {
   const docsRoot = root.ele("docsSustento");
   supportingDocuments.forEach((support, supportIndex) => {
     const taxes = Array.isArray(support.taxes) ? support.taxes : [];
+    try { purchaseVatCore.validateSupportingDocuments([support]); } catch (error) { throw new SriValidationError(error.message); }
     const retentions = Array.isArray(support.retentions) ? support.retentions : [];
     const payments = Array.isArray(support.payments) ? support.payments : [];
     if (!taxes.length) throw new SriValidationError(`El documento de sustento ${supportIndex + 1} debe detallar sus impuestos.`);

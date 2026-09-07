@@ -1,3 +1,4 @@
+const purchaseVatCore = require("../../../scripts/services/purchase-vat-core.js");
 const { generateNumericCode } = require("./access-key.cjs");
 const { ecuadorDate, emissionDatePolicy } = require("./emission-date.cjs");
 const { storeArtifact, loadArtifact } = require("./artifact-store.cjs");
@@ -244,6 +245,7 @@ async function createDraft(client, input, actorUserId) {
   if (!ENABLED_DOCUMENT_TYPES.has(documentType)) throw new SriValidationError("Tipo SRI no habilitado en esta etapa.");
   const payload = structuredClone(input.sourcePayload || {});
   if (documentType === "07") {
+    try { purchaseVatCore.validateSupportingDocuments(payload.withholding?.supportingDocuments || []); } catch (error) { throw new SriValidationError(error.message); }
     payload.buyer = payload.buyer || payload.withholding?.subject || {};
     if (!Array.isArray(payload.lines) || !payload.lines.length) payload.lines = withholdingLines(payload);
   }
