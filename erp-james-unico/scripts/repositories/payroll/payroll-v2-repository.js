@@ -180,7 +180,7 @@
     calculateRole:(periodId,payload,options={})=>command("erp_payroll_core_v2_calculate_role",{ p_period_id:periodId,p_payload:payload,p_expected_version:options.expectedVersion??null,p_local_created_at:new Date().toISOString() },{...options,payloadContext:payload,source:"PAYROLL_V2_ROLE_CALCULATE"}),
     approveRole:(roleId,version,options={})=>command("erp_payroll_core_v2_approve_role",{ p_role_id:roleId,p_expected_version:Number(version),p_local_created_at:new Date().toISOString() },{...options,source:"PAYROLL_V2_ROLE_APPROVE"}),
     postRole:(roleId,version,accountingDate,options={})=>command("erp_payroll_core_v2_post_role",{ p_role_id:roleId,p_expected_version:Number(version),p_accounting_date:accountingDate||null,p_local_created_at:new Date().toISOString() },{...options,source:"PAYROLL_V2_ROLE_POST"}),
-    saveAccountingSettings:(payload,options={})=>command("erp_payroll_core_v2_save_accounting_settings",{ p_payroll_payable_account_code:payload.payrollPayableAccountCode,p_deduction_account_code:payload.deductionAccountCode,p_cost_center:payload.costCenter||"",p_default_expense_account_code:payload.defaultExpenseAccountCode||"" },{...options,payloadContext:payload,source:"PAYROLL_V2_ACCOUNTING_SETTINGS"})
+    saveAccountingSettings:(payload,options={})=>command("erp_payroll_core_v2_save_accounting_settings",{ p_payroll_payable_account_code:payload.payrollPayableAccountCode,p_deduction_account_code:payload.deductionAccountCode||"",p_cost_center:payload.costCenter||"",p_default_expense_account_code:payload.defaultExpenseAccountCode||"" },{...options,payloadContext:payload,source:"PAYROLL_V2_ACCOUNTING_SETTINGS"})
   });
   BlessERP.getPayrollV2Repository=()=>repository;
 })();
