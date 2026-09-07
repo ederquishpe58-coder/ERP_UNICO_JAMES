@@ -56,7 +56,10 @@
   function accountOptions(rows,companyId,purpose){
     return (rows||[]).filter(r=>r.company_id===companyId&&!r.deleted_at&&!r.__deleted&&r.isMovement===true
       &&['ACTIVE','ACTIVA'].includes(String(r.status).toUpperCase())&&typeof r.code==='string'&&r.code.trim()
-      &&(purpose==='EXPENSE'?['Gasto','Costo'].includes(r.type)&&r.nature==='Deudora':r.type==='Pasivo'&&r.nature==='Acreedora'));
+      &&(purpose==='EXPENSE'?['Gasto','Costo'].includes(r.type)&&r.nature==='Deudora'
+        :purpose==='ADVANCE_LINE'?r.type==='Activo'&&r.nature==='Deudora'
+        :purpose==='DEDUCTION_LINE'?(r.type==='Activo'&&r.nature==='Deudora')||(r.type==='Pasivo'&&r.nature==='Acreedora')
+        :['PAYABLE','DEDUCTION'].includes(purpose)&&r.type==='Pasivo'&&r.nature==='Acreedora'));
   }
   erp.payrollV2Contract=Object.freeze({ack,micros,decimal,money,labels,accountOptions,
     failure:()=>({ok:false,confirmed:false,code:'PAYROLL_CANONICAL_ACK_REQUIRED',message:'No se recibió una confirmación canónica completa de Nómina. Consulte el estado antes de reintentar.'}),

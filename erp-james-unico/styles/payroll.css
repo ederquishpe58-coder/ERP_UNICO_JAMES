@@ -546,6 +546,8 @@
 .payroll-role-editor .payroll-manual-line strong{flex:1 1 180px}
 .payroll-role-editor .payroll-manual-line input{flex:1 1 160px;width:160px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;font:inherit}
 .payroll-role-editor .payroll-manual-line [data-payroll-line-field="amount"]{flex:0 1 135px}
+.payroll-role-editor .payroll-line-account{display:grid;gap:4px;flex:2 1 280px;min-width:0;font-size:12px}
+.payroll-role-editor .payroll-line-account select{width:100%;min-width:0;height:35px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;font:inherit}
 .payroll-role-editor .payroll-manual-line [data-payroll-line-field="label"],.payroll-role-editor .payroll-manual-line [data-payroll-line-field="notes"]{flex:2 1 220px}
 .payroll-line-kind{display:inline-flex;justify-content:center;padding:4px 7px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.04em}
 .payroll-line-kind.earning{color:#166534;background:#dcfce7}
