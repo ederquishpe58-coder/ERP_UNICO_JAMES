@@ -106,7 +106,7 @@
       ${group.rows.map(row => `
         <tr>
           <td><strong>${utils.esc(row.order.sriInvoiceNumber || "-")}</strong><br><small>${utils.esc(row.order.number || row.order.id || "-")}</small></td>
-          <td><strong>${utils.esc(row.brand?.finalClientName || row.brand?.name || "-")}</strong><br><small>${utils.esc(row.routeTransportLabel)} · ${utils.esc(row.routeIsLocal ? "" : row.routeMotherGuide || "GUIA PENDIENTE")} · ${utils.esc(row.routeDestination)}</small></td>
+          <td><strong>${utils.esc(row.brand?.printedConsignee || "-")}</strong><br><small>${utils.esc(row.routeTransportLabel)} · ${utils.esc(row.routeIsLocal ? "" : row.routeMotherGuide || "GUIA PENDIENTE")} · ${utils.esc(row.routeDestination)}</small></td>
           <td>${utils.esc(row.routeAgencyName)}</td>
           <td>${utils.esc(row.order.coldRoom || "-")}</td>
           <td class="numeric">${utils.esc(utils.number(row.metrics.totalBoxes))}</td>

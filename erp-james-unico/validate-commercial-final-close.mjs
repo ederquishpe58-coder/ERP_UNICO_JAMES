@@ -21,22 +21,22 @@ for(const c of [B,I]){
  checks.push((c===B?'BLESS':'IMPERIO')+'_LOCAL_EXPORT_COORDINATION_ROUTE_OPTIONAL_LOCAL_EXPORT_GUARDS_SCOPE_DATE');
 }
 // Use the actual route renderer. Invoice changes invalidate its preparation cache.
-active=B;let builds=0;e.comercialPrintUtils={buildContext:(o,a,options={})=>{builds++;return{order:o,appState:a,options,company:{commercialName:keys[active]},customer:{commercialName:'CLIENTE LOCAL'},brand:{name:'MARCA EXPORT'},metrics:{totalBoxes:1,totalFulls:.5,byBoxType:{HB:1}},boxGroups:[{boxNumber:1}]};},renderCompanyBrand:company=>company.commercialName};load('scripts/modules/comercial/print/hoja-ruta-print.js');
+active=B;let builds=0;e.comercialPrintUtils={buildContext:(o,a,options={})=>{builds++;return{order:o,appState:a,options,company:{commercialName:keys[active]},customer:{commercialName:'CLIENTE LOCAL'},brand:{name:'MARCA EXPORT',printedConsignee:'CONSIGNATARIO ESPECIFICO'},metrics:{totalBoxes:1,totalFulls:.5,byBoxType:{HB:1}},boxGroups:[{boxNumber:1}]};},renderCompanyBrand:company=>company.commercialName};load('scripts/modules/comercial/print/hoja-ruta-print.js');
 const a={db:{commercial:{agencyCatalog:[]}}},o=order(B,'LOCAL-PRINT',true,{sriInvoiceNumber:'001-003-000000001',deliveryAddress:'DIRECCION CANONICA'}),options={routeOrders:[o],routeDate:o.issuedAt},context=e.comercialPrintUtils.buildContext(o,a,options),doc=e.comercialPrintDocs.HR;
-assert.equal(doc.validate(context).errors.length,0);let html=doc.render(context);assert(html.includes('001-003-000000001'));assert(html.includes('MARCA EXPORT'));assert(!html.includes('CLIENTE LOCAL')); assert(!html.includes('GUIA PENDIENTE'));assert.equal(builds,2);options.routeOrders=[{...o,sriInvoiceNumber:'001-003-000000009'}];html=doc.render(context);assert(html.includes('001-003-000000009'));assert(!html.includes('001-003-000000001'));checks.push('ACTUAL_HR_LOCAL_RENDER_NO_AGENCY_CANONICAL_INVOICE_CACHE_REFRESH');
-// Consignee is exclusively the order's linked marking/final customer in both markets and companies.
+assert.equal(doc.validate(context).errors.length,0);let html=doc.render(context);assert(html.includes('001-003-000000001'));assert(html.includes('CONSIGNATARIO ESPECIFICO'));assert(!html.includes('MARCA EXPORT'));assert(!html.includes('CLIENTE LOCAL')); assert(!html.includes('GUIA PENDIENTE'));assert.equal(builds,2);options.routeOrders=[{...o,sriInvoiceNumber:'001-003-000000009'}];html=doc.render(context);assert(html.includes('001-003-000000009'));assert(!html.includes('001-003-000000001'));checks.push('ACTUAL_HR_LOCAL_RENDER_NO_AGENCY_CANONICAL_INVOICE_CACHE_REFRESH');
+// Consignee is its explicit field; buyer and marking remain separate in every market/company.
 for (const company of [B,I]) for (const local of [true,false]) {
  active=company;
  const a={db:{commercial:{agencyCatalog:[{id:'CARGO',name:'FORBIDDEN AGENCY'}]}}};
  const source=order(company,'FORBIDDEN ORDER',local,{brandId:'LINKED-BRAND',agencyId:local?'':'CARGO',awb:'FORBIDDEN AWB',hawb:'FORBIDDEN HAWB',sriInvoiceNumber:'001-002-000000123'});
- for(const [brand,expected] of [[{id:'LINKED-BRAND',finalClientName:'CANONICAL FINAL CUSTOMER',name:'SECONDARY MARKING'},'CANONICAL FINAL CUSTOMER'],[{id:'LINKED-BRAND',name:'CANONICAL MARKING'},'CANONICAL MARKING'],[null,'-'],[{id:'LINKED-BRAND',finalClientName:'',name:''},'-']]) {
-  e.comercialPrintUtils.buildContext=(o,state,opts={})=>({order:o,appState:state,options:opts,company:{commercialName:keys[company]},brand,customer:{commercialName:'FORBIDDEN BILLED CUSTOMER',legalName:'FORBIDDEN LEGAL CUSTOMER'},agency:{name:'FORBIDDEN AGENCY'},metrics:{totalBoxes:1,totalFulls:.5,byBoxType:{HB:1}},boxGroups:[{boxNumber:1}]});
+ for(const [brand,expected] of [[{id:'LINKED-BRAND',printedConsignee:'BOULEVARD FLORIST',finalClientName:'OTHER FINAL CUSTOMER',name:'OTHER MARKING'},'BOULEVARD FLORIST'],[{id:'LINKED-BRAND',printedConsignee:'',finalClientName:'BOULEVARD FLORIST',name:'BOULEVARD FLORIST'},'-'],[{id:'LINKED-BRAND',name:'CANONICAL MARKING'},'-'],[null,'-'],[{id:'LINKED-BRAND',printedConsignee:null,finalClientName:'',name:''},'-']]) {
+  e.comercialPrintUtils.buildContext=(o,state,opts={})=>({order:o,appState:state,options:opts,company:{commercialName:keys[company]},brand,customer:{commercialName:'QUALITY FLOWERS',legalName:'QUALITY FLOWERS'},agency:{name:'FORBIDDEN AGENCY'},metrics:{totalBoxes:1,totalFulls:.5,byBoxType:{HB:1}},boxGroups:[{boxNumber:1}]});
   const printed=doc.render(e.comercialPrintUtils.buildContext(source,a,{routeOrders:[source],routeDate:source.issuedAt}));
   const consignee=printed.match(/<td><strong>[^<]*<\/strong><br><small>[^<]*<\/small><\/td>\s*<td><strong>([^<]*)<\/strong>/)?.[1];
   assert.equal(consignee,expected);
-  for(const forbidden of ['FORBIDDEN BILLED CUSTOMER','FORBIDDEN LEGAL CUSTOMER','FORBIDDEN AGENCY','FORBIDDEN AWB','FORBIDDEN HAWB','FORBIDDEN ORDER'])assert.notEqual(consignee,forbidden);
+  for(const forbidden of ['QUALITY FLOWERS','OTHER FINAL CUSTOMER','OTHER MARKING','FORBIDDEN AGENCY','FORBIDDEN AWB','FORBIDDEN HAWB','FORBIDDEN ORDER'])assert.notEqual(consignee,forbidden);
  }
- checks.push((company===B?'BLESS':'IMPERIO')+'_'+(local?'LOCAL':'EXPORT')+'_CANONICAL_CONSIGNEE_AND_MISSING_MARKING');
+ checks.push((company===B?'BLESS':'IMPERIO')+'_'+(local?'LOCAL':'EXPORT')+'_EXPLICIT_CONSIGNEE_BUYER_MARKING_SEPARATE');
 }
 // All three established documents remain in the resolver; route orders receive resolved identities.
 const print=read('scripts/modules/comercial/print/index.js');assert.match(print,/routeOrders: resolved/);for(const code of ['HR','ETIQUETAS','INVOICE_PACKING_REFERENCIAL','COMMERCIAL_INVOICE_CLIENT'])assert(print.includes('"'+code+'"'));checks.push('SAME_RESOLVER_FOUR_OUTPUTS');
