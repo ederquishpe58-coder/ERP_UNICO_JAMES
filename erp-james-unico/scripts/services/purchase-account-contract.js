@@ -28,6 +28,22 @@
       && t.effectiveFrom && t.effectiveFrom <= date && (!t.effectiveTo || t.effectiveTo >= date));
   }
   function payableForDocument(reference = {}) {
+    // Posted purchases use the canonical payable fetched by ID, regardless of MANUAL/XML origin.
+    if (Object.prototype.hasOwnProperty.call(reference, "canonicalPayable")) {
+      const p = reference.canonicalPayable;
+      const purchase = reference.raw || {};
+      const provider = reference.provider || {};
+      if (!enabled() || !p || !BLESS.includes(purchase.company_id) || p.company_id !== purchase.company_id
+          || purchase.status !== "POSTED" || p.source_type !== "PURCHASE_DOCUMENT"
+          || !purchase.payable_id || p.payable_id !== purchase.payable_id
+          || p.source_id !== purchase.purchase_document_id || p.provider_id !== purchase.provider_id
+          || !purchase.journal_entry_id || p.journal_entry_id !== purchase.journal_entry_id
+          || !["OPEN", "PARTIALLY_PAID", "PAID"].includes(p.status)) return "";
+      if (provider.provider_id !== p.provider_id || provider.company_id !== p.company_id
+          || (provider.payable_account_code && provider.payable_account_code !== p.payable_account_code)) return "";
+      const code = p.payable_account_code;
+      return AP.includes(code) && account(code)?.nature === "Acreedora" ? code : "";
+    }
     const rows = erp.services?.supplierFinanceV2?.payables?.() || [];
     const id = reference.payableId || "";
     const sourceId = reference.purchaseDocumentId || reference.purchaseId || reference.id || "";

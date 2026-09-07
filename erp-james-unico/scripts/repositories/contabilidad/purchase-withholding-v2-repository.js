@@ -91,6 +91,29 @@
     });
   }
 
+  async function purchasePayable(purchase = {}) {
+    const companyId = activeCompanyUuid();
+    const fail = message => ({ ok: false, message, payable: null });
+    if (!configured() || purchase.company_id !== companyId || purchase.status !== "POSTED"
+        || !purchase.payable_id || !purchase.purchase_document_id || !purchase.provider_id || !purchase.journal_entry_id) {
+      return fail("No se pudo identificar la CxP canónica de esta compra en la empresa actual.");
+    }
+    const { data, error } = await client().from("erp_supplier_accounts_payable")
+      .select("company_id,payable_id,source_type,source_id,provider_id,journal_entry_id,payable_account_code,status,version")
+      .eq("company_id", companyId).eq("payable_id", purchase.payable_id)
+      .eq("source_type", "PURCHASE_DOCUMENT").eq("source_id", purchase.purchase_document_id)
+      .eq("provider_id", purchase.provider_id).eq("journal_entry_id", purchase.journal_entry_id)
+      .maybeSingle();
+    if (activeCompanyUuid() !== companyId) return fail("La empresa cambió durante la consulta de CxP. Vuelva a abrir la compra.");
+    if (error || !data) return fail("No se pudo consultar la CxP canónica de la compra. Verifique su acceso a Cuentas por pagar y vuelva a intentar.");
+    if (data.company_id !== companyId || data.payable_id !== purchase.payable_id
+        || data.source_type !== "PURCHASE_DOCUMENT" || data.source_id !== purchase.purchase_document_id
+        || data.provider_id !== purchase.provider_id || data.journal_entry_id !== purchase.journal_entry_id) {
+      return fail("La CxP consultada no corresponde a la empresa, proveedor y asiento de la compra.");
+    }
+    return { ok: true, payable: data };
+  }
+
   function subscribe(onChange) {
     const companyId = activeCompanyUuid();
     const db = client();
@@ -132,6 +155,7 @@
     activeCompanyUuid,
     canExecute,
     detailContext,
+    purchasePayable,
     healthStatus,
     historyPage,
     pendingPage,

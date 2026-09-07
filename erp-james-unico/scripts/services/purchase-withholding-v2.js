@@ -431,7 +431,10 @@
   }
 
   async function createOrGet(draft) {
-    const purchase = await ensurePurchaseDetail(draft.purchaseId);
+    const purchase = { ...await ensurePurchaseDetail(draft.purchaseId) };
+    const payable = await repository()?.purchasePayable?.(purchase.raw);
+    if (!payable?.ok) throw new Error(payable?.message || "No se pudo consultar la CxP canónica de la compra.");
+    purchase.canonicalPayable = payable.payable;
     const lines = selectedLines(draft);
     if (!lines.length || lines.some(line => line.baseAmount <= 0 || line.retainedAmount <= 0)) {
       throw new Error("Seleccione al menos una retención con base y valor mayores que cero.");
