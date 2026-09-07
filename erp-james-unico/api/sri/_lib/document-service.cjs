@@ -148,6 +148,25 @@ function lineRows(document, lines) {
   }));
 }
 
+async function resolveExportOrderInformation(client, companyId, input, payload) {
+  const orderId = String(payload.erpEmission?.sourceOrderId || input.sourceOrderId || "").trim();
+  if (!orderId) return; // Non-order API clients retain their explicit additional information.
+  const order = dbError(await client.from("erp_entity_records").select("payload")
+    .eq("company_id", companyId).eq("entity", "commercial_orders").eq("record_id", orderId)
+    .is("deleted_at", null).single(), "Pedido canonico de exportacion")?.payload;
+  if (!order) throw new SriValidationError("No se encontro el pedido canonico de exportacion en esta empresa.");
+  const agencyId = String(order.agencyId || "").trim();
+  const agency = agencyId ? dbError(await client.from("erp_entity_records").select("payload")
+    .eq("company_id", companyId).eq("entity", "commercial_agencies").eq("record_id", agencyId)
+    .is("deleted_at", null).single(), "Agencia canonica del pedido")?.payload : null;
+  payload.additionalInformation = {
+    ...(payload.additionalInformation || {}),
+    AWB: normalizeSriText(order.awb, 300),
+    HAWB: normalizeSriText(order.hawb, 300),
+    AGENCIA: normalizeSriText(agency?.name, 300)
+  };
+}
+
 function normalizeExportAdditionalInformation(payload) {
   const additional = payload.additionalInformation || {};
   const transport = normalizeSriText(payload.erpEmission?.transportType || additional.Transporte || "AEREO", 50)
@@ -155,13 +174,15 @@ function normalizeExportAdditionalInformation(payload) {
     .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase();
   const canonical = {
-    "Correo cliente": normalizeSriText(additional["Correo cliente"] || payload.buyer?.email, 300),
-    Guias: normalizeSriText(additional.Guias || additional.GUIAS, 300),
-    Piezas: normalizeSriText(additional.Piezas || additional.PIEZAS, 300),
-    "Marca cliente": normalizeSriText(additional["Marca cliente"] || additional.Marca || additional.MARCA, 300),
+    "CORREO CLIENTE": normalizeSriText(additional["CORREO CLIENTE"] || additional["Correo cliente"] || payload.buyer?.email, 300),
+    AWB: normalizeSriText(additional.AWB, 300),
+    HAWB: normalizeSriText(additional.HAWB, 300),
+    AGENCIA: normalizeSriText(additional.AGENCIA, 300),
+    MARCACION: normalizeSriText(additional.MARCACION || additional["Marca cliente"] || additional.Marca || additional.MARCA, 300),
+    PIEZAS: normalizeSriText(additional.PIEZAS || additional.Piezas, 300),
     DAE: normalizeSriText(additional.DAE || additional.DAES || additional.Dae, 300)
   };
-  const requiredFields = ["DAE", "Marca cliente", ...(transport === "AEREO" ? ["Guias"] : [])];
+  const requiredFields = ["DAE", "MARCACION", "AGENCIA", ...(transport === "AEREO" ? ["AWB", "HAWB"] : [])];
   requiredFields.forEach(field => {
     const value = normalizeSriText(canonical[field], 300);
     if (!value) throw new SriValidationError(`La informacion adicional ${field} es obligatoria para la factura de exportacion.`);
@@ -193,8 +214,6 @@ function normalizeLocalInvoice(payload) {
   const additional = payload.additionalInformation || {};
   payload.additionalInformation = softwareProvider.mergeAdditionalInformation({
     "Correo cliente": normalizeSriText(additional["Correo cliente"] || payload.buyer?.email, 300),
-    Piezas: normalizeSriText(additional.Piezas || additional.PIEZAS, 300),
-    "Marca cliente": normalizeSriText(additional["Marca cliente"] || additional.Marca || additional.MARCA, 300)
   });
   payload.buyer = {
     ...(payload.buyer || {}),
@@ -255,7 +274,10 @@ async function createDraft(client, input, actorUserId) {
     timeZone: datePolicy.timeZone
   };
   if (documentType === "01") {
-    if (isExportInvoicePayload(payload)) normalizeExportAdditionalInformation(payload);
+    if (isExportInvoicePayload(payload)) {
+      await resolveExportOrderInformation(client, companyId, input, payload);
+      normalizeExportAdditionalInformation(payload);
+    }
     else normalizeLocalInvoice(payload);
   }
   const exporterLegend = habitualExporterLegend(settings.ruc);

@@ -1614,6 +1614,7 @@
       order,
       customer: utils.findCustomer(order?.customerId),
       brand: utils.findBrand(order?.brandId),
+      agency: utils.findAgency(order?.agencyId),
       company: {
         ...BlessERP.comercialData.company,
         commercialName: identity.commercialName || BlessERP.comercialData.company.commercialName,

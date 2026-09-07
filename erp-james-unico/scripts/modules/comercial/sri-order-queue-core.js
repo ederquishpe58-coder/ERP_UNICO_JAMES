@@ -294,7 +294,7 @@
   }
 
   function buildInvoicePayload(context = {}) {
-    const { order = {}, customer = {}, brand = {}, company = {}, metrics = {} } = context;
+    const { order = {}, customer = {}, brand = {}, agency = {}, company = {}, metrics = {} } = context;
     const errors = validateOrder(context);
     if (errors.length) return { ok: false, errors, payload: null };
     const exportOrder = isExportOrder(order, brand);
@@ -304,13 +304,15 @@
       300
     );
     const fulls = Number(metrics.totalFulls ?? metrics.fulls ?? order.totalFulls ?? 0);
-    const additionalInformation = {
-      "Correo cliente": customerEmail,
-      Guias: exportOrder ? guides(order) : "",
-      Piezas: `${Number(metrics.totalBoxes || order.totalBoxes || 0)} fulls ${Number.isFinite(fulls) ? Number(fulls.toFixed(2)) : 0}`,
-      "Marca cliente": normalizeText(brand?.name || brand?.finalClientName, 300),
-      DAE: exportOrder ? fiscalDae : ""
-    };
+    const additionalInformation = exportOrder ? {
+      "CORREO CLIENTE": customerEmail,
+      AWB: normalizeText(order.awb, 300),
+      HAWB: normalizeText(order.hawb, 300),
+      AGENCIA: normalizeText(agency?.id === order.agencyId ? agency.name : "", 300),
+      MARCACION: normalizeText(brand?.name || brand?.finalClientName, 300),
+      PIEZAS: `${Number(metrics.totalBoxes || order.totalBoxes || 0)} cajas / ${Number.isFinite(fulls) ? Number(fulls.toFixed(2)) : 0} fulls`,
+      DAE: fiscalDae
+    } : { "Correo cliente": customerEmail };
     const publicAdditionalInformation = mergePublicAdditionalInformation(additionalInformation);
     if (!exportOrder) {
       ["DAE", "DAES", "Guias", "GUIAS", "Guías", "GUÍAS"].forEach(key => {

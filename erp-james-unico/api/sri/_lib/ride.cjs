@@ -403,7 +403,10 @@ function drawTraditionalInvoice(pdf, {
   fitText(pdf, "Fecha:", 229, buyerY + 28, 42, { bold: true, size: 7.3 });
   fitText(pdf, document.issue_date, 274, buyerY + 28, 92, { size: 7.3 });
   fitText(pdf, "Guia:", 395, buyerY + 28, 36, { bold: true, size: 7.3 });
-  fitText(pdf, extra.Guias || extra.GUIAS || extra.AWB, 434, buyerY + 28, 128, { size: 7.3 });
+  // New export infoAdicional keeps AWB/HAWB out of the buyer's delivery-guide field.
+  if (!(exportInvoice && extra.MARCACION)) {
+    fitText(pdf, extra.Guias || extra.GUIAS || extra.AWB, 434, buyerY + 28, 128, { size: 7.3 });
+  }
   fitText(pdf, "Direccion:", 28, buyerY + 48, 76, { bold: true, size: 7.3 });
   fitText(pdf, buyer.address, 108, buyerY + 48, 454, { size: 7.3, height: 18 });
 
@@ -445,7 +448,16 @@ function drawTraditionalInvoice(pdf, {
   const providerRows = softwareProvider.billingSystemProviderEnabled
     ? [["RUC PROVEEDOR:", softwareProvider.providerRuc]]
     : [];
-  const additionalRows = exportInvoice ? [
+  const additionalRows = exportInvoice && extra.MARCACION ? [
+    ["CORREO CLIENTE:", extra["CORREO CLIENTE"] || buyer.email],
+    ["AWB:", extra.AWB],
+    ["HAWB:", extra.HAWB],
+    ["AGENCIA:", extra.AGENCIA],
+    ["MARCACION:", extra.MARCACION],
+    ["PIEZAS:", extra.PIEZAS],
+    ["DAE:", extra.DAE],
+    ...providerRows
+  ] : exportInvoice ? [
     ["CORREO CLIENTE:", extra["Correo cliente"] || buyer.email],
     ["GUIAS:", extra.Guias || extra.GUIAS || extra.AWB],
     ["PIEZAS:", extra.Piezas || extra.PIEZAS],
