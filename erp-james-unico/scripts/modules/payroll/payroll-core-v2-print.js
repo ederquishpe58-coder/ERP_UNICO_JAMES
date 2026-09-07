@@ -31,6 +31,10 @@
       </body></html>`;
   }
   function print(roleId,itemId=""){
+    const repo=BlessERP.getPayrollV2Repository?.();
+    if(!repo?.canExecute?.()||!repo.healthStatus()?.data?.capabilities?.includes('payroll.roles.print')){
+      BlessERP.layout?.toast?.('No tiene permiso para imprimir roles de pago.');return false;
+    }
     const html=render(roleId,itemId); if(!html)return BlessERP.layout?.toast?.("Rol V2 no encontrado.");
     const popup=window.open("","_blank","noopener,noreferrer"); if(!popup)return BlessERP.layout?.toast?.("Permita ventanas emergentes para imprimir.");
     popup.document.open();popup.document.write(html);popup.document.close();popup.focus();setTimeout(()=>popup.print(),180);
