@@ -486,6 +486,7 @@ module.exports = async function handler(request, response) {
       name: error?.name || "Error",
       code: error?.code || null,
       message: error?.message || "Unknown error",
+      transport: error?.details?.transport || null,
       stack: error?.stack || null
     });
     const known = error instanceof SriError;

@@ -1,6 +1,7 @@
 const { XMLParser } = require("fast-xml-parser");
 const { SriTransportError, SriValidationError } = require("./errors.cjs");
 const { validateAccessKey } = require("./access-key.cjs");
+const { UNCERTAIN, nativeDiagnostic, safeText } = require("./transport-diagnostic.cjs");
 
 const TEST_ENDPOINTS = Object.freeze({
   reception: "https://celcer.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline",
@@ -78,16 +79,19 @@ function soapBody(xml) {
     throw new SriTransportError("La respuesta del SRI no contiene XML legible.", {
       code: "SRI_RESPONSE_XML_INVALID",
       retryable: true,
-      details: { reason: error.message }
+      details: { reason: safeText(error.message) }
     });
   }
   const body = parsed?.Envelope?.Body;
   if (!body) throw new SriTransportError("La respuesta del SRI no contiene un cuerpo SOAP.");
   if (body.Fault) {
-    throw new SriTransportError("El Web Service del SRI devolvio una falla SOAP.", {
+    const faultCode = safeText(textValue(body.Fault.faultcode));
+    const faultString = safeText(textValue(body.Fault.faultstring));
+    throw new SriTransportError(`El Web Service del SRI devolvio una falla SOAP: ${faultString || faultCode}.`, {
+      code: "SRI_SOAP_FAULT",
       details: {
-        faultCode: textValue(body.Fault.faultcode),
-        faultString: textValue(body.Fault.faultstring)
+        faultCode, faultString,
+        transport: { classification: "SOAP", resultState: UNCERTAIN, nextAction: "AUTHORIZATION_LOOKUP_FIRST", faultCode, faultString }
       }
     });
   }
@@ -143,6 +147,7 @@ async function postSoap({ endpoint, envelope, timeoutMs = 20000, fetchImpl = glo
   if (typeof fetchImpl !== "function") throw new SriTransportError("El backend no dispone de cliente HTTP.");
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let responseStatus = null;
   try {
     const response = await fetchImpl(endpoint, {
       method: "POST",
@@ -153,24 +158,58 @@ async function postSoap({ endpoint, envelope, timeoutMs = 20000, fetchImpl = glo
       body: envelope,
       signal: controller.signal
     });
+    responseStatus = response.status;
     const body = await response.text();
     if (!response.ok) {
+      const relevant = safeResponse(body);
       throw new SriTransportError(`El Web Service del SRI respondio HTTP ${response.status}.`, {
+        code: "SRI_HTTP_ERROR",
         httpStatus: 502,
-        details: { sriHttpStatus: response.status, responseBody: body.slice(0, 4000) }
+        details: { sriHttpStatus: response.status, responseBody: relevant, transport: {
+          classification: "HTTP", resultState: UNCERTAIN, nextAction: "AUTHORIZATION_LOOKUP_FIRST", httpStatus: response.status, response: relevant
+        } }
       });
     }
     return body;
   } catch (error) {
     if (error instanceof SriTransportError) throw error;
-    const timeoutFailure = error?.name === "AbortError";
+    const transport = nativeDiagnostic(error, { responseStatus });
+    const timeoutFailure = transport.classification === "TIMEOUT";
     throw new SriTransportError(
-      timeoutFailure ? "El Web Service del SRI excedio el tiempo de espera." : "No fue posible conectar con el Web Service del SRI.",
-      { code: timeoutFailure ? "SRI_TIMEOUT" : "SRI_NETWORK_ERROR", details: { reason: error?.message || "unknown" } }
+      responseStatus ? `El Web Service del SRI respondio HTTP ${responseStatus}, pero no se pudo leer la respuesta completa.`
+        : timeoutFailure ? "El Web Service del SRI excedio el tiempo de espera." : "No fue posible conectar con el Web Service del SRI.",
+      { code: responseStatus ? "SRI_HTTP_ERROR" : timeoutFailure ? "SRI_TIMEOUT" : "SRI_NETWORK_ERROR", details: { reason: safeText(error?.message || "unknown"), transport } }
     );
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function safeResponse(body) {
+  // Extract diagnostic fields only; never persist echoed fiscal XML or HTML.
+  try {
+    const parsed = parser.parse(String(body || ""));
+    const fault = parsed?.Envelope?.Body?.Fault;
+    if (fault) return { faultCode: safeText(textValue(fault.faultcode)), faultString: safeText(textValue(fault.faultstring)) };
+    const messages = [];
+    function visit(node, depth = 0) {
+      if (!node || typeof node !== "object" || depth > 10 || messages.length >= 8) return;
+      for (const [key, value] of Object.entries(node)) {
+        if (["identificador", "mensaje", "informacionAdicional"].includes(key) && typeof value === "string") messages.push({ field: key, text: safeText(value) });
+        else if (typeof value === "object") visit(value, depth + 1);
+      }
+    }
+    visit(parsed);
+    if (messages.length) return { messages: messages.slice(0, 8) };
+  } catch { /* The bounded text sanitizer also removes unreadable XML. */ }
+  return safeText(body);
+}
+
+function responseFailure(error) {
+  if (!(error instanceof SriTransportError)) return error;
+  const transport = error.details?.transport || { classification: "NETWORK_OTHER", resultState: UNCERTAIN, nextAction: "AUTHORIZATION_LOOKUP_FIRST" };
+  error.details = { ...error.details, transport: { ...transport, httpStatus: 200 } };
+  return error;
 }
 
 async function sendForReception(signedXml, options = {}) {
@@ -180,7 +219,7 @@ async function sendForReception(signedXml, options = {}) {
     timeoutMs: options.timeoutMs,
     fetchImpl: options.fetchImpl
   });
-  return parseReceptionResponse(rawXml);
+  try { return parseReceptionResponse(rawXml); } catch (error) { throw responseFailure(error); }
 }
 
 async function queryAuthorization(accessKey, options = {}) {
@@ -190,7 +229,7 @@ async function queryAuthorization(accessKey, options = {}) {
     timeoutMs: options.timeoutMs,
     fetchImpl: options.fetchImpl
   });
-  return parseAuthorizationResponse(rawXml);
+  try { return parseAuthorizationResponse(rawXml); } catch (error) { throw responseFailure(error); }
 }
 
 module.exports = {

@@ -7,6 +7,7 @@ const { SriError, SriTransportError, SriValidationError } = require("./errors.cj
 const { generateRidePdf } = require("./ride.cjs");
 const { diagnosticMessage, recoveryPolicy } = require("./recovery-policy.cjs");
 const { TEST_ENDPOINTS, queryAuthorization, sendForReception } = require("./sri-soap.cjs");
+const { UNCERTAIN, DEFINITE, safeText, nativeDiagnostic } = require("./transport-diagnostic.cjs");
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const AUTHORIZED_XML_PARSER = new XMLParser({
@@ -282,6 +283,17 @@ async function completeJob(client, job, httpStatus = 200) {
 }
 
 async function scheduleFailure(client, settings, document, job, attempt, error, actorUserId) {
+  const transport = error.details?.transport || nativeDiagnostic(error);
+  const uncertain = job.transmission_type === "AUTHORIZATION_QUERY" || transport.resultState !== DEFINITE;
+  const resultState = uncertain ? UNCERTAIN : DEFINITE;
+  const errorClass = `SRI_${resultState}`;
+  const message = safeText(error.message);
+  const httpStatus = transport.httpStatus || null;
+  // The existing audit JSON contract stores bounded technical evidence separately
+  // from the human message; no schema or fiscal document identity changes.
+  const diagnostic = { ...transport, workflowResultState: resultState, nextAction: uncertain ? "AUTHORIZATION_LOOKUP_FIRST" : "RETRY_TRANSMISSION", serviceCode: safeText(error.code || error.name), reason: safeText(error.details?.reason || error.message) };
+  error.details = { ...error.details, transport: diagnostic };
+  console.error("[sri-transport] failure", JSON.stringify({ documentId: document.id, attemptId: attempt.id, phase: job.transmission_type, transport: diagnostic }));
   const exhausted = job.attempt_number >= job.max_attempts;
   const retryable = error.retryable !== false && !exhausted;
   const delay = retryDelaySeconds(settings, job.attempt_number);
@@ -289,29 +301,36 @@ async function scheduleFailure(client, settings, document, job, attempt, error, 
   await finishAttempt(client, attempt, {
     status: retryable ? "RETRY_SCHEDULED" : "FAILED",
     retryable,
-    error_class: error.code || error.name,
-    error_message: error.message
+    error_class: errorClass,
+    error_message: message,
+    http_status: httpStatus
   });
   dbError(await client.from("sri_transmissions").update({
     status: retryable ? "RETRY_SCHEDULED" : "FAILED",
     next_attempt_at: nextAttempt,
-    error_class: error.code || error.name,
-    error_message: error.message,
+    error_class: errorClass,
+    error_message: message,
+    http_status: httpStatus,
     finished_at: new Date().toISOString()
   }).eq("id", job.id).eq("status", "PROCESSING"), "Programacion de reintento");
+  dbError(await client.from("electronic_document_audit_logs").insert({
+    company_id: document.company_id, document_id: document.id, actor_user_id: actorUserId,
+    actor_type: "SYSTEM", action: "TRANSPORT_DIAGNOSTIC", reason: message,
+    new_values: { attemptId: attempt.id, transmissionId: job.id, phase: job.transmission_type, transport: diagnostic }
+  }), "Diagnostico tecnico de transporte SRI");
 
   let current = dbError(await client.from("electronic_documents").select("*").eq("id", document.id).single(), "Comprobante tras error");
-  if (retryable && ["ENVIADO_SRI", "RECIBIDO_SRI"].includes(current.status)) {
-    current = await transition(client, current, "PENDIENTE_REINTENTO", actorUserId, error.message);
-  } else if (!retryable && current.status === "PENDIENTE_REINTENTO") {
-    current = await transition(client, current, "ERROR_ENVIO", actorUserId, error.message);
-  } else if (!retryable && current.status === "ENVIADO_SRI") {
-    current = await transition(client, current, "ERROR_ENVIO", actorUserId, error.message);
-  } else if (!retryable && current.status === "RECIBIDO_SRI") {
-    current = await transition(client, current, "PENDIENTE_REINTENTO", actorUserId, error.message);
-    current = await transition(client, current, "ERROR_ENVIO", actorUserId, error.message);
+  if ((retryable || uncertain) && ["ENVIADO_SRI", "RECIBIDO_SRI"].includes(current.status)) {
+    current = await transition(client, current, "PENDIENTE_REINTENTO", actorUserId, message);
+  } else if (!retryable && !uncertain && current.status === "PENDIENTE_REINTENTO") {
+    current = await transition(client, current, "ERROR_ENVIO", actorUserId, message);
+  } else if (!retryable && !uncertain && current.status === "ENVIADO_SRI") {
+    current = await transition(client, current, "ERROR_ENVIO", actorUserId, message);
+  } else if (!retryable && !uncertain && current.status === "RECIBIDO_SRI") {
+    current = await transition(client, current, "PENDIENTE_REINTENTO", actorUserId, message);
+    current = await transition(client, current, "ERROR_ENVIO", actorUserId, message);
   }
-  await client.from("electronic_documents").update({ last_error: error.message }).eq("id", document.id);
+  await client.from("electronic_documents").update({ last_error: message }).eq("id", document.id);
   return { document: current, retryable, nextAttempt };
 }
 
@@ -412,7 +431,10 @@ async function processAuthorization(client, settings, document, actorUserId, opt
     throw new SriTransportError("El comprobante todavia no aparece en autorizacion del SRI.", {
       code: "SRI_AUTHORIZATION_PENDING",
       retryable: true,
-      details: { state: result.state, documentCount: result.documentCount }
+      details: { state: result.state, documentCount: result.documentCount, transport: {
+        classification: "SOAP", resultState: UNCERTAIN, nextAction: "AUTHORIZATION_LOOKUP_FIRST",
+        httpStatus: 200, state: safeText(result.state), documentCount: result.documentCount
+      } }
     });
   } catch (error) {
     if (error?.code === "SRI_AUTHORIZATION_IDENTITY_MISMATCH") {
@@ -476,7 +498,9 @@ async function processReception(client, settings, document, actorUserId, options
       await completeJob(client, job);
       return getDocumentDetail(client, current.company_id, current.id);
     }
-    throw new SriTransportError(`Estado de recepcion SRI no reconocido: ${result.state || "VACIO"}.`);
+    throw new SriTransportError(`Estado de recepcion SRI no reconocido: ${safeText(result.state) || "VACIO"}.`, {
+      details: { transport: { classification: "SOAP", resultState: UNCERTAIN, nextAction: "AUTHORIZATION_LOOKUP_FIRST", httpStatus: 200, state: safeText(result.state) } }
+    });
   } catch (error) {
     await scheduleFailure(client, settings, current, job, attempt, error, actorUserId);
     throw error;
@@ -491,7 +515,7 @@ async function transmitDocument(client, companyId, documentId, actorUserId, opti
     const settings = await settingsFor(client, companyId);
     return processAuthorization(client, settings, document, actorUserId, {
       ...options,
-      force: true,
+      force: options.force === true,
       recoveryQuery: true
     });
   }

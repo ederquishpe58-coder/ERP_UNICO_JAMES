@@ -6,7 +6,10 @@ const ERROR_STATUSES = new Set([
 ]);
 
 const QUERY_ONLY_IDENTIFIERS = new Set(["43", "45", "70"]);
-const QUERY_FIRST_TECHNICAL_ERRORS = new Set(["SRI_TIMEOUT", "SRI_AUTHORIZATION_PENDING"]);
+const QUERY_FIRST_TECHNICAL_ERRORS = new Set([
+  "SRI_TIMEOUT", "SRI_AUTHORIZATION_PENDING", "SRI_NETWORK_ERROR", "SRI_TRANSPORT_ERROR",
+  "SRI_HTTP_ERROR", "SRI_SOAP_FAULT", "SRI_RESPONSE_XML_INVALID", "SRI_TRANSPORT_RESULT_UNCERTAIN"
+]);
 
 function normalizedStatus(value) {
   return String(value || "PENDIENTE").trim().toUpperCase();
@@ -34,6 +37,9 @@ function recoveryPolicy(detail = {}) {
   const latestAttempt = attempts[0] || {};
   const latestTransmission = transmissions[0] || {};
   const technicalErrorCode = String(latestAttempt.error_class || latestTransmission.error_class || "").trim().toUpperCase();
+  const authorizationStarted = transmissions.some(job => job.transmission_type === "AUTHORIZATION_QUERY");
+  const uncertainHistory = [...attempts, ...transmissions].some(item => QUERY_FIRST_TECHNICAL_ERRORS.has(String(item.error_class || "").toUpperCase()));
+  const transportDiagnostic = (detail.audit || []).find(row => row.action === "TRANSPORT_DIAGNOSTIC" && row.new_values?.attemptId === latestAttempt.id)?.new_values?.transport || null;
   const base = {
     status,
     diagnostic: {
@@ -46,7 +52,8 @@ function recoveryPolicy(detail = {}) {
       accessKey: String(document.access_key || ""),
       documentNumber: String(document.full_number || ""),
       attemptId: String(latestAttempt.id || ""),
-      transmissionId: String(primaryError.transmission_id || latestAttempt.transmission_id || latestTransmission.id || "")
+      transmissionId: String(primaryError.transmission_id || latestAttempt.transmission_id || latestTransmission.id || ""),
+      transport: transportDiagnostic
     },
     canViewDiagnostic: ERROR_STATUSES.has(status),
     canTransmit: false,
@@ -76,11 +83,13 @@ function recoveryPolicy(detail = {}) {
     };
   }
 
-  if (["ERROR_ENVIO", "PENDIENTE_REINTENTO"].includes(status)) {
-    if (QUERY_FIRST_TECHNICAL_ERRORS.has(technicalErrorCode)) {
+  if (["ERROR_ENVIO", "PENDIENTE_REINTENTO", "ENVIADO_SRI"].includes(status)) {
+    if (status === "ENVIADO_SRI" || authorizationStarted || uncertainHistory || technicalErrorCode !== "SRI_TRANSPORT_FAILED_DEFINITE") {
       return {
         ...base,
         action: "QUERY_AUTHORIZATION",
+        transportResultState: "TRANSPORT_RESULT_UNCERTAIN",
+        nextAction: "AUTHORIZATION_LOOKUP_FIRST",
         actionLabel: "Consultar estado en SRI",
         reason: "El resultado de la transmisión es incierto. Primero se consultará autorización con la misma clave, sin reenviar ni generar otro secuencial."
       };
@@ -91,6 +100,8 @@ function recoveryPolicy(detail = {}) {
         ...base,
         canTransmit: true,
         action: "RETRY_TRANSMISSION",
+        transportResultState: "TRANSPORT_FAILED_DEFINITE",
+        nextAction: "RETRY_TRANSMISSION",
         actionLabel: "Reintentar transmisión",
         reason: "El backend clasificó el error técnico como recuperable y reutilizará el documento existente."
       };
