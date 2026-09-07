@@ -249,6 +249,48 @@
     };
   }
 
+  // Records are hydrated by the company-scoped canonical entity repository.
+  // The server independently resolves and locks the same parameter and account.
+  function retentionAccountOptions(parameter) {
+    const company = BlessERP.services?.companyContext?.activeCompany?.();
+    const activeId = BlessERP.services?.companyContext?.activeCompanyId?.();
+    const access = stateApi.state.db.authAccess || {};
+    const ids = new Set([activeId, company?.id, company?.company_key,
+      access.activeCompanyUuid, access.activeCompanyKey].filter(Boolean));
+    return chartService.all().filter(account => {
+      const marker = account.company_id || account.companyId;
+      if (marker && !ids.has(marker)) return false;
+      if (account.deleted_at || !["activa", "activo", "active"].includes(normalizedText(account.status))
+          || account.isMovement !== true || normalizedText(account.type) !== "pasivo"
+          || normalizedText(account.nature) !== "acreedora") return false;
+      const name = String(account.name || "").toUpperCase();
+      const rates = [...name.matchAll(/(\d+(?:[.,]\d+)?)\s*%/g)].map(m => Number(m[1].replace(",", ".")));
+      if (rates.length && rates.some(rate => rate !== Number(parameter.percentage))) return false;
+      if (parameter.taxType === "RENTA" && /\bIVA\b/.test(name)) return false;
+      if (parameter.taxType === "IVA" && /\bIR\b|IMPUESTO A LA RENTA/.test(name)) return false;
+      return true;
+    });
+  }
+
+  function resolveRetentionPayable(line, date) {
+    const code = String(line.sriCode || line.code || "").trim();
+    const candidates = retentions().filter(p => !p.deleted_at && Number(p.__syncVersion || 0) > 0
+      && p.taxType === line.taxType && (line.parameterId ? p.id === line.parameterId : [p.sriCode, p.internalCode].includes(code))
+      && isRecordActiveOnDate(p, date));
+    if (candidates.length !== 1) throw new Error(`RETENTION_PARAMETER_REQUIRED: verifique el parámetro canónico ${code} para la fecha del comprobante.`);
+    const parameter = candidates[0];
+    if (![parameter.sriCode, parameter.internalCode].includes(code) || Number(line.percentage) !== Number(parameter.percentage)) {
+      throw new Error(`RETENTION_PARAMETER_CONFLICT: actualice la retención ${code}; el código o porcentaje no coincide con el catálogo.`);
+    }
+    if (parameter.taxType === "RENTA" && parameter.sriCode === "332" && Number(parameter.percentage) === 0) {
+      return { ...line, parameterId: parameter.id, payableAccountCode: "", noLiability: true };
+    }
+    const account = retentionAccountOptions(parameter).find(a => a.code === parameter.payableAccountCode);
+    if (!account) throw new Error(`RETENTION_PARAMETER_ACCOUNT_REQUIRED: Configure la cuenta contable para la retención ${code} / ${parameter.percentage}% antes de crear el comprobante.`);
+    return { ...line, parameterId: parameter.id, parameterVersion: parameter.__syncVersion,
+      sriCode: parameter.sriCode, payableAccountCode: account.code, noLiability: false };
+  }
+
   function emptyRetention() {
     const defaults = settingsDefaults();
     return {
@@ -260,7 +302,7 @@
       percentage: 0,
       appliesTo: "compra",
       category: "otros",
-      payableAccountCode: defaults.incomeTaxWithholdingPayable || "",
+      payableAccountCode: "",
       receivableAccountCode: defaults.withholdingReceivable || "",
       effectiveFrom: today(),
       effectiveTo: "",
@@ -402,7 +444,9 @@
       rangesOverlap(item.effectiveFrom, item.effectiveTo, normalized.effectiveFrom, normalized.effectiveTo)
     );
     if (duplicateSri) errors.push("No se permite código SRI duplicado para el mismo tipo y vigencia.");
-    errors.push(...validateLinkedAccount(normalized.payableAccountCode, "por pagar"));
+    if (normalized.payableAccountCode && !retentionAccountOptions(normalized).some(a => a.code === normalized.payableAccountCode)) {
+      errors.push("Seleccione una cuenta de pasivo activa, de movimiento y compatible con el impuesto y porcentaje de esta retención.");
+    }
     errors.push(...validateLinkedAccount(normalized.receivableAccountCode, "por cobrar"));
     return { normalized, errors, warnings: retentionWarnings(normalized) };
   }
@@ -516,6 +560,8 @@
     validateRetentionActiveOnDate,
     isRecordActiveOnDate,
     taxWarnings,
-    retentionWarnings
+    retentionWarnings,
+    retentionAccountOptions,
+    resolveRetentionPayable
   };
 })();

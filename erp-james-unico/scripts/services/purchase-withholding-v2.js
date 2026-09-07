@@ -297,13 +297,14 @@
   }
 
   function selectedLines(draft) {
-    return (draft.retentionLines || []).filter(line => line.code).map(line => ({
+    return (draft.retentionLines || []).filter(line => line.code).map(line =>
+      BlessERP.services.taxConfig.resolveRetentionPayable({
       ...line,
       taxType: upper(line.taxType) === "IVA" ? "IVA" : "RENTA",
       baseAmount: round2(line.baseAmount),
       percentage: round2(line.percentage),
       retainedAmount: round2(Number(line.baseAmount || 0) * Number(line.percentage || 0) / 100)
-    }));
+    }, draft.retentionDate)).filter(line => !line.noLiability);
   }
 
   function journalPayload(purchase, draft, lines) {
@@ -319,8 +320,7 @@
       documentReference: purchase.documentNumber
     }];
     lines.forEach(line => accountingLines.push({
-      accountCode: String(line.payableAccountCode
-        || (line.taxType === "IVA" ? defaults.vatWithholdingPayable : defaults.incomeTaxWithholdingPayable) || "").trim(),
+      accountCode: String(line.payableAccountCode || "").trim(),
       debit: 0,
       credit: line.retainedAmount,
       auxiliary: purchase.supplierRuc,
@@ -379,6 +379,9 @@
         purchaseDocumentId: purchase.id,
         operationId,
         deviceId,
+        retentionAccounts: lines.map(line => ({ parameterId: line.parameterId,
+          parameterVersion: line.parameterVersion, code: line.sriCode || line.code,
+          taxType: line.taxType, percentage: line.percentage, payableAccountCode: line.payableAccountCode })),
         journal: journalPayload(purchase, draft, lines)
       }
     };

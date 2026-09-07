@@ -1879,9 +1879,12 @@
     errors.push(...payableValidation.errors);
     const selectedLines = retention.retentionLines.filter(line => line.code);
     const lineValidations = selectedLines.map((line, index) => {
-      const fallbackAccount = line.taxType === "IVA" ? defaultVatPayableAccount() : defaultRentPayableAccount();
+      let resolved;
+      try { resolved = BlessERP.services.taxConfig.resolveRetentionPayable(line, retention.retentionDate); }
+      catch (error) { errors.push(error.message); return { line, account: null }; }
+      if (resolved.noLiability) { errors.push("La retención 332 / 0% no genera pasivo ni comprobante por sí sola."); return { line, account: null }; }
       const validation = validateWithholdingAccount(
-        line.payableAccountCode || fallbackAccount,
+        resolved.payableAccountCode,
         `${line.taxType === "IVA" ? "Retenciones IVA" : "Retenciones fuente"} por pagar de la linea ${index + 1}`
       );
       errors.push(...validation.errors);
@@ -1961,9 +1964,7 @@
         description: parameter.description || line.description || "",
         percentage,
         retainedAmount: round2(line.baseAmount * percentage / 100),
-        payableAccountCode: parameter.payableAccountCode
-          || line.payableAccountCode
-          || (line.taxType === "IVA" ? defaultVatPayableAccount() : defaultRentPayableAccount())
+        payableAccountCode: parameter.payableAccountCode || ""
       };
     });
 

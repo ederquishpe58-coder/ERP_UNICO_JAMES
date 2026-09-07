@@ -257,9 +257,9 @@
       if (row && ["taxType", "code"].includes(event.target.dataset.retentionV2Field)) {
         const line = view.draft.retentionLines.find(item => item.id === row.dataset.retentionV2Line);
         if (line) {
-          if (event.target.dataset.retentionV2Field === "taxType") { line.code = ""; line.percentage = 0; line.description = ""; line.payableAccountCode = ""; }
+          if (event.target.dataset.retentionV2Field === "taxType") { line.code = ""; line.sriCode = ""; line.parameterId = ""; line.percentage = 0; line.description = ""; line.payableAccountCode = ""; }
           const parameter = catalog(line.taxType).find(item => item.code === line.code);
-          if (parameter) { line.sriCode = parameter.sriCode || parameter.code; line.percentage = Number(parameter.percentage || 0); line.description = parameter.description || ""; line.payableAccountCode = parameter.payableAccountCode || ""; line.retainedAmount = Math.round((line.baseAmount * line.percentage / 100 + Number.EPSILON) * 100) / 100; }
+          if (parameter) { line.parameterId = parameter.id; line.sriCode = parameter.sriCode || parameter.code; line.percentage = Number(parameter.percentage || 0); line.description = parameter.description || ""; line.payableAccountCode = parameter.payableAccountCode || ""; line.retainedAmount = Math.round((line.baseAmount * line.percentage / 100 + Number.EPSILON) * 100) / 100; }
         }
         BlessERP.layout.renderPage();
       }

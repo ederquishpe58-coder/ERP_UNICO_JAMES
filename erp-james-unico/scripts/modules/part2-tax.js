@@ -267,7 +267,7 @@
             <span>Cuenta por pagar</span>
             <select name="payableAccountCode">
               <option value="">Sin asignar</option>
-              ${movementAccountOptions(draft.payableAccountCode)}
+              ${taxService.retentionAccountOptions(draft).map(item => `<option value="${esc(item.code)}" ${draft.payableAccountCode === item.code ? "selected" : ""}>${esc(item.code)} - ${esc(item.name)}</option>`).join("")}
             </select>
           </label>
           <label class="compact-field">
@@ -476,6 +476,7 @@
                 <th>Descripcion</th>
                 <th>Tipo</th>
                 <th>%</th>
+                <th>Cuenta contable por pagar</th>
                 <th>Aplica</th>
                 <th>Categoria</th>
                 <th>Vigencia</th>
@@ -494,6 +495,7 @@
                     <td>${esc(item.description)}</td>
                     <td>${esc(item.taxType)}</td>
                     <td>${money(item.percentage).replace("$", "").trim()}%</td>
+                    <td>${esc(item.payableAccountCode ? `${item.payableAccountCode} - ${chartService.findByCode(item.payableAccountCode)?.name || "Cuenta no disponible"}` : Number(item.percentage) === 0 ? "No genera pasivo" : "Pendiente de configurar")}</td>
                     <td>${esc(item.appliesTo)}</td>
                     <td>${esc(item.category)}</td>
                     <td>${esc(item.effectiveFrom || "-")} ${item.effectiveTo ? `a ${esc(item.effectiveTo)}` : "en adelante"}</td>
@@ -507,7 +509,7 @@
                     </td>
                   </tr>
                 `;
-              }).join("") || `<tr><td colspan="11"><div class="empty-inline">No hay retenciones para estos filtros.</div></td></tr>`}
+              }).join("") || `<tr><td colspan="12"><div class="empty-inline">No hay retenciones para estos filtros.</div></td></tr>`}
             </tbody>
           </table>
         </div>
