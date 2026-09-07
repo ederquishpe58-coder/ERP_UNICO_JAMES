@@ -490,13 +490,29 @@ async function transition(client, document, newStatus, actorUserId, reason, mess
   }), `Transicion ${document.status} -> ${newStatus}`);
 }
 
-async function generateXml(client, companyId, documentId, actorUserId) {
+async function generateXml(client, companyId, documentId, actorUserId, userClient) {
   let detail = await getDocumentDetail(client, companyId, documentId);
   let document = detail.document;
   if (["XML_GENERADO", "FIRMADO", "ENVIADO_SRI", "RECIBIDO_SRI", "AUTORIZADO"].includes(document.status)) return detail;
   if (!['BORRADOR', 'VALIDADO'].includes(document.status)) throw new SriValidationError(`No se puede generar XML desde ${document.status}.`);
   const settings = dbError(await client.from("sri_settings").select("*").eq("company_id", companyId).single(), "Configuracion SRI");
   if (settings.environment !== "TEST" || settings.production_enabled || settings.test_enabled !== true) throw new SriValidationError("La generacion XML requiere SRI TEST habilitado canonicamente para esta empresa.");
+  if (document.document_type === "01" && document.source_snapshot?.erpEmission?.sourceOrderId) {
+    if (!userClient) throw new SriValidationError("Se requiere una sesion autenticada para actualizar la direccion del comprador.");
+    const refreshed = dbError(await userClient.rpc("refresh_electronic_document_buyer_address", {
+      p_company_id: companyId,
+      p_document_id: documentId
+    }), "Actualizacion de direccion canonica del comprador");
+    const canonical = refreshed?.document;
+    const identity = ["id", "company_id", "status", "environment", "document_type", "emission_point_id", "establishment_code", "emission_point_code", "sequential", "access_key", "numeric_code", "issue_date"];
+    if (refreshed?.ok !== true || !canonical || identity.some(key => canonical[key] !== document[key])
+      || !String(canonical.buyer_snapshot?.address || "").trim()
+      || canonical.buyer_snapshot.address !== refreshed.source?.address
+      || canonical.source_snapshot?.buyer?.address !== canonical.buyer_snapshot.address) {
+      throw new SriBackendError("SRI_CANONICAL_ADDRESS_ACK_REQUIRED: no se confirmo la direccion del mismo borrador.");
+    }
+    document = canonical;
+  }
   const payload = await documentPayload(client, document);
   const exportInvoice = document.document_type === "01" && isExportInvoicePayload(payload.source || payload);
   const currentIssueDate = ecuadorDate();

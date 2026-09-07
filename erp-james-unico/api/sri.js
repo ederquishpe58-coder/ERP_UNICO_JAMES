@@ -10,7 +10,7 @@ const {
   signDocument,
   uuidOrNull
 } = require("./sri/_lib/document-service.cjs");
-const { assertUserCapability, authenticateCompanyRequest, getSupabaseAdmin } = require("./sri/_lib/supabase-admin.cjs");
+const { assertUserCapability, authenticateCompanyRequest, getSupabaseAdmin, getSupabaseUserContext } = require("./sri/_lib/supabase-admin.cjs");
 const { sha256 } = require("./sri/_lib/artifact-store.cjs");
 const {
   prepareDocumentCorrection,
@@ -455,7 +455,7 @@ module.exports = async function handler(request, response) {
 
     let data;
     if (action === "create-draft") data = await createDraft(client, { ...body, companyId: auth.companyId }, auth.user.id);
-    else if (action === "generate-xml") data = await generateXml(client, auth.companyId, body.documentId, auth.user.id);
+    else if (action === "generate-xml") data = await generateXml(client, auth.companyId, body.documentId, auth.user.id, getSupabaseUserContext(auth.accessToken));
     else if (action === "sign") data = await signDocument(client, auth.companyId, body.documentId, auth.user.id);
     else if (action === "transmit") data = await transmitDocument(client, auth.companyId, body.documentId, auth.user.id, { force: Boolean(body.force) });
     else if (action === "query-status") data = await queryDocumentStatus(client, auth.companyId, body.documentId, auth.user.id);
