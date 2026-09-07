@@ -13,7 +13,7 @@
     const warnings = [];
 
     if (!BlessERP.comercialInvoiceSequence?.visibleInvoiceNumber?.(order)) {
-      errors.push("Falta numero de factura. Guarde el pedido para reservar su secuencial.");
+      errors.push("Falta numero de factura. Solicite el documento para confirmar o reservar su número de factura.");
     }
     if (!localSale && !brand) errors.push("Falta marca / cliente final.");
     if (!order.issuedAt) errors.push("Falta fecha de emision.");

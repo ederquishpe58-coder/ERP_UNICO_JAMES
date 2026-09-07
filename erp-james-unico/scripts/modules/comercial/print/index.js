@@ -241,7 +241,7 @@
       });
     }
 
-    const win = window.open("", "_blank", "width=1280,height=900");
+    const win = config.previewWindow || window.open("", "_blank", "width=1280,height=900");
     if (!win) {
       BlessERP.layout.toast("El navegador bloqueo la ventana de preview.");
       return false;
@@ -252,7 +252,37 @@
     return true;
   }
 
+  const invoiceDocuments = new Set(["ETIQUETAS", "INVOICE_PACKING_REFERENCIAL", "COMMERCIAL_INVOICE_CLIENT"]);
   function openDocuments(docCode, orders, appState, config = {}) {
+    if (!invoiceDocuments.has(docCode)) return openDocumentsResolved(docCode, orders, appState, config);
+    const sourceOrders = (Array.isArray(orders) ? orders : []).filter(Boolean);
+    if (!sourceOrders.length) { BlessERP.layout.toast("Seleccione al menos un pedido."); return false; }
+    const companyId = BlessERP.authAccess?.activeAccess?.().activeCompany?.id;
+    const assertContext = () => {
+      if (!companyId || BlessERP.authAccess?.activeAccess?.().activeCompany?.id !== companyId) throw new Error("COMMERCIAL_PRINT_CONTEXT_CHANGED");
+    };
+    // Open preview during the user's click, before asynchronous reservation (Chrome).
+    const previewWindow = config.autoPrint === false ? window.open("", "_blank", "width=1280,height=900") : null;
+    if (config.autoPrint === false && !previewWindow) { BlessERP.layout.toast("El navegador bloqueó la ventana de preview."); return false; }
+    return (async () => {
+      try {
+        const repository = BlessERP.getCommercialOrderRepository?.();
+        if (!repository?.reserveInvoiceForDocuments) throw new Error("No está disponible la reserva canónica de factura.");
+        const resolved = [];
+        for (const order of sourceOrders) { assertContext(); resolved.push(await repository.reserveInvoiceForDocuments(order, docCode)); }
+        assertContext();
+        const result = await openDocumentsResolved(docCode, resolved, appState, { ...config, previewWindow });
+        if (!result) previewWindow?.close();
+        return result;
+      } catch (error) {
+        previewWindow?.close();
+        BlessERP.layout.toast(error.message || "No se pudo confirmar la identidad de factura; vuelva a intentar.");
+        return false;
+      }
+    })();
+  }
+
+  function openDocumentsResolved(docCode, orders, appState, config = {}) {
     const sourceOrders = (Array.isArray(orders) ? orders : []).filter(Boolean);
     const options = config.options || {};
     const autoPrint = config.autoPrint !== false;
@@ -337,6 +367,7 @@
         pageSize: config.pageSize || options.pageSize || defaultPageSize(docCode),
         options,
         preparedReports,
+        previewWindow: config.previewWindow,
         onStage: config.onStage
       });
 
@@ -434,7 +465,9 @@
     getDefinition,
     getDocumentReport,
     openDocuments,
-    openPreview,
+    openPreview: (code, orders, state, config = {}) => invoiceDocuments.has(code)
+      ? openDocuments(code, orders, state, { ...config, autoPrint: Boolean(config.autoPrint) })
+      : openPreview(code, orders, state, config),
     renderDocument,
     renderPreviewMarkup,
     renderWorkspace

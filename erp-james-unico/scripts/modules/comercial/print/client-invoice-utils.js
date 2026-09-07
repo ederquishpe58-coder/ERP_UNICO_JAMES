@@ -132,7 +132,7 @@
     const errors = [];
     const warnings = [];
 
-    if (!buildInvoiceNumber(normalizedOrder)) errors.push("Falta numero de factura. Guarde el pedido para reservar su secuencial.");
+    if (!buildInvoiceNumber(normalizedOrder)) errors.push("Falta numero de factura. Solicite el documento para confirmar o reservar su número de factura.");
     if (!customer) errors.push("Falta cliente principal.");
     if (!localSale && options.showBrand && !brand) errors.push("Falta marca / cliente final.");
     if (!localSale && (options.showBrand || normalizedOrder.transportType === "aereo") && !normalizedOrder.destination) {

@@ -225,7 +225,7 @@
   function renderInvoiceTable(appState, mode) {
     const config = getDocumentConfig(mode);
     const rows = getPrintCenterRows(appState, mode);
-    const selected = getPrintCenterRows(appState, mode, { ignoreFilters: true }).filter(row => row.selected && row.ready);
+    const selected = getPrintCenterRows(appState, mode, { ignoreFilters: true }).filter(row => row.selected && (row.ready || ["INVOICE_PACKING_REFERENCIAL", "COMMERCIAL_INVOICE_CLIENT"].includes(config.docCode)));
     return `
       <section class="panel-card commercial-print-orders">
         <div class="panel-card-head">

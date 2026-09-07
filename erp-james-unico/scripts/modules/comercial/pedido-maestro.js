@@ -1529,6 +1529,10 @@
   }
 
   function openDocumentPreview(docCode, order, appState, options, autoPrint, saveAsPdf = false) {
+    if (["ETIQUETAS", "INVOICE_PACKING_REFERENCIAL", "COMMERCIAL_INVOICE_CLIENT"].includes(docCode)) {
+      const selected = docCode === "ETIQUETAS" ? { ...BlessERP.comercialLabels.getCurrentSelection(appState), ...options } : options;
+      return BlessERP.comercialPrintSystem.openDocuments(docCode, [order], appState, { autoPrint, saveAsPdf, options: selected });
+    }
     const normalizedOrder = utils.normalizeOrder(order);
     const finalOptions = docCode === "ETIQUETAS"
       ? { pageSize: "CUSTOMS_LABEL", ...BlessERP.comercialLabels.getCurrentSelection(appState), ...options }
@@ -1596,38 +1600,14 @@
     }
 
     const options = { pageSize: "CUSTOMS_LABEL", printType: "all" };
-    const normalizedOrders = sourceOrders.map(order => utils.normalizeOrder(order));
-    for (const order of normalizedOrders) {
-      const validation = BlessERP.comercialLabels.validatePrintRequest(order, appState, options);
-      if (autoPrint && !validation.isValid) {
-        BlessERP.layout.toast(`${order.number}: ${validation.errors[0] || "faltan datos obligatorios para imprimir."}`);
-        return false;
-      }
-      const review = workflow.canExecuteDocumentAction("ETIQUETAS", order, appState, autoPrint ? "print" : "preview", options);
-      if (!review.allowed) {
-        BlessERP.layout.toast(`${order.number}: ${review.errors[0] || "el estado actual no permite imprimir etiquetas."}`);
-        return false;
-      }
-    }
-
-    const opened = BlessERP.comercialPrintSystem.openPreview("ETIQUETAS", normalizedOrders, appState, {
-      autoPrint,
-      saveAsPdf,
-      pageSize: "CUSTOMS_LABEL",
-      options
-    });
-    if (opened) {
-      sourceOrders.forEach(order => workflow.markDocumentActivity(order, appState, "ETIQUETAS", autoPrint ? "print" : "preview", options));
-      BlessERP.state.saveDb();
-    }
-    return opened;
+    return BlessERP.comercialPrintSystem.openDocuments("ETIQUETAS", sourceOrders, appState, { autoPrint, saveAsPdf, options });
   }
 
   function openSelectedInvoiceOrders(docCode, appState, autoPrint, saveAsPdf = false) {
     const activeMode = stateApi.getUi(appState).printCenterDocument || "AGENCY_INVOICE";
     const sourceOrders = BlessERP.comercialPrint
       .getPrintCenterRows(appState, activeMode, { ignoreFilters: true })
-      .filter(row => row.selected && row.ready)
+      .filter(row => row.selected && (row.ready || ["INVOICE_PACKING_REFERENCIAL", "COMMERCIAL_INVOICE_CLIENT"].includes(docCode)))
       .map(row => row.order);
     if (!sourceOrders.length) {
       BlessERP.layout.toast("Seleccione al menos una factura para continuar.");
@@ -1637,31 +1617,7 @@
     const options = docCode === "COMMERCIAL_INVOICE_CLIENT"
       ? BlessERP.comercialClientInvoice.getCurrentOptions(appState)
       : {};
-    const normalizedOrders = sourceOrders.map(order => utils.normalizeOrder(order));
-    for (const order of normalizedOrders) {
-      const report = BlessERP.comercialPrintSystem.getDocumentReport(docCode, order, appState, options);
-      if (report.validation.errors.length) {
-        BlessERP.layout.toast(`${order.number}: ${report.validation.errors[0]}`);
-        return false;
-      }
-      const review = workflow.canExecuteDocumentAction(docCode, order, appState, autoPrint ? "print" : "preview", options);
-      if (!review.allowed) {
-        BlessERP.layout.toast(`${order.number}: ${review.errors[0] || "el documento no esta listo."}`);
-        return false;
-      }
-    }
-
-    const opened = BlessERP.comercialPrintSystem.openPreview(docCode, normalizedOrders, appState, {
-      autoPrint,
-      saveAsPdf,
-      pageSize: BlessERP.comercialPrintSystem.defaultPageSize(docCode),
-      options
-    });
-    if (opened) {
-      sourceOrders.forEach(order => workflow.markDocumentActivity(order, appState, docCode, autoPrint ? "print" : "preview", options));
-      BlessERP.state.saveDb();
-    }
-    return opened;
+    return BlessERP.comercialPrintSystem.openDocuments(docCode, sourceOrders, appState, { autoPrint, saveAsPdf, options });
   }
 
   function render(appState) {

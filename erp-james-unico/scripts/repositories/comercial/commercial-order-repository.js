@@ -314,6 +314,37 @@
     return { ok: true, mode: "SUPABASE_ATOMIC", ...data };
   }
 
+  async function reserveInvoiceForDocuments(order, documentCode) {
+    const companyId = activeCompanyUuid();
+    const active = BlessERP.authAccess?.activeAccess?.().activeCompany || {};
+    const aliases = [companyId, active.company_key, active.companyKey].filter(Boolean);
+    if (!canListPageFromSupabase() || !order?.id) throw new Error("COMMERCIAL_SAVED_ORDER_REQUIRED: guarde el pedido antes de solicitar documentos.");
+    for (const value of [order.company_id, order.companyId, order.__companyId]) {
+      if (value && !aliases.includes(String(value))) throw new Error("COMMERCIAL_PRINT_COMPANY_MISMATCH");
+    }
+    const { data, error } = await BlessERP.getSupabaseClient().rpc("erp_commercial_reserve_invoice_for_documents", {
+      p_company_id: companyId, p_order_id: order.id, p_document_code: documentCode
+    });
+    if (error) throw new Error(error.message || "No se pudo confirmar la reserva de factura.");
+    if (activeCompanyUuid() !== companyId) throw new Error("COMMERCIAL_PRINT_CONTEXT_CHANGED: vuelva a solicitar el documento en la empresa correcta.");
+    const r = Array.isArray(data) ? data[0] : data;
+    if (r?.ok !== true || r.companyId !== companyId || r.orderId !== order.id || r.documentType !== "01"
+      || !["TEST", "PRODUCTION"].includes(r.environment) || r.establishmentCode !== "001"
+      || !["002", "003"].includes(r.emissionPointCode) || !r.emissionPointId
+      || !/^\d{9}$/.test(r.sequential || "") || Number(r.sequential) < 1
+      || r.fullNumber !== `${r.establishmentCode}-${r.emissionPointCode}-${r.sequential}`
+      || !r.orderNumber || typeof r.created !== "boolean" || r.reused !== !r.created
+      || !(r.status === "ACTIVE" && r.reservationId && !r.documentId || r.status === "DOCUMENT" && r.documentId)) {
+      throw new Error("COMMERCIAL_INVOICE_CANONICAL_ACK_REQUIRED");
+    }
+    return { ...order, number: r.orderNumber, company_id: companyId,
+      sriInvoiceNumber: r.fullNumber, sriSequential: r.sequential, packingListNumber: r.sequential,
+      invoicePackingNumber: r.sequential, clientInvoiceNumber: r.sequential,
+      establishmentCode: r.establishmentCode, emissionPointCode: r.emissionPointCode,
+      sriSequenceReservationId: r.reservationId || "", sriSequenceSource: "SRI_DB",
+      sriSequenceStatus: r.status, sriEnvironment: r.environment, sriRemoteDocumentId: r.documentId || "" };
+  }
+
   function uuid() {
     if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
     return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, character => {
@@ -504,6 +535,7 @@
   repository.patchSriIssueDate = patchSriIssueDate;
   repository.remoteRequired = remoteRequired;
   repository.reserveIdentifiers = reserveIdentifiers;
+  repository.reserveInvoiceForDocuments = reserveInvoiceForDocuments;
   repository.saveConfirmedOrder = saveConfirmedOrder;
 
   BlessERP.repositoryModules.comercial.commercialOrder = repository;

@@ -118,7 +118,7 @@
     if (!Number(group?.boxNumber || 0)) errors.push("Caja sin numero.");
     if (!contentLines.length) errors.push("Caja sin contenido.");
     if (!order.number) errors.push("Falta secuencial unico del pedido.");
-    if (!invoiceNumber) errors.push("Falta numero de factura. Guarde el pedido para reservar su secuencial antes de imprimir la etiqueta.");
+    if (!invoiceNumber) errors.push("Falta numero de factura. Solicite el documento para confirmar o reservar su número de factura.");
     if (!localSale && !brand) errors.push("Falta marca / cliente final.");
     if (!localSale && !order.destination) errors.push("Falta destino.");
     if (!localSale && String(order.transportType || "").toLowerCase() === "aereo") {
