@@ -252,7 +252,7 @@
     return true;
   }
 
-  const invoiceDocuments = new Set(["ETIQUETAS", "INVOICE_PACKING_REFERENCIAL", "COMMERCIAL_INVOICE_CLIENT"]);
+  const invoiceDocuments = new Set(["ETIQUETAS", "INVOICE_PACKING_REFERENCIAL", "COMMERCIAL_INVOICE_CLIENT", "HR"]);
   function openDocuments(docCode, orders, appState, config = {}) {
     if (!invoiceDocuments.has(docCode)) return openDocumentsResolved(docCode, orders, appState, config);
     const sourceOrders = (Array.isArray(orders) ? orders : []).filter(Boolean);
@@ -271,7 +271,7 @@
         const resolved = [];
         for (const order of sourceOrders) { assertContext(); resolved.push(await repository.reserveInvoiceForDocuments(order, docCode)); }
         assertContext();
-        const result = await openDocumentsResolved(docCode, resolved, appState, { ...config, previewWindow });
+        const result = await openDocumentsResolved(docCode, resolved, appState, { ...config, previewWindow, options: docCode === "HR" ? { ...config.options, routeOrders: resolved } : config.options });
         if (!result) previewWindow?.close();
         return result;
       } catch (error) {

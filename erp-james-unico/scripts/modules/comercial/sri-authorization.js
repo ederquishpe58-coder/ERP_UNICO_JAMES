@@ -1314,7 +1314,7 @@
           ${applied ? `<span class="status-badge authorized">${utils.esc(applied.dateFrom)} a ${utils.esc(applied.dateTo)}</span>` : ""}
         </div>
         ${!result ? `<div class="senae-v2-empty"><strong>Consulta bajo demanda</strong><span>Seleccione el rango y pulse Consultar. Al abrir esta pantalla no se descargan documentos.</span></div>` : rows.length ? `
-          <div class="senae-v2-table-wrap"><table class="senae-v2-table"><thead><tr><th>Fecha emisión</th><th>Secuencial</th><th>Clave acceso</th><th>Comprador</th><th>Identificación</th><th>Comercio</th><th>Subtotal</th><th>IVA</th><th>Total</th><th>Estado</th></tr></thead><tbody>
+          <div class="senae-v2-table-wrap"><table class="senae-v2-table"><thead><tr><th>Fecha emisión</th><th>Factura</th><th>Clave acceso</th><th>Comprador</th><th>Identificación</th><th>Comercio</th><th>Subtotal</th><th>IVA</th><th>Total</th><th>Estado</th></tr></thead><tbody>
             ${rows.map(document => {
               const buyer = senaeBuyer(document);
               const commerceType = senaeRepository().deriveSenaeCommerceType(document);

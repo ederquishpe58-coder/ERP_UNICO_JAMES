@@ -9,6 +9,19 @@
     return text(value).toUpperCase();
   }
 
+  function isCurrentCompanyOrder(order, appState) {
+    const active = BlessERP.authAccess?.activeAccess?.()?.activeCompany;
+    const workspaceId = text(BlessERP.commercialFlowV2?.activeCompanyId?.(appState) || appState?.db?.activeCompanyId);
+    const activeAliases = [active?.id, active?.company_key, active?.companyKey].map(text).filter(Boolean);
+    if (active?.id && workspaceId && !activeAliases.includes(workspaceId)) return false;
+    const aliases = new Set([...activeAliases, workspaceId].filter(Boolean));
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const canonicalId = text(order?.company_id || order?.__companyId);
+    if (uuid.test(canonicalId)) return canonicalId === text(active?.id);
+    const references = [order?.sellingCompanyId, order?.companyId, order?.company_id, order?.__companyId].map(text).filter(Boolean);
+    return references.length > 0 && references.every(id => aliases.has(id));
+  }
+
   function agencyIdOf(order) {
     return text(order?.cargoAgencyId || order?.cargo_agency_id || order?.agencyId || order?.agency_id);
   }
@@ -29,17 +42,18 @@
     return text(order?.issuedAt || order?.issueDate || order?.date).slice(0, 10);
   }
 
-  function isEligible(order, options = {}) {
+  function isEligible(order, options = {}, appState) {
     if (!order || upper(order.status) === "ANULADO") return false;
     if (options.date && orderDate(order) !== text(options.date).slice(0, 10)) return false;
-    return ["AEREO", "MARITIMO"].includes(transportOf(order));
+    return BlessERP.commercialFlowV2?.isLocalOrder?.(order, appState) === true
+      || ["AEREO", "MARITIMO"].includes(transportOf(order));
   }
 
   function build(orders, appState, options = {}) {
     const agencies = agencyCatalog(appState);
     const agencyById = new Map(agencies.map(agency => [text(agency.id || agency.record_id), agency]));
     const normalizedRows = (Array.isArray(orders) ? orders : [])
-      .filter(order => isEligible(order, options))
+      .filter(order => isEligible(order, options, appState))
       .map(sourceOrder => {
         const order = BlessERP.comercialUtils?.normalizeOrder
           ? BlessERP.comercialUtils.normalizeOrder(sourceOrder)
@@ -51,6 +65,7 @@
         }
         const agency = agencyId ? agencyById.get(agencyId) || BlessERP.comercialUtils?.findAgency?.(agencyId) || null : null;
         const agencyValid = Boolean(agencyId && agency);
+        const isLocal = BlessERP.commercialFlowV2?.isLocalOrder?.(sourceOrder, appState) === true;
         const transportType = transportOf(order);
         return {
           order,
@@ -58,16 +73,19 @@
           agency,
           agencyId,
           agencyValid,
-          agencyKey: agencyValid ? `AGENCY:${agencyId}` : "NO_AGENCY",
-          agencyName: agencyValid ? text(agency.name || agency.legalName || agency.commercialName) : "SIN AGENCIA / PENDIENTE",
+          isLocal,
+          printable: isLocal || agencyValid,
+          agencyKey: isLocal ? "LOCAL" : agencyValid ? `AGENCY:${agencyId}` : "NO_AGENCY",
+          agencyName: isLocal ? "ENTREGA LOCAL" : agencyValid ? text(agency.name || agency.legalName || agency.commercialName) : "SIN AGENCIA / PENDIENTE",
           transportType,
-          transportLabel: transportType === "MARITIMO" ? "MARITIMO" : "AEREO",
+          transportLabel: isLocal ? "LOCAL" : transportType === "MARITIMO" ? "MARITIMO" : "AEREO",
           motherGuide: text(order.awb || order.mawb || order.masterGuide || order.motherGuide),
-          destination: text(order.destination || order.destinationCountry || order.country) || "PENDIENTE"
+          destination: text((isLocal && (sourceOrder.deliveryAddress || sourceOrder.shippingAddress || sourceOrder.destination)) || order.destination || order.destinationCountry || order.country) || "PENDIENTE"
         };
       })
       .sort((left, right) => {
-        if (left.agencyValid !== right.agencyValid) return left.agencyValid ? -1 : 1;
+        if (left.isLocal !== right.isLocal) return left.isLocal ? 1 : -1;
+        if (!left.isLocal && left.agencyValid !== right.agencyValid) return left.agencyValid ? -1 : 1;
         const byAgency = left.agencyName.localeCompare(right.agencyName, "es", { sensitivity: "base" });
         if (byAgency) return byAgency;
         // El orden histórico dentro de una agencia era el número de pedido ascendente.
@@ -84,6 +102,8 @@
           agency: row.agency,
           agencyName: row.agencyName,
           agencyValid: row.agencyValid,
+          isLocal: row.isLocal,
+          printable: row.printable,
           rows: []
         };
         groups.push(group);
@@ -96,6 +116,7 @@
 
   BlessERP.comercialRouteSheetModel = {
     agencyIdOf,
+    isCurrentCompanyOrder,
     build,
     isEligible,
     orderDate,

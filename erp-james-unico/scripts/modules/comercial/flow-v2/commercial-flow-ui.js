@@ -529,7 +529,9 @@
   }
 
   function orderRows(appState, state, mode = "history") {
-    const orders = flow.activeCompanyId(appState) ? appState.db.commercial.orders.filter(row => String(row.sellingCompanyId || row.companyId || row.company_id) === flow.activeCompanyId(appState)) : appState.db.commercial.orders;
+    const orders = mode === "coordination"
+      ? appState.db.commercial.orders.filter(row => BlessERP.comercialRouteSheetModel.isCurrentCompanyOrder(row, appState))
+      : flow.activeCompanyId(appState) ? appState.db.commercial.orders.filter(row => String(row.sellingCompanyId || row.companyId || row.company_id) === flow.activeCompanyId(appState)) : appState.db.commercial.orders;
     const filtered = orders.filter(order => {
       const date = String(order.issuedAt || "").slice(0, 10);
       if (state.date && date !== state.date) return false;
@@ -541,7 +543,7 @@
       if (mode === "tracking" && ["ANULADO", "ENVIADO"].includes(upper(order.status))) return false;
       if (mode === "tracking" && !flow.orderUsesInventory(order)) return false;
       if (mode === "coordination" && ["ANULADO", "ENVIADO"].includes(upper(order.status))) return false;
-      if (mode === "coordination" && !flow.orderUsesInventory(order)) return false;
+      if (mode === "coordination" && !flow.isLocalOrder(order, appState) && !flow.orderUsesInventory(order)) return false;
       if (mode === "coordination" && ["PENDIENTE", "COORDINADA"].includes(upper(state.status))) {
         return flow.deriveCoordinationStatus(order, appState) === upper(state.status);
       }
@@ -553,10 +555,7 @@
   }
 
   function routeSheetModel(appState, state) {
-    const companyId = flow.activeCompanyId(appState);
-    const orders = companyId
-      ? appState.db.commercial.orders.filter(order => String(order.sellingCompanyId || order.companyId || order.company_id) === companyId)
-      : appState.db.commercial.orders;
+    const orders = appState.db.commercial.orders.filter(order => BlessERP.comercialRouteSheetModel.isCurrentCompanyOrder(order, appState));
     return BlessERP.comercialRouteSheetModel.build(orders, appState, { date: state.date });
   }
 
@@ -568,7 +567,7 @@
     if (!state.routeSheetOpen) return "";
     const model = routeSheetModel(appState, state);
     const selected = routeSheetSelectedIds(state);
-    const selectedRows = model.rows.filter(row => row.agencyValid && selected.has(String(row.orderId)));
+    const selectedRows = model.rows.filter(row => row.printable && selected.has(String(row.orderId)));
     const totals = selectedRows.reduce((sum, row) => {
       const orderSummary = orderTotals(row.order);
       sum.boxes += orderSummary.boxes;
@@ -576,30 +575,30 @@
       return sum;
     }, { boxes: 0, orders: 0 });
     const groupRows = model.groups.map(group => `
-      <tr class="commercial-route-sheet-agency-row"><td colspan="10"><strong>${esc(group.agencyName)}</strong><small>${group.agencyValid ? `${group.rows.length} pedido(s) · ID ${esc(group.agencyId)}` : "Debe asignar una Agencia de Carga antes de imprimir."}</small></td></tr>
+      <tr class="commercial-route-sheet-agency-row"><td colspan="10"><strong>${esc(group.agencyName)}</strong><small>${group.isLocal ? `${group.rows.length} pedido(s) · Coordinación opcional` : group.agencyValid ? `${group.rows.length} pedido(s) · ID ${esc(group.agencyId)}` : "Debe asignar una Agencia de Carga antes de imprimir."}</small></td></tr>
       ${group.rows.map(row => {
         const summary = orderTotals(row.order);
-        const checked = row.agencyValid && selected.has(String(row.orderId));
-        return `<tr class="${row.agencyValid ? "" : "is-pending"}">
-          <td><input type="checkbox" data-route-sheet-order="${esc(row.orderId)}" ${checked ? "checked" : ""} ${row.agencyValid ? "" : "disabled"}></td>
+        const checked = row.printable && selected.has(String(row.orderId));
+        return `<tr class="${row.printable ? "" : "is-pending"}">
+          <td><input type="checkbox" data-route-sheet-order="${esc(row.orderId)}" ${checked ? "checked" : ""} ${row.printable ? "" : "disabled"}></td>
           <td><strong>${esc(row.order.number || row.orderId)}</strong></td>
           <td>${esc(BlessERP.comercialInvoiceSequence?.visibleInvoiceNumber?.(row.order) || "Pendiente")}</td>
           <td>${esc(customerName(appState, row.order.customerId))}</td>
           <td><strong>${esc(row.transportLabel)}</strong></td>
-          <td>${esc(row.motherGuide || "Pendiente")}</td>
+          <td>${esc(row.isLocal ? "No aplica" : row.motherGuide || "Pendiente")}</td>
           <td>${esc(row.destination)}</td>
           <td>${esc(row.agencyName)}</td>
           <td>${summary.boxes}</td>
-          <td><span class="status-badge ${row.agencyValid ? "authorized" : "pending"}">${row.agencyValid ? "LISTO" : "SIN AGENCIA"}</span></td>
+          <td><span class="status-badge ${row.printable ? "authorized" : "pending"}">${row.printable ? "LISTO" : "SIN AGENCIA"}</span></td>
         </tr>`;
       }).join("")}
     `).join("");
 
     return `<div class="commercial-quick-editor-modal commercial-route-sheet-modal" data-route-sheet-backdrop>
       <section class="panel-card commercial-quick-editor-dialog commercial-route-sheet-dialog" role="dialog" aria-modal="true" aria-label="Hoja de Ruta del ${esc(state.date)}">
-        <div class="panel-card-head commercial-quick-editor-head"><div><p class="section-kicker">COORDINACIÓN DIARIA</p><h2>Hoja de Ruta por Agencia de Carga</h2><p class="panel-note">Incluye pedidos aéreos y marítimos. La Agencia de Carga define la agrupación principal.</p></div><button class="commercial-order-control-close" type="button" data-route-sheet-close aria-label="Cerrar">×</button></div>
-        <div class="commercial-route-sheet-controls"><label class="compact-field"><span>Fecha del pedido</span><input type="date" value="${esc(state.date)}" disabled></label><button class="secondary-button" type="button" data-route-sheet-select-all ${model.rows.some(row => row.agencyValid) ? "" : "disabled"}>Marcar válidos</button><button class="secondary-button" type="button" data-route-sheet-clear ${selectedRows.length ? "" : "disabled"}>Desmarcar</button><div class="commercial-route-sheet-summary"><strong>${totals.orders} pedido(s)</strong><span>${totals.boxes} pieza(s) · ${model.groups.filter(group => group.agencyValid).length} agencia(s)</span></div></div>
-        <div class="compact-table-wrap commercial-route-sheet-table-wrap"><table class="compact-table commercial-route-sheet-table"><thead><tr><th>Elegir</th><th>Pedido</th><th>Factura</th><th>Cliente</th><th>Tipo</th><th>Guía madre</th><th>Destino</th><th>Agencia</th><th>Piezas</th><th>Estado</th></tr></thead><tbody>${groupRows || `<tr><td colspan="10">No existen pedidos aéreos o marítimos para la fecha seleccionada.</td></tr>`}</tbody></table></div>
+        <div class="panel-card-head commercial-quick-editor-head"><div><p class="section-kicker">COORDINACIÓN DIARIA</p><h2>Hoja de Ruta por Agencia de Carga</h2><p class="panel-note">Incluye entregas locales y exportaciones aéreas y marítimas. La agencia es obligatoria solo para exportaciones.</p></div><button class="commercial-order-control-close" type="button" data-route-sheet-close aria-label="Cerrar">×</button></div>
+        <div class="commercial-route-sheet-controls"><label class="compact-field"><span>Fecha del pedido</span><input type="date" value="${esc(state.date)}" disabled></label><button class="secondary-button" type="button" data-route-sheet-select-all ${model.rows.some(row => row.printable) ? "" : "disabled"}>Marcar válidos</button><button class="secondary-button" type="button" data-route-sheet-clear ${selectedRows.length ? "" : "disabled"}>Desmarcar</button><div class="commercial-route-sheet-summary"><strong>${totals.orders} pedido(s)</strong><span>${totals.boxes} pieza(s) · ${model.groups.filter(group => group.agencyValid).length} agencia(s)</span></div></div>
+        <div class="compact-table-wrap commercial-route-sheet-table-wrap"><table class="compact-table commercial-route-sheet-table"><thead><tr><th>Elegir</th><th>Pedido</th><th>Factura</th><th>Cliente</th><th>Tipo</th><th>Guía madre</th><th>Destino</th><th>Agencia</th><th>Piezas</th><th>Estado</th></tr></thead><tbody>${groupRows || `<tr><td colspan="10">No existen pedidos locales o de exportación para la fecha seleccionada.</td></tr>`}</tbody></table></div>
         <div class="commercial-route-sheet-actions"><button class="secondary-button" type="button" data-route-sheet-preview ${selectedRows.length ? "" : "disabled"}>Vista previa</button><button class="primary-button" type="button" data-route-sheet-print ${selectedRows.length ? "" : "disabled"}>Imprimir / guardar PDF</button></div>
       </section>
     </div>`;
@@ -637,9 +636,9 @@
     if (routeSheetPrintInProgress) return;
     const model = routeSheetModel(appState, state);
     const selected = routeSheetSelectedIds(state);
-    const orders = model.rows.filter(row => row.agencyValid && selected.has(String(row.orderId))).map(row => row.order);
+    const orders = model.rows.filter(row => row.printable && selected.has(String(row.orderId))).map(row => row.order);
     if (!orders.length) {
-      toast("Seleccione al menos un pedido con Agencia de Carga válida.", "warning");
+      toast("Seleccione al menos un pedido local o una exportación con Agencia de Carga válida.", "warning");
       return;
     }
     routeSheetPrintInProgress = true;
@@ -718,14 +717,14 @@
       if (button.dataset.page) { state.page = Number(button.dataset.page); rerenderPage(); return; }
       if (button.hasAttribute("data-route-sheet-open")) {
         const model = routeSheetModel(appState, state);
-        state.routeSheetSelectedIds = model.rows.filter(row => row.agencyValid).map(row => String(row.orderId));
+        state.routeSheetSelectedIds = model.rows.filter(row => row.printable).map(row => String(row.orderId));
         state.routeSheetOpen = true;
         void BlessERP.moduleLoader.loadGroup("commercial-coordination-print").catch(() => {});
         rerenderPage();
         return;
       }
       if (button.hasAttribute("data-route-sheet-close")) { state.routeSheetOpen = false; rerenderPage(); return; }
-      if (button.hasAttribute("data-route-sheet-select-all")) { state.routeSheetSelectedIds = routeSheetModel(appState, state).rows.filter(row => row.agencyValid).map(row => String(row.orderId)); rerenderPage(); return; }
+      if (button.hasAttribute("data-route-sheet-select-all")) { state.routeSheetSelectedIds = routeSheetModel(appState, state).rows.filter(row => row.printable).map(row => String(row.orderId)); rerenderPage(); return; }
       if (button.hasAttribute("data-route-sheet-clear")) { state.routeSheetSelectedIds = []; rerenderPage(); return; }
       if (button.hasAttribute("data-route-sheet-preview")) { await printRouteSheet(appState, state, false, button); return; }
       if (button.hasAttribute("data-route-sheet-print")) { await printRouteSheet(appState, state, true, button); return; }

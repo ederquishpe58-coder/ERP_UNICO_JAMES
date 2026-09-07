@@ -873,12 +873,12 @@
           headers: [
             "Fecha emision", "Fecha autorizacion", "Tipo de venta", "Identificacion", "Cliente principal", "Cliente final", "DAE",
             "Subtotal USD", "Impuestos USD", "Total USD", "Guia madre", "Guia hija", "Linea aerea", "Agencia", "Clave de acceso",
-            "Numero autorizacion", "Pais", "Secuencial SRI (XXX-XXX)", "Cajas", "Ramos", "Tallos", "Fulls", "ID documento"
+            "Numero autorizacion", "Pais", "Factura", "Cajas", "Ramos", "Tallos", "Fulls", "ID documento"
           ],
           rows: rows.map(row => [
             date(row.issueDate), date(row.authorizationDate), row.saleType, text(row.customerTaxId), row.customerName, row.brandName,
             text(row.dae), currency(row.subtotal), currency(row.taxTotal), currency(row.total), text(row.masterGuide), text(row.childGuide),
-            row.airline, row.agency, text(row.accessKey), text(row.authorizationNumber), row.country, text(invoiceSeries(row.documentNumber)),
+            row.airline, row.agency, text(row.accessKey), text(row.authorizationNumber), row.country, text(row.documentNumber),
             row.boxes, row.bunches, row.stems, row.fulls, text(row.documentId)
           ]),
           totals: [

@@ -27,7 +27,10 @@
       Array.isArray(order?.lines) ? order.lines.length : 0,
       order?.cargoAgencyId || order?.agencyId || "",
       order?.transportType || "",
-      order?.awb || ""
+      order?.awb || "",
+      order?.company_id || order?.companyId || "",
+      order?.sriInvoiceNumber || "",
+      order?.invoiceReservationId || ""
     ].join(":" )).join("|");
     if (options.__routeSheetPrepared?.key === key) return options.__routeSheetPrepared.rows;
     const rows = modelRows.map(modelRow => {
@@ -47,6 +50,8 @@
         routeAgencyKey: modelRow.agencyKey,
         routeAgencyName: modelRow.agencyName,
         routeAgencyValid: modelRow.agencyValid,
+        routeIsLocal: modelRow.isLocal === true,
+        routePrintable: modelRow.printable ?? modelRow.agencyValid,
         routeTransportLabel: modelRow.transportLabel,
         routeMotherGuide: modelRow.motherGuide,
         routeDestination: modelRow.destination
@@ -64,9 +69,9 @@
       const sourceOrder = rowContext.order;
       const reference = sourceOrder.number || sourceOrder.id || "Pedido";
       if (!BlessERP.comercialInvoiceSequence?.visibleInvoiceNumber?.(sourceOrder)) {
-        errors.push(`${reference}: falta numero de factura; guarde el pedido antes de imprimir la Hoja de Ruta.`);
+        errors.push(`${reference}: falta numero de factura; no se pudo resolver la identidad canónica de factura.`);
       }
-      if (!rowContext.routeAgencyValid) errors.push(`${reference}: falta agencia de carga canónica.`);
+      if (!rowContext.routePrintable) errors.push(`${reference}: falta agencia de carga canónica.`);
       if (!sourceOrder.issuedAt) errors.push(`${reference}: falta fecha del pedido.`);
       if (!rowContext.boxGroups.length) errors.push(`${reference}: faltan cajas.`);
       if (!sourceOrder.coldRoom) warnings.push(`${reference}: falta cuarto frio.`);
@@ -89,7 +94,7 @@
     routeRows.forEach(row => {
       let group = agencyGroups[agencyGroups.length - 1];
       if (!group || group.key !== row.routeAgencyKey) {
-        group = { key: row.routeAgencyKey, name: row.routeAgencyName, valid: row.routeAgencyValid, rows: [] };
+        group = { key: row.routeAgencyKey, name: row.routeAgencyName, valid: row.routePrintable, rows: [] };
         agencyGroups.push(group);
       }
       group.rows.push(row);
@@ -101,7 +106,7 @@
       ${group.rows.map(row => `
         <tr>
           <td><strong>${utils.esc(row.order.sriInvoiceNumber || "-")}</strong><br><small>${utils.esc(row.order.number || row.order.id || "-")}</small></td>
-          <td><strong>${utils.esc(row.brand?.name || row.customer?.commercialName || row.customer?.legalName || "-")}</strong><br><small>${utils.esc(row.routeTransportLabel)} · ${utils.esc(row.routeMotherGuide || "GUIA PENDIENTE")} · ${utils.esc(row.routeDestination)}</small></td>
+          <td><strong>${utils.esc((row.routeIsLocal && (row.customer?.commercialName || row.customer?.legalName)) || row.brand?.name || row.customer?.commercialName || row.customer?.legalName || "-")}</strong><br><small>${utils.esc(row.routeTransportLabel)} · ${utils.esc(row.routeIsLocal ? "" : row.routeMotherGuide || "GUIA PENDIENTE")} · ${utils.esc(row.routeDestination)}</small></td>
           <td>${utils.esc(row.routeAgencyName)}</td>
           <td>${utils.esc(row.order.coldRoom || "-")}</td>
           <td class="numeric">${utils.esc(utils.number(row.metrics.totalBoxes))}</td>
@@ -119,7 +124,7 @@
       <article class="doc-page route-sheet-page route-sheet-reference">
         <header class="route-sheet-header">
           <div class="route-sheet-brand">${printUtils.renderCompanyBrand(company)}</div>
-          <div class="route-sheet-title"><h2>HOJA DE RUTA</h2><strong>EXPORTACION / FACTURAS</strong></div>
+          <div class="route-sheet-title"><h2>HOJA DE RUTA</h2><strong>LOCAL / EXPORTACION · FACTURAS</strong></div>
           <div class="route-sheet-dates">
             <span>Fecha generacion: <strong>${utils.esc(utils.dateLabel(new Date().toISOString()))}</strong></span>
             <span>Fecha del pedido: <strong>${utils.esc(utils.dateLabel(routeDate))}</strong></span>
@@ -128,7 +133,7 @@
 
         <section class="route-sheet-logistics">
           <div><span>Punto de origen</span><strong>${utils.esc(company?.address || company?.legalName || "Bless Flower")}</strong></div>
-          <div><span>Punto de destino</span><strong>${utils.esc(agencyGroups.length === 1 ? agencyGroups[0].name : `${agencyGroups.length} agencias de carga`)}</strong></div>
+          <div><span>Punto de destino</span><strong>${utils.esc(agencyGroups.length === 1 ? agencyGroups[0].name : `${agencyGroups.length} grupos de entrega`)}</strong></div>
           <div><span>Transportista</span><strong>${utils.esc(first.order.transporter || first.order.carrierName || "Por asignar")}</strong></div>
           <div><span>Placa</span><strong>${utils.esc(first.order.vehiclePlate || first.order.plate || "Por asignar")}</strong></div>
         </section>
