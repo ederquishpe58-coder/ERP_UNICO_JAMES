@@ -34,7 +34,7 @@
   });
   const PERSON_TYPES = new Set(["classifiers", "bunchers", "receptionists", "digitizers", "scanners", "responsibles"]);
   const PAYROLL_LINK_TYPES = Object.freeze({ classifiers: "CLASSIFIER", bunchers: "BUNCHER" });
-  const payrollUi = { loading: false, loaded: false, error: "" };
+  const payrollUi = { loading: false, loaded: false, error: "", context:null };
   const catalogUi = {
     companyId: "",
     routeId: "",
@@ -152,6 +152,8 @@
   }
 
   function ensureCatalogCompany() {
+    const payrollContext=payrollRepository()?.context?.();
+    if(payrollUi.context!==payrollContext)Object.assign(payrollUi,{loading:false,loaded:false,error:"",context:payrollContext});
     const companyId = String(catalogRepository()?.activeCompanyId?.() || "");
     if (catalogUi.companyId === companyId) return;
     Object.assign(catalogUi, {
@@ -238,14 +240,14 @@
   }
 
   function operationalWorkerId(item = {}) {
-    return String(item.operational_worker_id || item.operationalWorkerId || item.employee_id || item.employeeId || item.id || "").trim();
+    return String(item.id || item.operational_worker_id || item.operationalWorkerId || "").trim();
   }
 
   function canonicalPayrollData() {
     const snapshot = payrollService()?.snapshot?.() || {};
     const employees = (snapshot.employees || [])
       .filter(item => !["INACTIVO", "INACTIVE"].includes(String(item.status || item.state || "").toUpperCase()));
-    const links = (snapshot.operationalRoles || []).filter(item => item.active !== false && !item.valid_to && !item.validTo);
+    const links = (snapshot.operationalRoles || []).filter(item => item.company_id === snapshot.companyId).sort((a,b)=>String(b.valid_from||b.validFrom||" ").localeCompare(String(a.valid_from||a.validFrom||" "))||String(b.updated_at||"").localeCompare(String(a.updated_at||"")));
     return { employees, links };
   }
 
@@ -356,7 +358,7 @@
         <td><strong>${utils.esc(item.name || "-")}</strong><br><small>${utils.esc(TYPE_LABELS[item.type] || item.type)}</small></td>
         <td>${item.type === "varieties" ? renderVarietyImage(item, utils, "is-table") : "-"}</td>
         <td>${parameterDetail(item, item.type, utils)}</td>
-        <td>${(() => { const link = canonicalLinkFor(item, item.type, payroll.links); const employeeId = String(link?.employee_id || link?.employeeId || ""); return link ? `${utils.esc(employeeNames.get(employeeId) || "Empleado V2")}<br><small>${utils.esc(employeeId)}</small>` : (PAYROLL_LINK_TYPES[item.type] ? '<span class="status-badge pending">SIN VÍNCULO V2</span>' : "-"); })()}</td>
+        <td>${(() => { const link = canonicalLinkFor(item, item.type, payroll.links); const employeeId = String(link?.employee_id || link?.employeeId || ""); return link ? `${utils.esc(employeeNames.get(employeeId) || "Empleado V2")}<br><small>${utils.esc(employeeId)} · ${utils.esc(link.valid_from||link.validFrom||"")} a ${utils.esc(link.valid_to||link.validTo||"sin fin")}</small>` : (PAYROLL_LINK_TYPES[item.type] ? '<span class="status-badge pending">ROL V2 NO VINCULADO</span>' : "-"); })()}</td>
         <td><span class="status-badge ${item.active !== false ? "authorized" : "pending"}">${item.active !== false ? "ACTIVO" : "INACTIVO"}</span></td>
         <td>${utils.esc(formatDateTime(item.__syncUpdatedAt || item.updated_at))}</td>
         <td>${renderCatalogActions(item, utils)}</td>
@@ -450,8 +452,8 @@
             ${PAYROLL_LINK_TYPES[draft.type] ? (() => {
               const link = canonicalLinkFor(draft, draft.type, payroll.links);
               const selectedEmployeeId = String(link?.employee_id || link?.employeeId || "");
-              const permission = payrollRepository()?.healthStatus?.()?.data?.permissions?.manage === true;
-              return `<div class="compact-inline-field ops-payroll-v2-link-field"><span>Empleado Nómina V2</span><select data-ops-payroll-employee ${!draft.id || payrollUi.loading || !permission ? "disabled" : ""}><option value="">${payrollUi.loading ? "Cargando empleados V2…" : "Seleccione empleado V2"}</option>${employees.map(item => `<option value="${utils.esc(item.employee_id)}" ${String(item.employee_id) === selectedEmployeeId ? "selected" : ""}>${utils.esc(item.full_name)} · ${utils.esc(item.employee_code || item.employee_id)}</option>`).join("")}</select><small>${draft.id ? `Vínculo UUID por trabajador operativo ${utils.esc(operationalWorkerId(draft))}.` : "Guarde primero el trabajador operativo."}${payrollUi.error ? ` ${utils.esc(payrollUi.error)}` : ""}</small><button type="button" class="secondary-button" data-ops-payroll-link data-type="${utils.esc(draft.type)}" data-id="${utils.esc(draft.id || "")}" ${!draft.id || payrollUi.loading || !permission ? "disabled" : ""}>Confirmar vínculo V2</button></div>`;
+              const permission = payrollRepository()?.healthStatus?.()?.data?.capabilities?.includes("payroll.employees.manage") === true;
+              return `<div class="compact-inline-field ops-payroll-v2-link-field"><span>Empleado Nómina V2</span><select data-ops-payroll-employee ${!draft.id || payrollUi.loading || !permission ? "disabled" : ""}><option value="">${payrollUi.loading ? "Cargando empleados V2…" : "Seleccione empleado V2"}</option>${employees.map(item => `<option value="${utils.esc(item.employee_id)}" ${String(item.employee_id) === selectedEmployeeId ? "selected" : ""}>${utils.esc(item.full_name)} · ${utils.esc(item.employee_code || item.employee_id)}</option>`).join("")}</select><small>${draft.id ? `Vínculo UUID por trabajador operativo ${utils.esc(operationalWorkerId(draft))}.` : "Guarde primero el trabajador operativo."}${payrollUi.error ? ` ${utils.esc(payrollUi.error)}` : ""}</small><label>Vigente desde <input type="date" data-ops-payroll-valid-from value="${utils.esc(link?.valid_from||link?.validFrom||'')}" required></label><label>Hasta (opcional) <input type="date" data-ops-payroll-valid-to value="${utils.esc(link?.valid_to||link?.validTo||'')}"></label><button type="button" class="secondary-button" data-ops-payroll-link data-type="${utils.esc(draft.type)}" data-id="${utils.esc(draft.id || "")}" ${!draft.id || payrollUi.loading || !permission ? "disabled" : ""}>Confirmar vínculo V2</button></div>`;
             })() : ""}
             ${draft.type === "bunchers" ? `<label class="compact-inline-field"><span>Color de etiqueta</span><input value="${utils.esc(draft.labelColor || "")}" data-ops-bind="parameterDraft" data-field="labelColor" placeholder="Ej. ROJO"><small>Identifica al embonchador en la etiqueta Zebra.</small></label>` : ""}
             ${draft.type === "suppliers" ? `<label class="compact-inline-field"><span>Bloque asignado</span><input value="${utils.esc(draft.assignedBlock || "")}" data-ops-bind="parameterDraft" data-field="assignedBlock" placeholder="Ej. B1"></label>` : ""}
@@ -481,23 +483,20 @@
     `;
   }
 
-  async function loadPayrollV2(force = false) {
-    if (payrollUi.loading || (payrollUi.loaded && !force)) return;
-    payrollUi.loading = true;
-    payrollUi.error = "";
-    try {
-      const health = await payrollService()?.health?.({ force });
-      if (!health?.ok) throw new Error(health?.message || "Nómina V2 no disponible.");
-      const refreshed = await payrollService()?.refresh?.();
-      if (!refreshed?.ok) throw new Error(refreshed?.message || "No se pudieron leer los empleados V2.");
-      payrollUi.loaded = true;
-    } catch (error) {
-      payrollUi.loaded = false;
-      payrollUi.error = error?.message || "No se pudo verificar Nómina V2.";
-    } finally {
-      payrollUi.loading = false;
-      if (isParameterRoute()) BlessERP.layout?.renderPage?.();
-    }
+  async function loadPayrollV2(force=false) {
+    const context=payrollRepository()?.context?.();
+    if(payrollUi.context!==context)Object.assign(payrollUi,{loading:false,loaded:false,error:'',context});
+    if(payrollUi.loading||(payrollUi.loaded&&!force))return;
+    payrollUi.loading=true;payrollUi.error='';
+    const current=()=>payrollUi.context===context&&payrollRepository()?.isContextCurrent?.(context);
+    try{
+      const health=await payrollService()?.health?.({force,context});if(!current())return;
+      if(!health?.ok)throw Error(health?.message||'Nómina V2 no disponible.');
+      const result=await payrollService()?.refresh?.(null,{context});if(!current())return;
+      if(!result?.ok)throw Error(result?.message||'No se pudieron leer los empleados V2.');
+      payrollUi.loaded=true;
+    }catch(error){if(current()){payrollUi.loaded=false;payrollUi.error=error?.message||'No se pudo verificar Nómina V2.';}}
+    finally{if(current()){payrollUi.loading=false;if(isParameterRoute())BlessERP.layout?.renderPage?.();}}
   }
 
   async function queryCatalog(page = 1, form = null) {
@@ -674,17 +673,23 @@
       const worker = (store.masterData?.[type] || []).find(item => String(item.id) === String(button.dataset.id || ""));
       const employeeId = String(container.querySelector("[data-ops-payroll-employee]")?.value || "").trim();
       if (!role || !worker || !employeeId) return BlessERP.layout?.toast?.("Seleccione un empleado V2.");
+      const validFrom=String(container.querySelector('[data-ops-payroll-valid-from]')?.value||'');
+      const validTo=String(container.querySelector('[data-ops-payroll-valid-to]')?.value||'');
+      if(!validFrom||(validTo&&validTo<validFrom))return BlessERP.layout?.toast?.('Indique una vigencia válida para el vínculo.');
       button.disabled = true;
+      try {
       const result = await payrollService()?.linkOperationalRole?.({
         employeeId,
         operationalRole: role,
         operationalWorkerId: operationalWorkerId(worker),
-        validFrom: new Date().toISOString().slice(0, 10)
+        validFrom,validTo:validTo||null
       }, { context: payrollContext });
       if (!payrollRepository()?.isContextCurrent?.(payrollContext)) return;
       BlessERP.layout?.toast?.(result?.ok ? "Vínculo Empleado V2 confirmado por Supabase." : (result?.message || "No se pudo confirmar el vínculo V2."));
       if (result?.ok) BlessERP.layout?.renderPage?.();
       else button.disabled = false;
+      } catch(error) {if(payrollRepository()?.isContextCurrent?.(payrollContext))BlessERP.layout?.toast?.('No se pudo confirmar el vínculo. Consulte su estado antes de reintentar.');}
+      finally {if(button.isConnected)button.disabled=false;}
     }, { signal }));
 
     container.querySelector("[data-ops-parameter-query-form]")?.addEventListener("submit", event => {

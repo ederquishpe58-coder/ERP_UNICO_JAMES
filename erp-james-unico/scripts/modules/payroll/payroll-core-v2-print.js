@@ -26,6 +26,19 @@
       if(earned!==c.micros(item.total_income)||discount!==c.micros(item.total_discounts)||earned-discount!==c.micros(item.net_total)
         ||salary!==c.micros(item.summary?.salary)||overtime!==c.micros(item.summary?.overtime)||other!==c.micros(item.summary?.otherIncome)
         ||discount!==c.micros(item.summary?.otherDeductions))throw Error('PAYROLL_PRINT_TOTALS_INVALID');
+      const p=item.performance_calculation_snapshot;
+      if(p?.contract==='PAYROLL_PERIOD_EXCESS_470_V1'){
+        const daily=p.operationalRole==='CLASSIFIER'?260:p.operationalRole==='BUNCHER'?200:0;
+        if(p.companyId!==role.company_id||p.employeeId!==item.employee_id||p.roleItemId!==item.role_item_id
+          ||p.periodFrom!==period.date_from||p.periodTo!==period.date_to||!daily||!Number.isInteger(p.workedDays)||p.workedDays<1||p.workedDays>31
+          ||c.micros(p.dailyTarget)!==BigInt(daily)*1000000n||c.micros(p.periodTarget)!==BigInt(daily*p.workedDays)*1000000n
+          ||c.micros(p.baseSalary)!==470000000n||salary!==470000000n)throw Error('PAYROLL_PRINT_PERFORMANCE_CONTEXT');
+        const actual=c.micros(p.actualUnits),target=c.micros(p.periodTarget),excess=actual>target?actual-target:0n;
+        const extra=(excess*470000000n+target/2n)/target;
+        const extraLines=item.lines.filter(l=>l.source_type==='PERFORMANCE_PERIOD_EXCESS');
+        if(actual<0n||c.micros(p.excessUnits)!==excess||c.micros(p.extraPay)!==extra
+          ||extraLines.reduce((sum,l)=>sum+c.micros(l.amount),0n)!==extra||extraLines.length>(extra>0n?1:0))throw Error('PAYROLL_PRINT_PERFORMANCE_TOTALS');
+      }
       income+=earned;deductions+=discount;net+=earned-discount;
     }
     if(income!==c.micros(role.total_income)||deductions!==c.micros(role.total_discounts)||net!==c.micros(role.net_total))throw Error('PAYROLL_PRINT_TOTALS_INVALID');
@@ -52,6 +65,10 @@
         }).join('')||'<tr><td colspan="3">Sin conceptos aplicados.</td></tr>')
         +'</tbody><tfoot><tr><th colspan="2">'+(kind==='EARNING'?'TOTAL INGRESOS':'TOTAL EGRESOS')+'</th><th class="num">'+money(kind==='EARNING'?item.total_income:item.total_discounts)+'</th></tr></tfoot></table>';
     };
+    const performance=item=>item.performance_calculation_snapshot?.contract==='PAYROLL_PERIOD_EXCESS_470_V1'?item.performance_calculation_snapshot:null;
+    const qty=v=>new Intl.NumberFormat('es-EC',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(v));
+    const roleName=p=>p.operationalRole==='CLASSIFIER'?'Clasificador':'Embonchador';
+    const performanceBlock=i=>{const p=performance(i);if(!p)return '';return '<h3>RENDIMIENTO DEL PERÍODO · '+roleName(p)+'</h3><div class="employee-meta"><span>Días laborados: '+esc(p.workedDays)+'</span><span>Jornada referencial: 8 horas</span><span>Meta diaria: '+qty(p.dailyTarget)+' '+(p.operationalRole==='CLASSIFIER'?'mallas':'bunches')+'</span><span>Meta del período: '+qty(p.periodTarget)+'</span><span>Rendimiento real: '+qty(p.actualUnits)+'</span><span>Excedente: '+qty(p.excessUnits)+'</span><span>Sueldo base: '+money(p.baseSalary)+'</span><span>Valor extra: '+money(p.extraPay)+'</span></div>';};
     let body;
     if(summary){
       const totals={salary:0n,overtime:0n,otherIncome:0n,otherDeductions:0n};
@@ -62,11 +79,13 @@
       }).join('');
       body='<table class="summary"><thead><tr><th>Empleado</th><th>Sueldo</th><th>Horas extras</th><th>Otros ingresos</th><th>Total ingresos</th><th>Otros egresos</th><th>Total egresos</th><th>Neto</th></tr></thead><tbody>'+rows
         +'</tbody><tfoot><tr><th>TOTALES DEL PERÍODO</th>'+[c.decimal(totals.salary),c.decimal(totals.overtime),c.decimal(totals.otherIncome),role.total_income,c.decimal(totals.otherDeductions),role.total_discounts,role.net_total].map(v=>'<th class="num">'+money(v)+'</th>').join('')+'</tr></tfoot></table>';
+      const performanceItems=items.filter(performance);
+      if(performanceItems.length)body+='<h3>DETALLE ADMINISTRATIVO DE RENDIMIENTO</h3><table class="summary"><thead><tr><th>Empleado</th><th>Cargo</th><th>Días</th><th>Meta</th><th>Rendimiento</th><th>Excedente</th><th>Valor extra</th><th>Neto</th></tr></thead><tbody>'+performanceItems.map(i=>{const p=performance(i);return '<tr><td>'+esc(i.employee_name_snapshot)+'</td><td>'+roleName(p)+'</td><td>'+esc(p.workedDays)+'</td>'+[p.periodTarget,p.actualUnits,p.excessUnits].map(v=>'<td class="num">'+qty(v)+'</td>').join('')+'<td class="num">'+money(p.extraPay)+'</td><td class="num">'+money(i.net_total)+'</td></tr>';}).join('')+'</tbody></table>';
     }else{
       const i=items[0];
       body='<section class="employee"><h2>'+esc(i.employee_name_snapshot)+'</h2><div class="employee-meta"><span>Identificación: '+esc(i.employee_identification_snapshot)+'</span><span>Cargo: '+esc(i.position_snapshot)+'</span>'
         +(i.employee_area_snapshot?'<span>Área: '+esc(i.employee_area_snapshot)+'</span>':'')+'<span>Código: '+esc(i.employee_code_snapshot)+'</span></div>'
-        +'<h3>INGRESOS</h3>'+lineTable(i,'EARNING')+'<h3>EGRESOS</h3>'+lineTable(i,'DEDUCTION')
+        +performanceBlock(i)+'<h3>INGRESOS</h3>'+lineTable(i,'EARNING')+'<h3>EGRESOS</h3>'+lineTable(i,'DEDUCTION')
         +'<div class="net"><strong>NETO A PAGAR</strong><strong>'+money(i.net_total)+'</strong></div>'
         +(i.employee_notes?'<p>Observaciones: '+esc(i.employee_notes)+'</p>':'')
         +(i.base_adjustment_reason?'<p class="note">Ajuste de base: '+esc(i.base_adjustment_reason)+'</p>':'')

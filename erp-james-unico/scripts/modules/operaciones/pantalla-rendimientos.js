@@ -28,8 +28,7 @@
 
   function refreshRankings() {
     if (!mountedAppState) return;
-    const latestDb = mountedRoot ? BlessERP.storage?.load?.() : null;
-    if (latestDb?.operations) mountedAppState.db = latestDb;
+    BlessERP.operationsPerformanceV2?.notice?.();
     const store = BlessERP.operacionesState.getStore(mountedAppState);
     rankings = {
       bunchers: BlessERP.operacionesRendimientosUtils.buildProductionScreenRanking(store, "bunchers"),
@@ -72,7 +71,7 @@
           <span>${utils.esc(labels.stems)} <strong>${utils.esc(utils.number(row.stems))}</strong></span>
           <span>${utils.esc(labels.bunches)} <strong>${utils.esc(utils.number(row.bunches))}</strong></span>
           <span>${utils.esc(labels.perHour)} <strong>${utils.esc(row.perHour.toFixed(1))}</strong></span>
-          <span>Meta <strong>${utils.esc(utils.number(row.dailyGoal || (mode === "classifiers" ? 264 : 200)))}</strong></span>
+          <span>Meta <strong>${utils.esc(utils.number(row.dailyGoal || (mode === "classifiers" ? 260 : 200)))}</strong></span>
         </div>
         ${renderProgress(row)}
       </article>
@@ -88,7 +87,7 @@
         <span><small>${utils.esc(labels.primary)}</small><strong>${utils.esc(utils.number(row.primary))}</strong></span>
         <span><small>Tallos</small><strong>${utils.esc(utils.number(row.stems))}</strong></span>
         <span><small>${utils.esc(labels.perHour)}</small><strong>${utils.esc(row.perHour.toFixed(1))}</strong></span>
-        <span><small>Meta</small><strong>${utils.esc(utils.number(row.dailyGoal || (mode === "classifiers" ? 264 : 200)))}</strong></span>
+        <span><small>Meta</small><strong>${utils.esc(utils.number(row.dailyGoal || (mode === "classifiers" ? 260 : 200)))}</strong></span>
         ${renderProgress(row)}
       </article>
     `;
@@ -125,6 +124,7 @@
           <div class="yield-tv-brand"><span>BF</span><div><strong>BLESS FLOWERS</strong><small>RENDIMIENTOS DE PRODUCCI&Oacute;N</small></div></div>
           <div class="yield-tv-clock-block"><span data-yield-tv-date>${utils.esc(new Intl.DateTimeFormat("es-EC", { dateStyle: "full" }).format(new Date()))}</span><strong data-yield-live-clock>--:--:--</strong><small>&Uacute;ltima actualizaci&oacute;n: <b data-yield-last-update>--:--:--</b></small></div>
         </header>
+        ${BlessERP.operationsPerformanceV2?.notice?.()?`<p role="status">${utils.esc(BlessERP.operationsPerformanceV2.notice())}</p>`:""}
         <main class="yield-tv-stage" data-yield-tv-stage>${renderPhase()}</main>
         <footer class="yield-tv-controls">
           <button type="button" data-yield-screen-action="pause">Pausar</button>

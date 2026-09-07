@@ -126,6 +126,7 @@
     const store = stateApi.getStore(appState);
     const ui = stateApi.getUi(appState);
     const yieldUtils = BlessERP.operacionesRendimientosUtils;
+    const notice = BlessERP.operationsPerformanceV2?.notice?.() ?? "Rendimiento canónico no disponible.";
     const classifierRows = yieldUtils.buildClassifierHourlyPerformance(store);
     const buncherRows = yieldUtils.buildBuncherHourlyPerformance(store);
     const activeView = ui.yieldsView === "records" ? "records" : "rendimientos";
@@ -133,6 +134,7 @@
     const hourLabels = yieldUtils.buildWorkHourLabels(yieldUtils.workdayStartHour(workday));
 
     return `
+      ${notice ? `<p role="status">${utils.esc(notice)} <button type="button" data-performance-refresh>Reintentar</button></p>` : ""}
       <div class="ops-yield-command-row">
         <div class="ops-yield-options-bar">
           <details class="ops-yield-options-menu">
@@ -154,8 +156,8 @@
           title: "Rendimiento de clasificadores",
           workerLabel: "Clasificador",
           unit: "mallas",
-          hourlyGoal: 33,
-          dailyGoal: 264,
+          hourlyGoal: 32.5,
+          dailyGoal: 260,
           hourLabels,
           rows: classifierRows
           })}
@@ -190,6 +192,7 @@
   function mount(container, appState) {
     unmount();
     mountedRoot = container;
+    container.querySelector("[data-performance-refresh]")?.addEventListener("click",()=>BlessERP.operationsPerformanceV2?.refresh(true));
     mountedAppState = appState;
     updateLiveTime();
     clockTimer = window.setInterval(updateLiveTime, 1000);

@@ -26,6 +26,7 @@
     "commercial-airlines": ["commercial-catalogs"],
     "commercial-export-products": ["commercial-catalogs"],
     "commercial-box-types": ["commercial-catalogs"],
+    "operations-parameters": ["operations", "payroll"],
     "operations-dispatch": ["operations-dispatch"],
     "reports-commercial": ["reports-commercial"],
     "settings-company": ["foundation"],

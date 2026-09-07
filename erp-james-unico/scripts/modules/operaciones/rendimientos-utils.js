@@ -68,7 +68,8 @@
       const worker = String(options.worker(item) || "SIN ASIGNAR").trim() || "SIN ASIGNAR";
       const employeeId = String(options.employeeId?.(item) || item.employee_id || item.employeeId || "").trim();
       const dateTime = parseOperationalDateTime(options.dateTime(item), options.date(item));
-      const key = `${dateTime.date}::${employeeId || worker}`;
+      if (!employeeId) return;
+      const key = `${dateTime.date}::${employeeId}`;
       const current = grouped.get(key) || {
         date: dateTime.date,
         employeeId,
@@ -92,115 +93,40 @@
     })).sort((a, b) => b.date.localeCompare(a.date) || b.total - a.total || a.worker.localeCompare(b.worker));
   }
 
-  function buildClassifierHourlyPerformance(store, options = {}) {
-    const workday = getVisibleWorkday(store);
-    const settings = store.yieldSettings || {};
-    return buildHourlyWorkerRows(scopeRowsToWorkday(store.meshProcessingRecords || [], store, options), {
-      worker: item => item.classifier,
-      employeeId: item => item.classifier_employee_id || item.classifierEmployeeId || item.employee_id || item.employeeId,
-      dateTime: item => item.registeredAt,
-      date: item => item.date,
-      quantity: item => item.meshCount,
-      startHour: workdayStartHour(workday),
-      workdayHours: parseNumber(settings.workdayHours, 8),
-      hourlyGoal: parseNumber(settings.classifierHourlyGoal, 33),
-      dailyGoal: parseNumber(settings.classifierDailyGoal, 264)
+  function canonicalItems(role,store,options={}) {
+    const workdayId=options.scope==='all'?'':String(options.workdayId||getVisibleWorkday(store)?.id||'');
+    if(options.scope!=='all'&&!workdayId)return [];
+    return (BlessERP.operationsPerformanceV2?.rows(role,workdayId)||[]).map(r=>({
+      id:r.source_record_id,workdayId:r.workday_id,date:r.event_date,
+      registeredAt:r.event_date+' '+new Intl.DateTimeFormat('en-GB',{timeZone:'America/Guayaquil',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(r.event_at)),
+      employeeId:r.operational_worker_id,employee_id:r.operational_worker_id,
+      classifier:r.worker_name,buncher:r.worker_name,meshCount:Number(r.quantity),bunches:Number(r.quantity),
+      totalStems:Number(r.stems),stemsPerBunch:Number(r.stems),payrollLinked:r.payroll_linked
+    }));
+  }
+  function canonicalHourly(role,store,options={}) {
+    const classifier=role==='CLASSIFIER',daily=classifier?260:200;
+    return buildHourlyWorkerRows(canonicalItems(role,store,options),{
+      worker:item=>item.classifier,employeeId:item=>item.employeeId,dateTime:item=>item.registeredAt,date:item=>item.date,
+      quantity:item=>item.bunches,startHour:workdayStartHour(getVisibleWorkday(store)),workdayHours:8,
+      hourlyGoal:daily/8,dailyGoal:daily
     });
   }
-
-  function buildBuncherHourlyPerformance(store, options = {}) {
-    const settings = store.yieldSettings || {};
-    const inventoryRows = store.roseInventory || [];
-    const scannedEntries = scopeRowsToWorkday(store.bunchEntries || [], store, options).filter(entry => {
-      const inventory = inventoryRows.find(item => item.inventoryId === entry.inventoryId || item.sourceBunchEntryId === entry.id);
-      return inventory?.sourceType === "ESCANEO_ETIQUETA" && inventory.state !== "ANULADO" && entry.state !== "ANULADO";
-    });
-    const workday = getVisibleWorkday(store);
-    return buildHourlyWorkerRows(scannedEntries, {
-      worker: item => item.buncher,
-      employeeId: item => item.buncher_employee_id || item.buncherEmployeeId || item.employee_id || item.employeeId,
-      dateTime: item => item.registeredAt,
-      date: item => item.date,
-      quantity: () => 1,
-      startHour: workdayStartHour(workday),
-      workdayHours: parseNumber(settings.workdayHours, 8),
-      hourlyGoal: parseNumber(settings.buncherHourlyGoal, 25),
-      dailyGoal: parseNumber(settings.buncherDailyGoal, 200)
-    });
-  }
-
-  function buildProductionScreenRanking(store, mode) {
-    const isClassifier = mode === "classifiers";
-    const settings = store.yieldSettings || {};
-    const inventoryRows = store.roseInventory || [];
-    const allSourceRows = isClassifier
-      ? (store.meshProcessingRecords || [])
-      : (store.bunchEntries || []).filter(entry => {
-          const inventory = inventoryRows.find(item => item.inventoryId === entry.inventoryId || item.sourceBunchEntryId === entry.id);
-          return inventory?.sourceType === "ESCANEO_ETIQUETA" && inventory.state !== "ANULADO" && entry.state !== "ANULADO";
-        });
-    const workday = getVisibleWorkday(store);
-    const sourceRows = scopeRowsToWorkday(allSourceRows, store, { workdayId: workday?.id || "" });
-    const rowDate = item => String(item.registeredAt || item.date || "").slice(0, 10);
-    const latestDate = workday?.date || sourceRows.map(rowDate).filter(Boolean).sort().at(-1) || new Date().toISOString().slice(0, 10);
-    const catalogType = isClassifier ? "classifiers" : "bunchers";
-    const catalogWorkers = (store.masterData?.[catalogType] || [])
-      .filter(item => item.active !== false)
-      .map(item => ({
-        worker: item.name,
-        employeeId: item.employee_id || item.employeeId || ""
-      }));
-    const fallbackWorkers = isClassifier ? (store.catalogs?.classifiers || []) : (store.catalogs?.bunchers || []);
-    const workers = catalogWorkers.length ? catalogWorkers : fallbackWorkers.map(worker => ({ worker, employeeId: "" }));
-    const grouped = new Map(workers.map(item => [item.employeeId || item.worker, {
-      worker: item.worker,
-      employeeId: item.employeeId,
-      employee_id: item.employeeId,
-      primary: 0,
-      stems: 0,
-      bunches: 0
-    }]));
-
-    sourceRows.filter(item => rowDate(item) === latestDate).forEach(item => {
-      const worker = String(isClassifier ? item.classifier : item.buncher || "SIN ASIGNAR").trim() || "SIN ASIGNAR";
-      const employeeId = String(isClassifier
-        ? item.classifier_employee_id || item.classifierEmployeeId || item.employee_id || item.employeeId
-        : item.buncher_employee_id || item.buncherEmployeeId || item.employee_id || item.employeeId || "").trim();
-      const key = employeeId || worker;
-      const current = grouped.get(key) || { worker, employeeId, employee_id: employeeId, primary: 0, stems: 0, bunches: 0 };
-      if (isClassifier) {
-        current.primary += parseNumber(item.meshCount);
-        current.stems += parseNumber(item.totalStems);
-        current.bunches += Math.round(parseNumber(item.totalStems) / 25);
-      } else {
-        current.primary += 1;
-        current.bunches += 1;
-        current.stems += parseNumber(item.stemsPerBunch);
-      }
-      grouped.set(key, current);
-    });
-
-    const dailyGoal = isClassifier
-      ? parseNumber(settings.classifierDailyGoal, 264)
-      : parseNumber(settings.buncherDailyGoal, 200);
-    const hourlyGoal = isClassifier
-      ? parseNumber(settings.classifierHourlyGoal, 33)
-      : parseNumber(settings.buncherHourlyGoal, 25);
-    const activeHours = workdayActiveHours(workday);
-    return {
-      date: latestDate,
-      mode,
-      dailyGoal,
-      hourlyGoal,
-      rows: [...grouped.values()]
-        .map(item => ({
-          ...item,
-          perHour: Number((item.primary / activeHours).toFixed(1)),
-          progress: dailyGoal ? Number(((item.primary / dailyGoal) * 100).toFixed(1)) : 0
-        }))
-        .sort((left, right) => right.perHour - left.perHour || right.primary - left.primary || left.worker.localeCompare(right.worker))
-        .map((item, index) => ({ ...item, position: index + 1 }))
-    };
+  function buildClassifierHourlyPerformance(store,options={}) {return canonicalHourly('CLASSIFIER',store,options);}
+  function buildBuncherHourlyPerformance(store,options={}) {return canonicalHourly('BUNCHER',store,options);}
+  function buildProductionScreenRanking(store,mode) {
+    const classifier=mode==='classifiers',dailyGoal=classifier?260:200,workday=getVisibleWorkday(store);
+    const source=canonicalItems(classifier?'CLASSIFIER':'BUNCHER',store),date=source.map(r=>r.date).sort().at(-1)||'';
+    const grouped=new Map();
+    for(const row of source.filter(r=>r.date===date)){
+      const key=row.employeeId;if(!key)continue;
+      const entry=grouped.get(key)||{worker:row.classifier,employeeId:key,employee_id:key,primary:0,stems:0,bunches:0};
+      entry.primary+=row.bunches;entry.bunches+=row.bunches;entry.stems+=row.totalStems;grouped.set(key,entry);
+    }
+    const hours=workdayActiveHours(workday);
+    return {date,mode,dailyGoal,hourlyGoal:dailyGoal/8,rows:[...grouped.values()].map(r=>({...r,
+      perHour:Number((r.primary/hours).toFixed(1)),progress:Number((r.primary/dailyGoal*100).toFixed(1))}))
+      .sort((a,b)=>b.primary-a.primary||a.employeeId.localeCompare(b.employeeId)).map((r,index)=>({...r,position:index+1}))};
   }
 
   function buildYieldSummary(store) {

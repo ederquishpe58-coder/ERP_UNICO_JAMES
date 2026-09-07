@@ -85,7 +85,8 @@
       "performancePolicyTable","policyAssignmentTable","policySnapshotTable"];
     if (result?.functionalCore !== "PAYROLL_GO_LIVE_20260907" || result?.okContract !== "PAYROLL_COMMAND_CONFIRMATION_V1"
       || !result?.ok || result.component !== "PAYROLL_CORE_V2" || result.migration !== "202608210003"
-      || result.performancePolicy !== "VERSIONED_MEASUREMENT_V2" || result.salaryImpact !== "NONE"
+      || result.performancePolicy !== "CANONICAL_PERIOD_EXCESS_V1" || result.salaryImpact !== "BASE_470_PLUS_PERIOD_EXCESS"
+      || result.performanceSource !== "OPERATIONS_PERFORMANCE_V2"
       || result.manualRoleValues !== true || result.serverTotals !== true || result.baseAdjustmentAudit !== true || result.performanceDetailsOnDemand !== true
       || required.some(key => result[key] !== true)) {
       return classifyHealthError({ code:"INCOMPLETE_BACKEND",message:"El backend de Nómina V2 está incompleto o desactualizado." },companyId);
