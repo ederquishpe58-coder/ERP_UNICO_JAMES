@@ -87,6 +87,7 @@
       || !result?.ok || result.component !== "PAYROLL_CORE_V2" || result.migration !== "202608210003"
       || result.performancePolicy !== "CANONICAL_PERIOD_EXCESS_V1" || result.salaryImpact !== "BASE_470_PLUS_PERIOD_EXCESS"
       || result.performanceSource !== "OPERATIONS_PERFORMANCE_V2"
+      || result.approvedRoleReplacement !== true
       || result.manualRoleValues !== true || result.serverTotals !== true || result.baseAdjustmentAudit !== true || result.performanceDetailsOnDemand !== true
       || required.some(key => result[key] !== true)) {
       return classifyHealthError({ code:"INCOMPLETE_BACKEND",message:"El backend de Nómina V2 está incompleto o desactualizado." },companyId);
@@ -179,6 +180,7 @@
     createPeriod:(payload,options={})=>command("erp_payroll_core_v2_create_period",{ p_year:Number(payload.year),p_month:Number(payload.month),p_date_from:payload.dateFrom,p_date_to:payload.dateTo,p_local_created_at:new Date().toISOString() },{...options,payloadContext:payload,source:"PAYROLL_V2_PERIOD"}),
     calculateRole:(periodId,payload,options={})=>command("erp_payroll_core_v2_calculate_role",{ p_period_id:periodId,p_payload:payload,p_expected_version:options.expectedVersion??null,p_local_created_at:new Date().toISOString() },{...options,payloadContext:payload,source:"PAYROLL_V2_ROLE_CALCULATE"}),
     approveRole:(roleId,version,options={})=>command("erp_payroll_core_v2_approve_role",{ p_role_id:roleId,p_expected_version:Number(version),p_local_created_at:new Date().toISOString() },{...options,source:"PAYROLL_V2_ROLE_APPROVE"}),
+    replaceRole:(roleId,version,reason,options={})=>command("erp_payroll_core_v2_replace_role",{ p_role_id:roleId,p_expected_version:Number(version),p_reason:String(reason||"").trim(),p_local_created_at:new Date().toISOString() },{...options,source:"PAYROLL_V2_ROLE_REPLACE"}),
     postRole:(roleId,version,accountingDate,options={})=>command("erp_payroll_core_v2_post_role",{ p_role_id:roleId,p_expected_version:Number(version),p_accounting_date:accountingDate||null,p_local_created_at:new Date().toISOString() },{...options,source:"PAYROLL_V2_ROLE_POST"}),
     saveAccountingSettings:(payload,options={})=>command("erp_payroll_core_v2_save_accounting_settings",{ p_payroll_payable_account_code:payload.payrollPayableAccountCode,p_deduction_account_code:payload.deductionAccountCode||"",p_cost_center:payload.costCenter||"",p_default_expense_account_code:payload.defaultExpenseAccountCode||"" },{...options,payloadContext:payload,source:"PAYROLL_V2_ACCOUNTING_SETTINGS"})
   });

@@ -71,6 +71,7 @@
     createPeriod:(value,options={})=>mutate("createPeriod",[value],options),
     calculateRole:(periodId,value,options={})=>known('periods','period_id',periodId)?mutate("calculateRole",[periodId,value],options):Promise.resolve(fail()),
     approveRole:(roleId,version,options={})=>known('roles','role_id',roleId)?mutate("approveRole",[roleId,version],options):Promise.resolve(fail()),
+    replaceRole:(roleId,version,reason,options={})=>known('roles','role_id',roleId)?mutate("replaceRole",[roleId,version,String(reason||"").trim()],options):Promise.resolve(fail()),
     postRole:(roleId,version,date,options={})=>known('roles','role_id',roleId)?mutate("postRole",[roleId,version,date],options):Promise.resolve(fail()),
     saveAccountingSettings:(value,options={})=>mutate("saveAccountingSettings",[value],options),
     async getPerformance(employeeId,periodId){

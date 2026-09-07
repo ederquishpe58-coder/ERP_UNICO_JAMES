@@ -1,7 +1,7 @@
 (function(){
   const erp=window.BlessERP=window.BlessERP||{},contract=()=>erp.payrollV2Contract;
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const status=v=>({DRAFT:'Borrador',CALCULATED:'Calculado · pendiente de aprobación',APPROVED:'Aprobado',POSTED:'Contabilizado'})[v]||v;
+  const status=v=>({DRAFT:'Borrador',CALCULATED:'Calculado · pendiente de aprobación',APPROVED:'Aprobado',POSTED:'Contabilizado',REPLACED:'Sustituido · histórico'})[v]||v;
   function validate(bundle){
     const {role,period,company}=bundle||{},c=contract();
     if(bundle?.ok!==true||bundle.contract!=='PAYROLL_PRINT_V1'||!role||!period||!company
@@ -54,7 +54,8 @@
     const header='<header><div><h1>'+esc(company.commercial_name||company.legal_name)+'</h1>'
       +(company.legal_name&&company.legal_name!==company.commercial_name?'<div>'+esc(company.legal_name)+'</div>':'')
       +'<div>RUC: '+esc(company.tax_id||'Sin RUC registrado')+'</div></div><div class="document"><h2>'+title+'</h2><div>'+esc(role.role_number)+'</div>'
-      +'<div>Período: '+esc(period.date_from)+' a '+esc(period.date_to)+'</div><div class="state">'+esc(status(role.status))+'</div></div></header>';
+      +'<div>Período: '+esc(period.date_from)+' a '+esc(period.date_to)+'</div><div class="state">'+esc(status(role.status))+'</div>'
+      +(role.status==='REPLACED'?'<div>Documento histórico · revisión '+esc(role.replacement_revision)+'</div>':'')+'</div></header>';
     const lineTable=(item,kind)=>{
       const priority=l=>['BASE_AMOUNT','SALARY'].includes(l.concept_code)?0:['ADDITIONAL_HOURS','OVERTIME'].includes(l.concept_code)?1:2;
       const lines=item.lines.filter(l=>l.line_kind===kind&&c.micros(l.amount)!==0n).sort((a,b)=>priority(a)-priority(b)||a.line_order-b.line_order);
@@ -94,8 +95,9 @@
         +'<div class="signatures"><div>RECIBÍ CONFORME / EMPLEADO</div><div>RESPONSABLE / EMPRESA</div></div><p class="signature-date">Fecha de firma: ____________________</p></section>';
     }
     if(role.notes)body+='<p class="note">Observación del período: '+esc(role.notes)+'</p>';
+    if(role.status==='REPLACED')body+='<p class="replacement"><strong>ROL SUSTITUIDO.</strong> Conservado para auditoría. Motivo: '+esc(role.replaced_reason||'No registrado')+'</p>';
     return '<!doctype html><html lang="es"><head><meta charset="utf-8"><title>'+esc(title+' '+role.role_number)+'</title><style>'
-      +'@page{size:A4 '+(summary?'landscape':'portrait')+';margin:12mm}*{box-sizing:border-box}body{margin:0;padding:0;background:#fff;color:#17212b;font:12px Arial,sans-serif}h1{font-size:20px;margin:0 0 5px}h2{font-size:16px;margin:0 0 6px}h3{font-size:13px;margin:20px 0 6px}header{display:flex;justify-content:space-between;gap:20px;border-bottom:2px solid #222;padding-bottom:12px;margin-bottom:20px}.document{text-align:right}.state{margin-top:7px}.employee-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px}table{width:100%;border-collapse:collapse}th,td{padding:8px 7px;border:1px solid #bdc3c7;text-align:left}thead,tfoot{background:#f0f2f3}thead{display:table-header-group}.num{text-align:right;white-space:nowrap}tr{break-inside:avoid}.net{display:flex;justify-content:space-between;padding:14px 8px;margin-top:18px;border-top:2px solid #222;border-bottom:2px solid #222;font-size:16px}.signatures{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:60px}.signatures div{border-top:1px solid #333;padding-top:8px;text-align:center;font-size:11px}.signature-date{margin-top:24px}.note{font-size:11px}.summary{font-size:11px}.summary td:first-child{min-width:150px}small{color:#444}'
+      +'@page{size:A4 '+(summary?'landscape':'portrait')+';margin:12mm}*{box-sizing:border-box}body{margin:0;padding:0;background:#fff;color:#17212b;font:12px Arial,sans-serif}h1{font-size:20px;margin:0 0 5px}h2{font-size:16px;margin:0 0 6px}h3{font-size:13px;margin:20px 0 6px}header{display:flex;justify-content:space-between;gap:20px;border-bottom:2px solid #222;padding-bottom:12px;margin-bottom:20px}.document{text-align:right}.state{margin-top:7px}.employee-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px}table{width:100%;border-collapse:collapse}th,td{padding:8px 7px;border:1px solid #bdc3c7;text-align:left}thead,tfoot{background:#f0f2f3}thead{display:table-header-group}.num{text-align:right;white-space:nowrap}tr{break-inside:avoid}.net{display:flex;justify-content:space-between;padding:14px 8px;margin-top:18px;border-top:2px solid #222;border-bottom:2px solid #222;font-size:16px}.signatures{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:60px}.signatures div{border-top:1px solid #333;padding-top:8px;text-align:center;font-size:11px}.signature-date{margin-top:24px}.note{font-size:11px}.replacement{margin-top:18px;padding:10px;border:2px solid #8a3d24;background:#fff5f1}.summary{font-size:11px}.summary td:first-child{min-width:150px}small{color:#444}'
       +'</style></head><body>'+header+body+'<p class="note">Los totales se redondean al final y pueden diferir de la suma de los valores mostrados.</p></body></html>';
   }
   async function print(roleId,itemId=''){
