@@ -27,6 +27,7 @@
         ||salary!==c.micros(item.summary?.salary)||overtime!==c.micros(item.summary?.overtime)||other!==c.micros(item.summary?.otherIncome)
         ||discount!==c.micros(item.summary?.otherDeductions))throw Error('PAYROLL_PRINT_TOTALS_INVALID');
       const p=item.performance_calculation_snapshot;
+      if(item.lines.some(l=>l.source_type==='PERFORMANCE_PERIOD_EXCESS')&&p?.contract!=='PAYROLL_PERIOD_EXCESS_470_V1')throw Error('PAYROLL_PRINT_PERFORMANCE_SNAPSHOT_REQUIRED');
       if(p?.contract==='PAYROLL_PERIOD_EXCESS_470_V1'){
         const daily=p.operationalRole==='CLASSIFIER'?260:p.operationalRole==='BUNCHER'?200:0;
         if(p.companyId!==role.company_id||p.employeeId!==item.employee_id||p.roleItemId!==item.role_item_id
@@ -60,8 +61,9 @@
       return '<table><thead><tr><th>Concepto</th><th>Descripción / observación</th><th class="num">Valor</th></tr></thead><tbody>'
         +(lines.map(l=>{
           const manual=['OTHER_INCOME','OTHER_DISCOUNTS','MANUAL_DISCOUNT'].includes(l.concept_code),hours=['OVERTIME','ADDITIONAL_HOURS'].includes(l.concept_code);
-          const description=[manual?l.concept_label:'',hours&&Number(l.quantity)?'Cantidad / referencia: '+l.quantity:'',l.line_notes||l.source_reference||''].filter(Boolean).join(' · ');
-          return '<tr><td>'+esc(c.labels[l.concept_code]||l.concept_label||l.concept_code)+'</td><td>'+esc(description)+'</td><td class="num">'+money(l.amount)+'</td></tr>';
+          const performance=l.source_type==='PERFORMANCE_PERIOD_EXCESS';
+          const description=[manual?l.concept_label:'',hours&&Number(l.quantity)?'Cantidad / referencia: '+l.quantity:'',l.line_notes||(!performance?l.source_reference:'')||''].filter(Boolean).join(' · ');
+          return '<tr><td>'+esc(performance?'Excedente de rendimiento':c.labels[l.concept_code]||l.concept_label||l.concept_code)+'</td><td>'+esc(description)+'</td><td class="num">'+money(l.amount)+'</td></tr>';
         }).join('')||'<tr><td colspan="3">Sin conceptos aplicados.</td></tr>')
         +'</tbody><tfoot><tr><th colspan="2">'+(kind==='EARNING'?'TOTAL INGRESOS':'TOTAL EGRESOS')+'</th><th class="num">'+money(kind==='EARNING'?item.total_income:item.total_discounts)+'</th></tr></tfoot></table>';
     };
