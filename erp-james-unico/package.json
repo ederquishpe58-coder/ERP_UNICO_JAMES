@@ -8,6 +8,12 @@
   "scripts": {
     "build": "node build.mjs",
     "build:standalone": "node build-standalone.mjs",
+    "validate:sri:dual-transport": "node validate-sri-dual-transport.cjs",
+    "validate:sri:dual-documents": "node validate-sri-dual-documents.cjs",
+    "validate:sri:dual-configuration": "node validate-sri-dual-configuration.cjs",
+    "validate:sri:dual-frontend": "node validate-sri-dual-frontend.cjs",
+    "validate:sri:dual-adversarial": "node validate-sri-dual-adversarial.cjs",
+    "validate:sri:safe-retry": "node validate-sri-safe-retry.cjs",
     "backup:online-snapshot": "node generate-local-online-snapshot.mjs",
     "validate": "node validate-project.mjs --operations",
     "validate:shell": "node validate-project.mjs",
@@ -148,6 +154,9 @@
     "validate:payroll-v2-sync": "node validate-payroll-v2-sync.mjs",
     "audit:sync-consolidation": "node audit-sync-consolidation.mjs",
     "validate:sync-consolidation": "node validate-sync-consolidation.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.110.7",

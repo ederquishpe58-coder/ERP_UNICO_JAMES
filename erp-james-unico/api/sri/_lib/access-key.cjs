@@ -1,8 +1,9 @@
 const { randomInt } = require("node:crypto");
 const { SriValidationError } = require("./errors.cjs");
+const { ENVIRONMENTS, requireEnvironment, environmentCode } = require("./environment.cjs");
 
 const DOCUMENT_TYPES = new Set(["01", "03", "04", "05", "06", "07"]);
-const ENVIRONMENT_CODES = Object.freeze({ TEST: "1", PRODUCTION: "2" });
+const ENVIRONMENT_CODES = Object.freeze(Object.fromEntries(Object.entries(ENVIRONMENTS).map(([name, config]) => [name, config.code])));
 
 function digits(value, length, label) {
   const normalized = String(value ?? "").trim();
@@ -55,9 +56,8 @@ function buildAccessKey(input = {}) {
   if (!DOCUMENT_TYPES.has(documentType)) {
     throw new SriValidationError("Tipo de comprobante SRI no permitido.");
   }
-  const environment = String(input.environment || "TEST").trim().toUpperCase();
-  const environmentCode = ENVIRONMENT_CODES[environment];
-  if (!environmentCode) throw new SriValidationError("Ambiente SRI no permitido.");
+  const environment = requireEnvironment(input.environment);
+  const code = environmentCode(environment);
 
   const sequentialNumber = Number(input.sequential);
   if (!Number.isSafeInteger(sequentialNumber) || sequentialNumber < 1 || sequentialNumber > 999999999) {
@@ -74,7 +74,7 @@ function buildAccessKey(input = {}) {
     formatIssueDate(input.issueDate),
     documentType,
     digits(input.ruc, 13, "El RUC"),
-    environmentCode,
+    code,
     digits(input.establishmentCode, 3, "El establecimiento"),
     digits(input.emissionPointCode, 3, "El punto de emision"),
     sequential,
@@ -92,13 +92,13 @@ function buildAccessKey(input = {}) {
     sequential,
     numericCode,
     environment,
-    environmentCode
+    environmentCode: code
   };
 }
 
 function validateAccessKey(value) {
-  const accessKey = String(value || "").trim();
-  if (!/^[0-9]{49}$/.test(accessKey)) return false;
+  const accessKey = value;
+  if (typeof accessKey !== "string" || accessKey.length !== 49 || !/^[0-9]{49}$/.test(accessKey)) return false;
   return modulo11(accessKey.slice(0, 48)) === Number(accessKey[48]);
 }
 

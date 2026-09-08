@@ -23,8 +23,8 @@
   function resolveEmissionPoint(configuration = {}, context = {}) {
     const companyId = String(context.companyId || "").trim();
     const settings = configuration.settings || {};
-    const environment = String(settings.environment || "").toUpperCase();
-    if (!companyId || String(settings.company_id || "") !== companyId || environment !== "TEST") return null;
+    const environment = settings.environment;
+    if (!companyId || String(settings.company_id || "") !== companyId || !["TEST", "PRODUCTION"].includes(environment)) return null;
     const series = saleSeries(companyId, context.saleType, context.transportType);
     const matches = (configuration.emissionPoints || []).filter(point => (
       point.id && String(point.company_id || "") === companyId

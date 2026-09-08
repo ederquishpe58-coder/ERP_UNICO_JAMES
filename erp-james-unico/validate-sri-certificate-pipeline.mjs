@@ -15,6 +15,11 @@ const logs=[],checks=[],trace=[];
 let auth=true,capability=true,membership=true,allowWrites=false,xadesFailure=false,xsdFailure=false;
 let dbWrites=0,storageWrites=0,storageReads=0,networkCalls=0,stored=null,storedBytes=null;
 let document=null,unsignedXml='';
+function unsignedArtifact(){
+ const content_sha256=crypto.createHash('sha256').update(unsignedXml).digest('hex');
+ return {id:'fixture-file',company_id:document.company_id,document_id:document.id,file_type:'UNSIGNED_XML',storage_bucket:'sri-private',
+  content_sha256,storage_object_path:`companies/${document.company_id}/documents/${document.id}/unsigned_xml-${content_sha256}.xml`};
+}
 const signatureModule=require('./api/sri/_lib/xades-signer.cjs'),originalSign=signatureModule.signXadesBes;
 const xsdModule=require('./api/sri/_lib/xsd-validator.cjs'),originalXsd=xsdModule.assertOfficialXsd;
 signatureModule.signXadesBes=async options=>{if(xadesFailure)throw Error('PRIVATE_KEY_SENTINEL');return originalSign(options);};
@@ -34,7 +39,7 @@ const client={
    if(table==='sri_settings')return [{company_id:c.id,ruc:c.tax_id,environment:'TEST',test_enabled:true,production_enabled:false}];
    if(table==='digital_certificates')return stored?[stored]:[];
    if(table==='electronic_documents')return document?[document]:[];
-   if(table==='electronic_document_files')return unsignedXml?[{id:'fixture-file',document_id:document?.id,file_type:'UNSIGNED_XML',storage_bucket:'sri-private',storage_object_path:'fixture-unsigned.xml'}]:[];
+   if(table==='electronic_document_files')return unsignedXml?[unsignedArtifact()]:[];
    return [];
   };
   const q={select(){return q;},eq(k,v){where[k]=v;return q;},order(){return q;},limit(){return q;},
@@ -43,7 +48,7 @@ const client={
  },
  storage:{from(bucket){assert.equal(bucket,'sri-private');return {
   async upload(objectPath,bytes){recordWrite('STORAGE_WRITE');assert.ok(trace.lastIndexOf('VALIDATE_PKCS12')>=0);assert.ok(Buffer.isBuffer(bytes));assert.match(objectPath,/^companies\/[a-f0-9-]+\/certificates\/[a-f0-9]{64}\.p12$/);return {data:{path:objectPath},error:null};},
-  async download(objectPath){storageReads++;const data=objectPath==='fixture-unsigned.xml'?Buffer.from(unsignedXml):storedBytes;assert.ok(data);return {data:new Blob([data]),error:null};}
+  async download(objectPath){storageReads++;const data=unsignedXml&&objectPath===unsignedArtifact().storage_object_path?Buffer.from(unsignedXml):storedBytes;assert.ok(data);return {data:new Blob([data]),error:null};}
  };}},
  async rpc(){recordWrite('DB_WRITE');throw Error('MUTABLE_RPC_NOT_ALLOWED');}
 };
@@ -118,9 +123,17 @@ try{
   assert.equal(r.ok,true);assert.equal(r.data.subject_ruc,companies[B].tax_id);assert.equal(r.data.password_secret_name,'SRI_P12_PASSWORD_BLESS');
   assert.ok(trace.indexOf('VALIDATE_PKCS12')<trace.indexOf('STORAGE_WRITE'));assert.equal(storageWrites-before.storageWrites,1);assert.equal(dbWrites-before.dbWrites,2);
   checks.push({name:'Actual valid upload proceeds only after shared validation; simulated client only',result:'PASS',simulatedStorageCalls:1,simulatedDbCalls:2,remoteWrites:0});}
- document={id:crypto.randomUUID(),company_id:B,document_type:'01',status:'XML_GENERADO',environment:'TEST'};
  const payload=dry.dryRunFixture(companies[B],'01','LOCAL');unsignedXml=buildDocumentXml('01',payload);
- const rowFor=(f,id=B)=>({id:crypto.randomUUID(),company_id:id,active:true,storage_bucket:'sri-private',storage_object_path:'companies/'+id+'/certificates/'+f.fingerprint+'.p12',fingerprint_sha256:f.fingerprint,password_secret_name:id===B?'SRI_P12_PASSWORD_BLESS':'SRI_P12_PASSWORD_IMPERIO'});
+ const fiscal=payload.document;
+ // Persisted fixture identity must match its XML before certificate-specific guards run.
+ document={id:crypto.randomUUID(),company_id:B,document_type:'01',status:'XML_GENERADO',environment:'TEST',
+  access_key:fiscal.accessKey,issue_date:fiscal.issueDate,xml_version:fiscal.version,emission_point_id:crypto.randomUUID(),
+  establishment_code:fiscal.establishmentCode,emission_point_code:fiscal.emissionPointCode,sequential:Number(fiscal.sequential),
+  sequential_text:fiscal.sequential,numeric_code:fiscal.accessKey.slice(39,47),emission_type:fiscal.emissionType,
+  issuer_snapshot:structuredClone(fiscal.issuer),buyer_snapshot:structuredClone(payload.buyer),source_snapshot:structuredClone(payload)};
+ require('./api/sri/_lib/xml-identity.cjs').assertDocumentXmlIdentity(document,unsignedXml,{expectedRuc:companies[B].tax_id});
+ const rowFor=(f,id=B)=>({id:crypto.randomUUID(),company_id:id,active:true,storage_bucket:'sri-private',storage_object_path:'companies/'+id+'/certificates/'+f.fingerprint+'.p12',fingerprint_sha256:f.fingerprint,password_secret_name:id===B?'SRI_P12_PASSWORD_BLESS':'SRI_P12_PASSWORD_IMPERIO',
+  validation_status:'VALID',subject_ruc:companies[id].tax_id,valid_from:'2025-01-01T00:00:00.000Z',valid_until:'2031-01-01T00:00:00.000Z',last_validated_at:new Date().toISOString()});
  await zeroTest('Actual sign rejects stored certificate row from another company before document mutation',async()=>{stored=rowFor(imperio,I);storedBytes=imperio.bytes;await assert.rejects(signDocument(client,B,document.id,'fixture-user'),/empresa/);});
  await zeroTest('Actual sign rejects foreign Storage path/secret even when row company matches',async()=>{
   stored=rowFor(bless);stored.storage_object_path=stored.storage_object_path.replace(B,I);storedBytes=bless.bytes;await assert.rejects(signDocument(client,B,document.id,'fixture-user'));

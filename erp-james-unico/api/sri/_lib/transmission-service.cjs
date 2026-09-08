@@ -4,9 +4,12 @@ const { generateAccountingForDocument } = require("./accounting-service.cjs");
 const { loadArtifact, sha256, storeArtifact } = require("./artifact-store.cjs");
 const { dbError, getDocumentDetail, transition } = require("./document-service.cjs");
 const { SriError, SriTransportError, SriValidationError } = require("./errors.cjs");
+const { validateAccessKey } = require("./access-key.cjs");
+const { assertEnvironmentEnabled, assertDocumentEnvironment, environmentCode, authorizationEnvironmentLabel, endpointFor } = require("./environment.cjs");
+const { assertCanonicalDocumentIdentity, assertDocumentXmlIdentity } = require("./xml-identity.cjs");
 const { generateRidePdf } = require("./ride.cjs");
 const { diagnosticMessage, recoveryPolicy } = require("./recovery-policy.cjs");
-const { TEST_ENDPOINTS, queryAuthorization, sendForReception } = require("./sri-soap.cjs");
+const { queryAuthorization, sendForReception } = require("./sri-soap.cjs");
 const { UNCERTAIN, DEFINITE, safeText, nativeDiagnostic } = require("./transport-diagnostic.cjs");
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -23,9 +26,10 @@ function canonicalText(value) {
 
 function accessKeyIdentity(accessKey) {
   const value = canonicalText(accessKey);
-  if (!/^\d{49}$/.test(value)) return null;
+  if (!validateAccessKey(value)) return null;
   return {
     accessKey: value,
+    environmentCode: value[23],
     documentType: value.slice(8, 10),
     ruc: value.slice(10, 23),
     establishment: value.slice(24, 27),
@@ -47,6 +51,7 @@ function authorizedXmlIdentity(xml) {
   if (!info || typeof info !== "object") return { parseError: "SRI_AUTHORIZED_XML_IDENTITY_NOT_FOUND" };
   return {
     accessKey: canonicalText(info.claveAcceso),
+    environmentCode: canonicalText(info.ambiente),
     documentType: canonicalText(info.codDoc),
     ruc: canonicalText(info.ruc),
     establishment: canonicalText(info.estab),
@@ -56,9 +61,11 @@ function authorizedXmlIdentity(xml) {
 }
 
 function validateAuthorizationIdentity(document, result) {
+  const environment = assertDocumentEnvironment(document);
   const sequentialText = canonicalText(document.sequential_text);
   const expected = {
     accessKey: canonicalText(document.access_key),
+    environmentCode: environmentCode(environment),
     documentType: canonicalText(document.document_type),
     ruc: canonicalText(document.issuer_snapshot?.ruc),
     establishment: canonicalText(document.establishment_code),
@@ -74,12 +81,25 @@ function validateAuthorizationIdentity(document, result) {
   };
 
   compare("authorization_response", "accessKey", canonicalText(result.accessKey));
+  if ((result.authorized || result.state === "AUTORIZADO")
+      && (typeof result.authorizationNumber !== "string"
+        || result.authorizationNumber !== document.access_key
+        || !validateAccessKey(result.authorizationNumber))) {
+    mismatches.push({ source: "authorization_response", field: "authorizationNumber", expected: "SAME_VALID_ACCESS_KEY", actual: "INVALID_AUTHORIZATION_NUMBER" });
+  }
   if (!responseIdentity) {
     mismatches.push({ source: "authorization_response", field: "accessKeyFormat", expected: "49_DIGITS", actual: canonicalText(result.accessKey) || null });
   } else {
-    ["documentType", "ruc", "establishment", "emissionPoint", "sequential"].forEach(field => {
+    ["environmentCode", "documentType", "ruc", "establishment", "emissionPoint", "sequential"].forEach(field => {
       compare("authorization_access_key", field, responseIdentity[field]);
     });
+  }
+
+  const reportedEnvironment = canonicalText(result.environment).toUpperCase();
+  const acceptedLabels = environment === "TEST" ? ["PRUEBAS", "TEST", "1"] : ["PRODUCCION", "PRODUCCIÓN", "PRODUCTION", "2"];
+  if ((result.authorized || ["NO AUTORIZADO", "NO_AUTORIZADO"].includes(result.state) || reportedEnvironment)
+      && !acceptedLabels.includes(reportedEnvironment)) {
+    mismatches.push({ source: "authorization_response", field: "environment", expected: authorizationEnvironmentLabel(environment), actual: safeText(reportedEnvironment) || null });
   }
 
   if (canonicalText(result.authorizedXml)) {
@@ -87,10 +107,14 @@ function validateAuthorizationIdentity(document, result) {
     if (xmlIdentity?.parseError) {
       mismatches.push({ source: "authorized_xml", field: "identity", expected: "VALID_CANONICAL_IDENTITY", actual: xmlIdentity.parseError });
     } else {
-      ["accessKey", "documentType", "ruc", "establishment", "emissionPoint", "sequential"].forEach(field => {
+      ["accessKey", "environmentCode", "documentType", "ruc", "establishment", "emissionPoint", "sequential"].forEach(field => {
         compare("authorized_xml", field, xmlIdentity?.[field]);
       });
     }
+    try { assertDocumentXmlIdentity(document, result.authorizedXml); }
+    catch { mismatches.push({ source: "authorized_xml", field: "identity", expected: "VALID_CANONICAL_IDENTITY", actual: "INVALID_CANONICAL_IDENTITY" }); }
+  } else if (result.authorized) {
+    mismatches.push({ source: "authorized_xml", field: "identity", expected: "VALID_CANONICAL_IDENTITY", actual: null });
   }
 
   if (mismatches.length) {
@@ -117,19 +141,84 @@ function retryDelaySeconds(settings, attemptNumber) {
   return Math.min(maximum, initial * (2 ** Math.max(0, Number(attemptNumber || 1) - 1)));
 }
 
-async function settingsFor(client, companyId) {
+async function settingsFor(client, companyId, document) {
   const settings = dbError(await client.from("sri_settings").select("*")
     .eq("company_id", companyId).single(), "Configuracion SRI");
-  if (settings.environment !== "TEST" || settings.production_enabled || settings.test_enabled !== true) {
-    throw new SriValidationError("La transmision SRI esta restringida al ambiente de pruebas.");
-  }
+  if (document?.company_id !== companyId) throw new SriValidationError("El comprobante no pertenece a la empresa solicitada.");
+  validateTransportSettings(settings, document);
   return settings;
 }
 
+function validateTransportSettings(settings, document) {
+  const environment = assertDocumentEnvironment(document);
+  assertEnvironmentEnabled(settings, environment, document.company_id);
+  if (typeof settings.ruc !== "string" || !/^[0-9]{13}$/.test(settings.ruc) || settings.ruc.length !== 13) {
+    throw new SriValidationError("La configuracion requiere el RUC canonico de la empresa.");
+  }
+  assertCanonicalDocumentIdentity(document, { expectedRuc: settings.ruc });
+  if (environment === "TEST") {
+    for (const [field, type] of [["reception_test_url", "RECEPTION"], ["authorization_test_url", "AUTHORIZATION_QUERY"]]) {
+      if (settings[field] != null && settings[field] !== endpointFor(environment, type)) {
+        throw new SriValidationError("La configuracion contiene un endpoint distinto del servicio oficial del ambiente.");
+      }
+    }
+  }
+  return environment;
+}
+
+function assertJobIdentity(job, document, transmissionType = job?.transmission_type, requestFileId = null) {
+  const environment = assertDocumentEnvironment(document);
+  if (!job || job.company_id !== document.company_id || job.document_id !== document.id
+      || job.environment !== environment || job.transmission_type !== transmissionType
+      || job.idempotency_key !== `${document.id}:${transmissionType}`
+      || job.endpoint_url !== endpointFor(environment, transmissionType)
+      || (requestFileId && job.request_file_id !== requestFileId)) {
+    throw new SriError("La identidad persistida de la transmision no corresponde al comprobante.", {
+      code: "SRI_TRANSMISSION_IDENTITY_MISMATCH", httpStatus: 409, retryable: false
+    });
+  }
+  return job;
+}
+
+function assertRetryJob(detail, selectedJob) {
+  if (!selectedJob) throw new SriValidationError("El trabajador SRI requiere una transmision persistida.");
+  const persisted = detail.transmissions.find(job => job.id === selectedJob.id);
+  assertJobIdentity(persisted, detail.document);
+  for (const field of ["company_id", "document_id", "environment", "transmission_type", "endpoint_url"]) {
+    if (persisted[field] !== selectedJob[field]) {
+      throw new SriValidationError("La transmision seleccionada por el trabajador cambio de identidad.");
+    }
+  }
+  const dueAt = new Date(persisted.next_attempt_at || "invalid").getTime();
+  if (!["PENDING", "RETRY_SCHEDULED"].includes(persisted.status)
+      || !(persisted.attempt_number < persisted.max_attempts)
+      || !Number.isFinite(dueAt) || dueAt > Date.now()) {
+    throw new SriTransportError("La transmision seleccionada ya no esta disponible para este reintento.", {
+      code: "SRI_TRANSMISSION_NOT_DUE", retryable: true
+    });
+  }
+  return persisted;
+}
+
+async function transportPreflight(client, settings, document, actorUserId) {
+  validateTransportSettings(settings, document);
+  const company = dbError(await client.from("companies").select("id, tax_id, is_active")
+    .eq("id", document.company_id).maybeSingle(), "Empresa canonica SRI");
+  if (company?.id !== document.company_id || company.is_active !== true || company.tax_id !== settings.ruc) {
+    throw new SriValidationError("La transmision requiere una empresa activa y su RUC canonico.");
+  }
+  if (!actorUserId) throw new SriValidationError("La transmision requiere un actor autorizado de la empresa.");
+  const allowed = dbError(await client.rpc("erp_sri_assert_transport_actor", {
+    p_company_id: document.company_id, p_actor_user_id: actorUserId
+  }), "Autoridad canonica de transmision SRI");
+  if (allowed !== true) throw new SriError("El actor no tiene autorizacion vigente para transmitir comprobantes de esta empresa.", {
+    code: "SRI_TRANSPORT_ACTOR_DENIED", httpStatus: 403, retryable: false
+  });
+}
+
 async function ensureJob(client, document, settings, transmissionType, requestFileId = null) {
-  const endpoint = transmissionType === "RECEPTION"
-    ? (settings.reception_test_url || TEST_ENDPOINTS.reception)
-    : (settings.authorization_test_url || TEST_ENDPOINTS.authorization);
+  const environment = validateTransportSettings(settings, document);
+  const endpoint = endpointFor(environment, transmissionType);
   const idempotencyKey = `${document.id}:${transmissionType}`;
   let job = dbError(await client.from("sri_transmissions").select("*")
     .eq("idempotency_key", idempotencyKey).maybeSingle(), "Busqueda de transmision");
@@ -138,7 +227,7 @@ async function ensureJob(client, document, settings, transmissionType, requestFi
       company_id: document.company_id,
       document_id: document.id,
       transmission_type: transmissionType,
-      environment: "TEST",
+      environment,
       endpoint_url: endpoint,
       status: "PENDING",
       idempotency_key: idempotencyKey,
@@ -148,7 +237,7 @@ async function ensureJob(client, document, settings, transmissionType, requestFi
       next_attempt_at: new Date().toISOString()
     }).select().single(), "Creacion de transmision");
   }
-  return job;
+  return assertJobIdentity(job, document, transmissionType, requestFileId);
 }
 
 async function claimJob(client, job, force = false) {
@@ -291,7 +380,7 @@ async function scheduleFailure(client, settings, document, job, attempt, error, 
   const httpStatus = transport.httpStatus || null;
   // The existing audit JSON contract stores bounded technical evidence separately
   // from the human message; no schema or fiscal document identity changes.
-  const diagnostic = { ...transport, workflowResultState: resultState, nextAction: uncertain ? "AUTHORIZATION_LOOKUP_FIRST" : "RETRY_TRANSMISSION", serviceCode: safeText(error.code || error.name), reason: safeText(error.details?.reason || error.message) };
+  const diagnostic = { ...transport, environment: document.environment, workflowResultState: resultState, nextAction: uncertain ? "AUTHORIZATION_LOOKUP_FIRST" : "RETRY_TRANSMISSION", serviceCode: safeText(error.code || error.name), reason: safeText(error.details?.reason || error.message) };
   error.details = { ...error.details, transport: diagnostic };
   console.error("[sri-transport] failure", JSON.stringify({ documentId: document.id, attemptId: attempt.id, phase: job.transmission_type, transport: diagnostic }));
   const exhausted = job.attempt_number >= job.max_attempts;
@@ -362,6 +451,7 @@ async function normalizeTechnicalRecoveryStatus(client, document, actorUserId) {
 }
 
 async function processAuthorization(client, settings, document, actorUserId, options = {}) {
+  await transportPreflight(client, settings, document, actorUserId);
   let current = document;
   const recoveryQuery = options.recoveryQuery === true;
   const recoverySourceStatus = ["DEVUELTO", "NO_AUTORIZADO"].includes(current.status);
@@ -373,9 +463,11 @@ async function processAuthorization(client, settings, document, actorUserId, opt
   let job = await ensureJob(client, current, settings, "AUTHORIZATION_QUERY");
   if (job.status === "COMPLETED") return getDocumentDetail(client, current.company_id, current.id);
   job = await claimJob(client, job, options.force);
+  assertJobIdentity(job, current, "AUTHORIZATION_QUERY");
   const attempt = await beginAttempt(client, job, sha256(current.access_key));
   try {
     const result = await queryAuthorization(current.access_key, {
+      environment: current.environment,
       endpoint: job.endpoint_url,
       timeoutMs: options.timeoutMs,
       fetchImpl: options.fetchImpl
@@ -403,7 +495,7 @@ async function processAuthorization(client, settings, document, actorUserId, opt
         p_authorization_status: "AUTORIZADO",
         p_authorization_number: result.authorizationNumber,
         p_authorization_date: result.authorizationDate,
-        p_environment: result.environment || "PRUEBAS",
+        p_environment: authorizationEnvironmentLabel(current.environment),
         p_authorized_xml: result.authorizedXml,
         p_actor_user_id: actorUserId
       }), "Autorizacion oficial SRI");
@@ -420,7 +512,7 @@ async function processAuthorization(client, settings, document, actorUserId, opt
         p_authorization_status: "NO AUTORIZADO",
         p_authorization_number: "",
         p_authorization_date: null,
-        p_environment: result.environment || "PRUEBAS",
+        p_environment: authorizationEnvironmentLabel(current.environment),
         p_authorized_xml: null,
         p_actor_user_id: actorUserId
       }), "Respuesta NO AUTORIZADO");
@@ -447,7 +539,26 @@ async function processAuthorization(client, settings, document, actorUserId, opt
 }
 
 async function processReception(client, settings, document, actorUserId, options = {}) {
+  await transportPreflight(client, settings, document, actorUserId);
   let current = document;
+  if (!["FIRMADO", "PENDIENTE_REINTENTO", "ERROR_ENVIO", "ENVIADO_SRI"].includes(current.status)) {
+    throw new SriValidationError(`No se puede transmitir recepcion desde ${current.status}.`);
+  }
+  const signed = await loadArtifact(client, current.id, "SIGNED_XML");
+  if (signed.file.company_id !== current.company_id || signed.file.document_id !== current.id
+      || signed.file.file_type !== "SIGNED_XML" || signed.file.storage_bucket !== "sri-private"
+      || signed.file.storage_object_path !== `companies/${current.company_id}/documents/${current.id}/signed_xml-${signed.file.content_sha256}.xml`
+      || sha256(signed.buffer) !== signed.file.content_sha256) {
+    throw new SriValidationError("El XML firmado almacenado no corresponde al comprobante o a su huella canonica.");
+  }
+  const signedXml = signed.buffer.toString("utf8");
+  assertDocumentXmlIdentity(current, signedXml, { expectedRuc: settings.ruc });
+  // Validate existing immutable transport identity before changing document state.
+  let job = await ensureJob(client, current, settings, "RECEPTION", signed.file.id);
+  if (job.status === "COMPLETED") {
+    const refreshed = dbError(await client.from("electronic_documents").select("*").eq("id", current.id).eq("company_id", current.company_id).single(), "Comprobante recibido");
+    return processAuthorization(client, settings, refreshed, actorUserId, options);
+  }
   if (current.status === "ERROR_ENVIO") {
     current = await transition(client, current, "PENDIENTE_REINTENTO", actorUserId, "Reintento manual habilitado");
   }
@@ -457,17 +568,13 @@ async function processReception(client, settings, document, actorUserId, options
   if (current.status !== "ENVIADO_SRI") {
     throw new SriValidationError(`No se puede transmitir recepcion desde ${current.status}.`);
   }
-  const signed = await loadArtifact(client, current.id, "SIGNED_XML");
-  let job = await ensureJob(client, current, settings, "RECEPTION", signed.file.id);
-  if (job.status === "COMPLETED") {
-    const refreshed = dbError(await client.from("electronic_documents").select("*").eq("id", current.id).single(), "Comprobante recibido");
-    return processAuthorization(client, settings, refreshed, actorUserId, options);
-  }
   job = await claimJob(client, job, options.force);
-  const signedXml = signed.buffer.toString("utf8");
+  assertJobIdentity(job, current, "RECEPTION", signed.file.id);
   const attempt = await beginAttempt(client, job, sha256(signedXml));
   try {
     const result = await sendForReception(signedXml, {
+      document: current,
+      environment: current.environment,
       endpoint: job.endpoint_url,
       timeoutMs: options.timeoutMs,
       fetchImpl: options.fetchImpl
@@ -510,9 +617,17 @@ async function processReception(client, settings, document, actorUserId, options
 async function transmitDocument(client, companyId, documentId, actorUserId, options = {}) {
   const detail = await getDocumentDetail(client, companyId, documentId);
   const document = detail.document;
+  if (document?.company_id !== companyId || document?.id !== documentId) throw new SriValidationError("El comprobante no pertenece a la empresa solicitada.");
+  for (const job of detail.transmissions) assertJobIdentity(job, document);
+  if (options.retryJob || !actorUserId) {
+    assertRetryJob(detail, options.retryJob);
+    // The service worker rechecks the persisted creator's current membership and
+    // canonical capability. A revoked creator never becomes an anonymous bypass.
+    actorUserId = document.created_by;
+  }
   const policy = recoveryPolicy(detail);
   if (policy.action === "QUERY_AUTHORIZATION") {
-    const settings = await settingsFor(client, companyId);
+    const settings = await settingsFor(client, companyId, document);
     return processAuthorization(client, settings, document, actorUserId, {
       ...options,
       force: options.force === true,
@@ -520,7 +635,7 @@ async function transmitDocument(client, companyId, documentId, actorUserId, opti
     });
   }
   if (["AUTORIZADO", "NO_AUTORIZADO", "DEVUELTO", "ANULADO"].includes(document.status)) return detail;
-  const settings = await settingsFor(client, companyId);
+  const settings = await settingsFor(client, companyId, document);
   const authorizationJob = detail.transmissions.find(job =>
     job.transmission_type === "AUTHORIZATION_QUERY" && ["PENDING", "PROCESSING", "RETRY_SCHEDULED"].includes(job.status)
   );
@@ -532,11 +647,12 @@ async function transmitDocument(client, companyId, documentId, actorUserId, opti
 
 async function queryDocumentStatus(client, companyId, documentId, actorUserId, options = {}) {
   const detail = await getDocumentDetail(client, companyId, documentId);
+  for (const job of detail.transmissions) assertJobIdentity(job, detail.document);
   const policy = recoveryPolicy(detail);
   if (policy.action !== "QUERY_AUTHORIZATION") {
     throw new SriValidationError(policy.reason || "El comprobante no admite consulta de recuperación.");
   }
-  const settings = await settingsFor(client, companyId);
+  const settings = await settingsFor(client, companyId, detail.document);
   return processAuthorization(client, settings, detail.document, actorUserId, {
     ...options,
     force: true,
@@ -565,6 +681,10 @@ async function prepareDocumentCorrection(client, companyId, documentId, actorUse
 module.exports = {
   retryDelaySeconds,
   settingsFor,
+  validateTransportSettings,
+  assertJobIdentity,
+  assertRetryJob,
+  transportPreflight,
   ensureJob,
   claimJob,
   transmitDocument,

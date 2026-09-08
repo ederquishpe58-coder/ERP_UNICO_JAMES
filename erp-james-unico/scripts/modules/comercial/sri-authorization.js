@@ -686,13 +686,27 @@
 
   function technicalReadiness() {
     return ui.configuration?.readiness || {
-      readyForXml: true,
+      readyForXml: false,
       readyForSignature: false,
-      blockers: [],
+      blockers: ["Falta cargar la configuracion canonica SRI."],
       signatureBlockers: ["Falta integrar un certificado P12/PFX activo."],
       warnings: [],
         baseline: { technicalSpecVersion: "2.34", technicalSpecDate: "2026-07-27", invoiceXmlVersion: "1.1.0", withholdingXmlVersion: "2.0.0" }
     };
+  }
+
+  function selectedEnvironmentLabel() {
+    try { return BlessERP.sriApi.environmentDefinition(ui.configuration?.settings?.environment).label; }
+    catch { return "SIN CONFIGURAR"; }
+  }
+
+  function currentEnvironmentPoints() {
+    const settings = ui.configuration?.settings;
+    const company = BlessERP.sriApi?.activeCompany?.();
+    if (!settings || company?.key !== ui.companyKey || !company.companyId || settings.company_id !== company.companyId
+      || !["TEST", "PRODUCTION"].includes(settings.environment)) return [];
+    return (ui.configuration?.emissionPoints || []).filter(point => point.active === true
+      && point.company_id === company.companyId && point.environment === settings.environment);
   }
 
   function renderReadiness() {
@@ -707,7 +721,7 @@
         </div>
         <div class="sri-parameter-grid">
             <div><span>Ficha tecnica</span><strong>${utils.esc(baseline.technicalSpecVersion || "2.34")}</strong><small>${utils.esc(baseline.technicalSpecDate || "2026-07-27")}</small></div>
-          <div><span>Ambiente</span><strong>PRUEBAS</strong><small>Produccion bloqueada</small></div>
+          <div><span>Ambiente</span><strong>${utils.esc(selectedEnvironmentLabel())}</strong><small>Configuracion canonica por empresa</small></div>
           <div><span>Factura exportacion</span><strong>XML ${utils.esc(baseline.invoiceXmlVersion || "1.1.0")}</strong><small>XSD oficial versionado</small></div>
           <div><span>Firma</span><strong>XAdES-BES 1.3.2</strong><small>Enveloped, UTF-8, RSA-SHA1</small></div>
           <div><span>Certificado</span><strong>PKCS12</strong><small>P12/PFX solo en backend privado</small></div>
@@ -725,16 +739,14 @@
       ? api?.validateCompanyConfiguration?.(ui.configuration, ui.companyKey)
       : null;
     const point = activeEmissionPoint() || validation?.activePoint;
-    const points = (ui.configuration?.emissionPoints || []).filter(item => (
-      item.active !== false && String(item.environment || "TEST").toUpperCase() === "TEST"
-    ));
+    const points = currentEnvironmentPoints();
     const signer = validation?.signer || null;
     return `
       <section class="panel-card sri-readiness-panel" aria-label="Empresa emisora SRI">
         <div class="sri-readiness-head">
           <div><p class="section-kicker">EMPRESA EMISORA</p><h2>${utils.esc(company.commercialName || "Empresa no seleccionada")}</h2></div>
           <div class="table-actions-inline">
-            <span class="status-badge authorized">AMBIENTE 1 · PRUEBAS</span>
+            <span class="status-badge ${validation?.readyForInvoice ? "authorized" : "pending"}">AMBIENTE ${utils.esc(company.environmentCode || "-")} · ${utils.esc(selectedEnvironmentLabel())}</span>
             <span class="status-badge ${validation?.readyForSignature ? "authorized" : "pending"}">${validation?.readyForSignature ? "Firmante validado" : "Firma pendiente"}</span>
           </div>
         </div>
@@ -854,12 +866,12 @@
         : "Consulte nuevamente el detalle; el SRI rechazó el comprobante, pero no devolvió un mensaje descriptivo.";
     }
     if (["ERROR_ENVIO", "PENDIENTE_REINTENTO"].includes(normalized)) {
-      return "Revise conexión, certificado, ambiente y servicio SRI. Después use Procesar en pruebas para reintentar.";
+      return "Revise conexión, certificado, ambiente y servicio SRI. Después use Procesar en SRI para reintentar.";
     }
     if (["FIRMADO", "ENVIADO_SRI", "RECIBIDO_SRI"].includes(normalized)) {
-      return "Puede usar Procesar en pruebas para continuar o consultar nuevamente el estado sin crear otra factura.";
+      return "Puede usar Procesar en SRI para continuar o consultar nuevamente el estado sin crear otra factura.";
     }
-    return "Complete la etapa pendiente desde Procesar en pruebas.";
+    return "Complete la etapa pendiente desde Procesar en SRI.";
   }
 
   function renderSriDiagnosticModal() {
@@ -1012,7 +1024,7 @@
     }
     if (row.selectable) {
       return `<div class="table-actions-inline sri-file-actions">
-        <button class="sri-authorize-button" type="button" data-credit-process="${utils.esc(row.id)}" ${ui.processing ? "disabled" : ""}>Procesar en pruebas</button>
+        <button class="sri-authorize-button" type="button" data-credit-process="${utils.esc(row.id)}" ${ui.processing ? "disabled" : ""}>Procesar en SRI</button>
         ${renderSriDiagnosticButton(row)}
       </div>`;
     }
@@ -1042,7 +1054,7 @@
           <p>Correcciones totales o parciales vinculadas exclusivamente a facturas SRI autorizadas de ${utils.esc(activeCompany.commercialName || "la empresa activa")}.</p>
         </div>
         <div class="page-header-side">
-          <span class="status-badge ${connection.ready ? "authorized" : "partial"}">${connection.ready ? "SRI pruebas conectado" : "Preparación local"}</span>
+          <span class="status-badge ${connection.ready ? "authorized" : "partial"}">${connection.ready ? `SRI ${utils.esc(selectedEnvironmentLabel())} conectado` : "Preparación local"}</span>
           <button class="secondary-button" type="button" data-route-link="commercial-sri-authorization">Documentos SRI</button>
         </div>
       </section>
@@ -1082,7 +1094,7 @@
                     <td><button class="primary-button" type="button" data-credit-create="${utils.esc(row.remoteDocumentId)}" ${remaining > 0 && !ui.processing ? "" : "disabled"}>${remaining > 0 ? "Crear nota" : "Sin saldo"}</button></td>
                   </tr>
                 `;
-              }).join("") : `<tr><td colspan="8">${connection.ready ? "No existen facturas autorizadas para la búsqueda actual." : "Conecte el backend SRI de pruebas para consultar facturas autorizadas."}</td></tr>`}
+              }).join("") : `<tr><td colspan="8">${connection.ready ? "No existen facturas autorizadas para la búsqueda actual." : "Conecte el backend SRI para consultar facturas autorizadas."}</td></tr>`}
             </tbody>
           </table>
         </div>
@@ -1143,8 +1155,8 @@
     const statuses = ["TODOS", "PENDIENTE", "PENDIENTE_CONFIGURACION", "BORRADOR_LOCAL", "BORRADOR", "VALIDADO", "XML_GENERADO", "FIRMADO", "ENVIADO_SRI", "RECIBIDO_SRI", "AUTORIZADO", "DEVUELTO", "NO_AUTORIZADO", "ERROR_ENVIO", "PENDIENTE_REINTENTO", "ANULADO"];
     return `
       <section class="page-header compact-page-header">
-        <div><p class="section-kicker">COMERCIAL / EXPORTACIONES</p><h1>Documentos electronicos SRI</h1><p>Facturacion separada de ${utils.esc(activeCompany.commercialName || "la empresa")} en ambiente de pruebas.</p></div>
-        <div class="page-header-side"><span class="status-badge ${connection.ready ? "authorized" : "partial"}">${connection.ready ? "SRI pruebas conectado" : "Preparacion local"}</span></div>
+        <div><p class="section-kicker">COMERCIAL / EXPORTACIONES</p><h1>Documentos electronicos SRI</h1><p>Facturacion separada de ${utils.esc(activeCompany.commercialName || "la empresa")} en ambiente ${utils.esc(selectedEnvironmentLabel())}.</p></div>
+        <div class="page-header-side"><span class="status-badge ${connection.ready ? "authorized" : "partial"}">${connection.ready ? `SRI ${utils.esc(selectedEnvironmentLabel())} conectado` : "Preparacion local"}</span></div>
       </section>
       ${renderIssueMonthSelector()}
       ${!issueRange ? `<section class="panel-card"><div class="empty-state"><strong>Seleccione un mes</strong><span>No se consultarán ni cargarán documentos hasta elegir uno de los doce meses.</span></div></section>` : `
@@ -1581,8 +1593,7 @@
   }
 
   function activeEmissionPoint() {
-    const points = (ui.configuration?.emissionPoints || []).filter(point => point.active !== false
-      && String(point.environment || "TEST").toUpperCase() === "TEST");
+    const points = currentEnvironmentPoints();
     const selectedId = ui.emissionPointIdByCompany[ui.companyKey] || "";
     return points.find(point => String(point.id) === String(selectedId)) || points[0] || null;
   }
@@ -1680,7 +1691,7 @@
       ui.creditNoteDraft = {
         originalDocumentId: document.id,
         orderId: linkedRow?.orderId || source.originalOrderId || source.erpEmission?.sourceOrderId || "",
-        emissionPointId: document.emission_point_id || activeEmissionPoint()?.id || "",
+        emissionPointId: document.emission_point_id || "",
         fullNumber: document.full_number || "",
         issueDate: document.issue_date || "",
         customer: document.buyer_snapshot?.legalName || document.buyer_snapshot?.razonSocial || "Cliente",
@@ -1875,7 +1886,7 @@
       rerenderFor(container, appState, viewMode);
       const detail = await BlessERP.sriApi.post("create-draft", {
         documentType: "04",
-        emissionPointId: draft.emissionPointId || activeEmissionPoint()?.id,
+        emissionPointId: draft.emissionPointId,
         issueDate: ecuadorToday(),
         sourceOrderDate: draft.issueDate,
         parentDocumentId: draft.originalDocumentId,
@@ -1886,7 +1897,7 @@
       ui.creditNoteDraft = null;
       const issueRange = viewMode === "documents" ? selectedIssueMonthRange() : null;
       ui.remoteDocuments = await listCommercialSriDocuments(issueRange ? { from: issueRange.from, to: issueRange.to, limit: 200 } : { limit: 200 });
-      ui.batchMessage = "Borrador de nota de credito creado. Revise las variedades y cantidades; luego seleccionelo para procesarlo en SRI pruebas.";
+      ui.batchMessage = "Borrador de nota de credito creado. Revise las variedades y cantidades; luego seleccionelo para procesarlo en SRI.";
       ui.batchTone = "success";
     } catch (error) {
       ui.batchMessage = error.message || "No fue posible crear la nota de credito.";
@@ -1975,7 +1986,7 @@
       return;
     }
     if (!api?.status?.().ready) {
-      ui.batchMessage = "No se inicio la autorizacion. Active Supabase, autenticacion y el backend SRI de pruebas.";
+      ui.batchMessage = "No se inicio la autorizacion. Se requiere conexion y una sesion autenticada en el backend SRI.";
       ui.batchTone = "warning";
       rerenderFor(container, appState, viewMode);
       return;
@@ -1984,11 +1995,15 @@
     try {
       if (!ui.configuration) ui.configuration = await api.configuration();
       const readiness = technicalReadiness();
-      if (!readiness.readyForXml) throw new Error((readiness.blockers || []).join(" ") || "La configuracion XML/XSD esta incompleta.");
-      if (!readiness.readyForSignature) throw new Error((readiness.signatureBlockers || []).join(" ") || "Falta un certificado P12/PFX activo.");
+      const existingDocumentId = row => row.remoteDocumentId || localOrder(appState, row.orderId)?.sriRemoteDocumentId
+        || linkedRemoteDocument(localOrder(appState, row.orderId))?.id;
+      // The backend validates historical documents against their persisted environment.
+      const createsDocument = selected.some(row => !existingDocumentId(row));
+      if (createsDocument && !readiness.readyForXml) throw new Error((readiness.blockers || []).join(" ") || "La configuracion XML/XSD esta incompleta.");
+      if (createsDocument && !readiness.readyForSignature) throw new Error((readiness.signatureBlockers || []).join(" ") || "Falta un certificado P12/PFX activo.");
       const missingPoint = selected.find(row => {
         const order = localOrder(appState, row.orderId);
-        return order && row.sourceType !== "remote" && !emissionPointForOrder(order);
+        return order && !existingDocumentId(row) && !emissionPointForOrder(order);
       });
       if (missingPoint) {
         const order = localOrder(appState, missingPoint.orderId);
@@ -1997,7 +2012,7 @@
           order?.saleType || order?.sale_type,
           order?.transportType || order?.transport_type
         ) || {};
-        throw new Error(`No existe el punto de emision ${expected.establishment || "001"}-${expected.emissionPoint || "001"} activo en PRUEBAS para ${order?.number || "el pedido"}.`);
+        throw new Error(`No existe el punto de emision ${expected.establishment || "001"}-${expected.emissionPoint || "001"} activo en ${selectedEnvironmentLabel()} para ${order?.number || "el pedido"}.`);
       }
 
       const invalid = selected.flatMap(row => {
@@ -2010,7 +2025,13 @@
       });
       if (invalid.length) throw new Error(`Corrija los pedidos antes de emitir. ${invalid.join(" ")}`);
       const company = api.activeCompany?.() || {};
-      if (!window.confirm(`Se procesaran ${selected.length} comprobante(s) de ${company.commercialName || "la empresa"} exclusivamente en ambiente SRI de pruebas. Deseas continuar?`)) return;
+      const environments = [...new Set(selected.map(row => {
+        const documentId = existingDocumentId(row);
+        const document = ui.remoteDocuments.find(item => String(item.id) === String(documentId));
+        if (documentId && !document) throw new Error("Actualice la bandeja para verificar el ambiente del comprobante existente.");
+        return api.environmentDefinition(document ? document.environment : ui.configuration.settings.environment).label;
+      }))];
+      if (!window.confirm(`Se procesaran ${selected.length} comprobante(s) de ${company.commercialName || "la empresa"}. Ambiente SRI: ${environments.join(" / ")}. Cada documento conserva su ambiente. Deseas continuar?`)) return;
 
       ui.processing = true;
       ui.error = "";
@@ -2026,7 +2047,7 @@
         try {
           const order = localOrder(appState, row.orderId);
           const emissionPoint = order ? emissionPointForOrder(order) : activeEmissionPoint();
-          if (!emissionPoint) throw new Error("No existe un punto de emision SRI activo para PRUEBAS.");
+          if (!existingDocumentId(row) && !emissionPoint) throw new Error("No existe un punto de emision SRI activo para el ambiente seleccionado.");
           const detail = await processRow(appState, row, emissionPoint);
           const document = detail?.document || detail || {};
           ui.processErrors.delete(row.id);
@@ -2111,7 +2132,7 @@
       return;
     }
     if (!api?.status?.().ready) {
-      ui.batchMessage = "Active Supabase, autenticación y el backend SRI de pruebas para crear el borrador remoto.";
+      ui.batchMessage = "Se requiere conexion y una sesion autenticada en el backend SRI para crear el borrador remoto.";
       ui.batchTone = "warning";
       rerender(container, appState);
       return;
@@ -2120,7 +2141,7 @@
       ui.processing = true;
       if (!ui.configuration) ui.configuration = await api.configuration();
       const emissionPoint = activeEmissionPoint();
-      if (!emissionPoint) throw new Error("No existe un establecimiento y punto de emisión TEST activo para Bless Flower.");
+      if (!emissionPoint) throw new Error("No existe un establecimiento y punto de emision activo en el ambiente seleccionado para Bless Flower.");
       const draft = BlessERP.comercialIntercompany?.refreshSriDraft?.(appState, invoiceId);
       if (!draft?.ok) throw new Error((draft?.errors || ["No se pudo preparar el borrador."]).join(" "));
       if (!window.confirm("Se creará únicamente el BORRADOR SRI de la factura semanal Bless → Imperio. Todavía no se firmará ni enviará. ¿Continuar?")) return;

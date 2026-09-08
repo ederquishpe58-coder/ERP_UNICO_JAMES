@@ -1,6 +1,12 @@
 (function(){
   const BlessERP = window.BlessERP = window.BlessERP || {};
   const TEST_ENVIRONMENT = Object.freeze({ name: "TEST", code: "1", label: "PRUEBAS" });
+  const PRODUCTION_ENVIRONMENT = Object.freeze({ name: "PRODUCTION", code: "2", label: "PRODUCCION" });
+  function environmentDefinition(value) {
+    if (value === TEST_ENVIRONMENT.name) return TEST_ENVIRONMENT;
+    if (value === PRODUCTION_ENVIRONMENT.name) return PRODUCTION_ENVIRONMENT;
+    throw Object.assign(new Error("El ambiente SRI debe ser TEST o PRODUCTION."), { code: "SRI_ENVIRONMENT_INVALID" });
+  }
   const ACTIVE_COMPANY_SESSION_KEY = "erp-james-sri-active-company";
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const PROFILE_DEFINITIONS = Object.freeze([
@@ -12,8 +18,6 @@
       ruc: "1717637084001",
       habitualExporterLegend: "EXPORTADOR HABITUAL DE BIENES",
       deliveryGuidesEnabled: false,
-      environment: TEST_ENVIRONMENT.name,
-      environmentCode: TEST_ENVIRONMENT.code,
       defaultEstablishment: "001",
       defaultEmissionPoint: "003"
     }),
@@ -25,8 +29,6 @@
       ruc: "1727970137001",
       habitualExporterLegend: "",
       deliveryGuidesEnabled: false,
-      environment: TEST_ENVIRONMENT.name,
-      environmentCode: TEST_ENVIRONMENT.code,
       defaultEstablishment: "001",
       defaultEmissionPoint: "001"
     })
@@ -69,6 +71,8 @@
   function publicProfile(profile) {
     if (!profile) return null;
     const binding = runtimeBindings.get(profile.key) || {};
+    const configuredEnvironment = binding.configuration?.settings?.environment;
+    const environment = configuredEnvironment ? environmentDefinition(configuredEnvironment) : null;
     return {
       key: profile.key,
       legalName: profile.legalName,
@@ -76,8 +80,8 @@
       ruc: profile.ruc,
       habitualExporterLegend: profile.habitualExporterLegend,
       deliveryGuidesEnabled: profile.deliveryGuidesEnabled,
-      environment: profile.environment,
-      environmentCode: profile.environmentCode,
+      environment: environment?.name || null,
+      environmentCode: environment?.code || null,
       defaultEstablishment: profile.defaultEstablishment,
       defaultEmissionPoint: profile.defaultEmissionPoint,
       companyId: binding.companyId || "",
@@ -124,13 +128,15 @@
   function companyIdentity(companyKey = selectedCompanyKey) {
     const profile = profileDefinition(companyKey);
     if (!profile) throw new Error("La identidad tributaria solicitada no existe.");
+    const resolved = publicProfile(profile);
     return {
       key: profile.key,
       legalName: profile.legalName,
       commercialName: profile.commercialName,
       ruc: profile.ruc,
-      environment: TEST_ENVIRONMENT.name,
-      environmentCode: TEST_ENVIRONMENT.code
+      companyId: resolved.companyId,
+      environment: resolved.environment,
+      environmentCode: resolved.environmentCode
     };
   }
 
@@ -150,6 +156,7 @@
       // Connection readiness is not permission to emit. The server-owned flag
       // is per company; deployment-wide public flags are no longer its authority.
       testEnabled: runtimeBindings.get(selectedCompanyKey)?.configuration?.settings?.test_enabled === true,
+      productionEnabled: runtimeBindings.get(selectedCompanyKey)?.configuration?.settings?.production_enabled === true,
       env,
       supabaseStatus,
       activeCompany: activeCompany(),
@@ -227,6 +234,10 @@
     if (!profile) throw new Error("No existe el perfil tributario indicado.");
     if (!UUID_PATTERN.test(String(companyId || ""))) throw new Error("El company_id SRI debe ser un UUID valido.");
     const configuredRuc = String(configuration?.settings?.ruc || "");
+    if (configuration?.settings && String(configuration.settings.company_id || "") !== String(companyId)) {
+      throw Object.assign(new Error("La configuracion SRI pertenece a otra empresa."), { code: "SRI_SETTINGS_COMPANY_MISMATCH" });
+    }
+    if (configuration?.settings) environmentDefinition(configuration.settings.environment);
     if (configuredRuc && configuredRuc !== profile.ruc) {
       throw new Error(`La configuracion remota no corresponde a ${profile.commercialName}.`);
     }
@@ -287,11 +298,14 @@
   }
 
   async function api(path = "", options = {}) {
+    const requestedCompanyKey = selectedCompanyKey;
     const company = await ensureActiveCompany();
+    if (requestedCompanyKey !== company.key) throw Object.assign(new Error("La empresa cambio durante la solicitud SRI."), { code: "COMPANY_CHANGED" });
     let scopedPath = path;
     let scopedOptions = { ...options };
     if (String(options.method || "GET").toUpperCase() === "POST") {
       const sourceBody = typeof options.body === "string" && options.body ? JSON.parse(options.body) : (options.body || {});
+      if (sourceBody.companyId && sourceBody.companyId !== company.companyId) throw Object.assign(new Error("La solicitud SRI pertenece a otra empresa."), { code: "COMPANY_CHANGED" });
       scopedOptions = { ...options, body: JSON.stringify({ ...sourceBody, companyId: company.companyId }) };
     } else {
       scopedPath = `${path}${path.includes("?") ? "&" : "?"}companyId=${encodeURIComponent(company.companyId)}`;
@@ -307,10 +321,12 @@
     return api(query({ action: "detail", documentId }));
   }
 
-  async function configuration() {
+  async function configuration(environment) {
     const company = await ensureActiveCompany();
-    const value = await api(query({ action: "configuration" }));
-    runtimeBindings.set(company.key, { ...runtimeBindings.get(company.key), configuration: value });
+    if (environment !== undefined) environmentDefinition(environment);
+    const value = await rawApi(query({ action: "configuration", companyId: company.companyId, environment }));
+    if (company.key !== selectedCompanyKey) throw Object.assign(new Error("La empresa cambio durante la consulta SRI."), { code: "COMPANY_CHANGED" });
+    bindRuntimeCompany(company.key, company.companyId, value, company.roleCode);
     return value;
   }
 
@@ -613,8 +629,10 @@
 
   function validateSignerSelection(configuration = {}, companyKey = selectedCompanyKey, now = new Date()) {
     const profile = companyIdentity(companyKey);
-    const activeCertificates = (configuration.certificates || []).filter(certificate => certificate.active !== false);
-    const signer = activeCertificates.find(certificate => String(certificate.subject_ruc || "") === profile.ruc) || null;
+    const companyId = profile.companyId;
+    const activeCertificates = (configuration.certificates || []).filter(certificate => certificate.active === true
+      && companyId && certificate.company_id === companyId && String(certificate.subject_ruc || "") === profile.ruc);
+    const signer = activeCertificates.length === 1 ? activeCertificates[0] : null;
     const errors = [];
     if (!signer) errors.push(`No existe un certificado activo asociado a ${profile.commercialName}.`);
     if (signer && String(signer.validation_status || "") !== "VALID") errors.push("El certificado activo no tiene validacion vigente.");
@@ -641,12 +659,17 @@
     const settings = configuration.settings || {};
     const errors = [];
     if (String(settings.ruc || "") !== profile.ruc) errors.push("El RUC configurado no corresponde a la empresa seleccionada.");
-    if (String(settings.environment || "").toUpperCase() !== TEST_ENVIRONMENT.name) errors.push("La empresa debe permanecer en ambiente TEST.");
-    if (settings.production_enabled) errors.push("Produccion debe permanecer bloqueada.");
+    if (!profile.companyId || settings.company_id !== profile.companyId) errors.push("La configuracion SRI pertenece a otra empresa.");
+    let environment;
+    try { environment = environmentDefinition(configuration.selectedEnvironment || settings.environment); }
+    catch (error) { errors.push(error.message); }
+    const enabled = environment?.name === "TEST" ? settings.test_enabled === true
+      : environment?.name === "PRODUCTION" && settings.production_enabled === true;
+    if (!enabled) errors.push("El ambiente SRI seleccionado esta deshabilitado.");
     const activePoint = (configuration.emissionPoints || []).find(point => (
-      point.active !== false && String(point.environment || "").toUpperCase() === TEST_ENVIRONMENT.name
+      point.active === true && point.company_id === profile.companyId && environment && point.environment === environment.name
     )) || null;
-    if (!activePoint) errors.push("Falta un establecimiento y punto de emision activo en pruebas.");
+    if (!activePoint) errors.push("Falta un establecimiento y punto de emision activo para el ambiente seleccionado.");
     const signer = validateSignerSelection(configuration, profile.key, now);
     return {
       ok: !errors.length && signer.ok,
@@ -661,6 +684,8 @@
 
   BlessERP.sriApi = {
     TEST_ENVIRONMENT,
+    PRODUCTION_ENVIRONMENT,
+    environmentDefinition,
     status,
     session,
     signIn,
@@ -669,6 +694,9 @@
     detail,
     configuration,
     post,
+    setSequenceNext: body => post("save-document-sequence", body),
+    setEnvironmentEnabled: body => post("set-environment-enabled", body),
+    saveEmissionPoint: body => post("save-emission-point", body),
     testConfigurationRequest,
     certificatePrecheckCompany,
     validateCertificate,

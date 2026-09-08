@@ -6,6 +6,7 @@ const {
   generateXml,
   getDocumentDetail,
   listDocuments,
+  preflightIssuanceCertificate,
   registerDocumentAnnulment,
   signDocument,
   uuidOrNull
@@ -18,6 +19,9 @@ const {
   transmitDocument
 } = require("./sri/_lib/transmission-service.cjs");
 const { SUPPORTED_XML, validateSriConfiguration } = require("./sri/_lib/technical-readiness.cjs");
+
+const configurationService = require("./sri/_lib/configuration-service.cjs");
+const { requireEnvironment } = require("./sri/_lib/environment.cjs");
 
 const WRITE_ROLES = ["ADMIN", "TRIBUTACION", "CONTADOR", "EMISOR"];
 const CONFIG_ROLES = ["ADMIN", "TRIBUTACION"];
@@ -39,6 +43,7 @@ function requiredCapability(action, method, body = {}) {
   if (action === "prepare-correction") return "commercial.electronic_documents.correct";
   if (action === "register-annulment") return "commercial.electronic_documents.annul";
   if (action === "save-document-sequence") return "admin.sequences.manage";
+  if (action === "set-environment-enabled") return "tax.parameters.manage";
   if (["save-settings", "save-emission-point", "upload-certificate", "save-accounting-rule"].includes(action)) {
     return "tax.parameters.manage";
   }
@@ -65,7 +70,7 @@ function sendJson(response, status, payload) {
   response.end(JSON.stringify(payload));
 }
 
-async function configuration(client, companyId) {
+async function configuration(client, companyId, requestedEnvironment) {
   const [settings, points, sequences, certificates, rules] = await Promise.all([
     client.from("sri_settings").select("*").eq("company_id", companyId).maybeSingle(),
     client.from("emission_points").select("*").eq("company_id", companyId).order("establishment_code"),
@@ -78,131 +83,9 @@ async function configuration(client, companyId) {
   ]);
   const error = settings.error || points.error || sequences.error || certificates.error || rules.error;
   if (error) throw error;
-  const result = { settings: settings.data, emissionPoints: points.data, sequences: sequences.data, certificates: certificates.data, accountingRules: rules.data };
+  const environment = requireEnvironment(requestedEnvironment == null ? settings.data?.environment : requestedEnvironment);
+  const result = { environment, selectedEnvironment: environment, settings: settings.data, emissionPoints: (points.data || []).filter(point => point.environment === environment), sequences: (sequences.data || []).filter(sequence => sequence.environment === environment), certificates: certificates.data, accountingRules: rules.data };
   return { ...result, readiness: validateSriConfiguration(result) };
-}
-
-async function saveSettings(client, companyId, userId, input) {
-  const required = ["legalName", "ruc", "headOfficeAddress"];
-  required.forEach(name => {
-    if (!String(input[name] || "").trim()) throw new SriValidationError(`${name} es obligatorio.`);
-  });
-  if (!/^\d{13}$/.test(String(input.ruc))) throw new SriValidationError("El RUC debe contener 13 digitos.");
-  const requestedVersions = {
-    invoiceXmlVersion: input.invoiceXmlVersion || SUPPORTED_XML["01"],
-    creditNoteXmlVersion: input.creditNoteXmlVersion || SUPPORTED_XML["04"],
-    deliveryGuideXmlVersion: input.deliveryGuideXmlVersion || SUPPORTED_XML["06"],
-    withholdingXmlVersion: input.withholdingXmlVersion || SUPPORTED_XML["07"]
-  };
-  if (requestedVersions.invoiceXmlVersion !== SUPPORTED_XML["01"]
-    || requestedVersions.creditNoteXmlVersion !== SUPPORTED_XML["04"]
-    || requestedVersions.deliveryGuideXmlVersion !== SUPPORTED_XML["06"]
-    || requestedVersions.withholdingXmlVersion !== SUPPORTED_XML["07"]) {
-    throw new SriValidationError("La version XML solicitada no tiene un XSD oficial habilitado en esta etapa.");
-  }
-  const row = {
-    company_id: companyId,
-    legal_name: input.legalName,
-    commercial_name: input.commercialName || null,
-    ruc: String(input.ruc),
-    head_office_address: input.headOfficeAddress,
-    accounting_required: input.accountingRequired !== false,
-    special_taxpayer_number: input.specialTaxpayerNumber || null,
-    withholding_agent_number: input.withholdingAgentNumber || null,
-    rimpe_label: input.rimpeLabel || null,
-    environment: "TEST",
-    emission_type: "1",
-    production_enabled: false,
-    immediate_transmission: true,
-    invoice_xml_version: requestedVersions.invoiceXmlVersion,
-    credit_note_xml_version: requestedVersions.creditNoteXmlVersion,
-    delivery_guide_xml_version: requestedVersions.deliveryGuideXmlVersion,
-    withholding_xml_version: requestedVersions.withholdingXmlVersion,
-    technical_spec_version: "2.34",
-    technical_spec_date: "2026-07-27",
-    retry_initial_seconds: Math.max(5, Number(input.retryInitialSeconds || 30)),
-    retry_max_seconds: Math.max(30, Number(input.retryMaxSeconds || 1800)),
-    retry_max_attempts: Math.max(1, Number(input.retryMaxAttempts || 12)),
-    xml_ride_emails: Array.isArray(input.xmlRideEmails) ? input.xmlRideEmails.filter(Boolean) : [],
-    updated_by: userId
-  };
-  const { data, error } = await client.from("sri_settings").upsert({ ...row, created_by: userId }, {
-    onConflict: "company_id"
-  }).select().single();
-  if (error) throw error;
-  return data;
-}
-
-async function saveEmissionPoint(client, companyId, userId, input) {
-  if (!/^\d{3}$/.test(String(input.establishmentCode || ""))) throw new SriValidationError("El establecimiento debe contener 3 digitos.");
-  if (!/^\d{3}$/.test(String(input.emissionPointCode || ""))) throw new SriValidationError("El punto de emision debe contener 3 digitos.");
-  if (!String(input.establishmentAddress || "").trim()) throw new SriValidationError("La direccion del establecimiento es obligatoria.");
-  const row = {
-    company_id: companyId,
-    environment: "TEST",
-    establishment_code: input.establishmentCode,
-    emission_point_code: input.emissionPointCode,
-    establishment_address: input.establishmentAddress,
-    name: input.name || null,
-    active: input.active !== false,
-    created_by: userId,
-    updated_by: userId
-  };
-  const { data, error } = await client.from("emission_points").upsert(row, {
-    onConflict: "company_id,environment,establishment_code,emission_point_code"
-  }).select().single();
-  if (error) throw error;
-  return data;
-}
-
-async function saveDocumentSequence(client, companyId, userId, input) {
-  const documentType = String(input.documentType || "").trim();
-  const allowedTypes = new Set(["01", "04", "06", "07"]);
-  if (!allowedTypes.has(documentType)) throw new SriValidationError("El tipo de comprobante SRI no esta habilitado para secuenciales.");
-  const emissionPointId = uuidOrNull(input.emissionPointId);
-  if (!emissionPointId) throw new SriValidationError("Seleccione un establecimiento y punto de emision valido.");
-  const lastIssuedNumber = Number(input.lastIssuedNumber ?? input.currentNumber ?? 0);
-  if (!Number.isSafeInteger(lastIssuedNumber) || lastIssuedNumber < 0 || lastIssuedNumber > 999999999) {
-    throw new SriValidationError("El ultimo secuencial emitido debe ser un entero entre 0 y 999999999.");
-  }
-
-  const { data: point, error: pointError } = await client.from("emission_points")
-    .select("id, company_id, environment, active")
-    .eq("company_id", companyId)
-    .eq("id", emissionPointId)
-    .eq("environment", "TEST")
-    .eq("active", true)
-    .maybeSingle();
-  if (pointError) throw pointError;
-  if (!point) throw new SriValidationError("El punto de emision no pertenece a la empresa o no esta activo en pruebas.");
-
-  const { data: used, error: usedError } = await client.from("electronic_documents")
-    .select("sequential")
-    .eq("company_id", companyId)
-    .eq("emission_point_id", emissionPointId)
-    .eq("environment", "TEST")
-    .eq("document_type", documentType)
-    .order("sequential", { ascending: false })
-    .limit(1);
-  if (usedError) throw usedError;
-  const highestUsed = Number(used?.[0]?.sequential || 0);
-  if (lastIssuedNumber < highestUsed) {
-    throw new SriValidationError(`No se puede retroceder el secuencial: ya existe el comprobante ${String(highestUsed).padStart(9, "0")}.`);
-  }
-
-  const row = {
-    company_id: companyId,
-    emission_point_id: emissionPointId,
-    environment: "TEST",
-    document_type: documentType,
-    next_value: lastIssuedNumber + 1,
-    updated_by: userId
-  };
-  const { data, error } = await client.from("electronic_document_sequences").upsert(row, {
-    onConflict: "company_id,emission_point_id,environment,document_type"
-  }).select().single();
-  if (error) throw error;
-  return data;
 }
 
 async function uploadCertificate(client, companyId, userId, input) {
@@ -426,7 +309,10 @@ module.exports = async function handler(request, response) {
       : ["save-settings", "save-emission-point", "save-document-sequence", "upload-certificate", "save-accounting-rule"].includes(action)
         ? CONFIG_ROLES
       : (request.method === "GET" ? null : WRITE_ROLES);
-    const auth = await authenticateCompanyRequest(client, request, requestedCompanyId, roles);
+    const canonicalConfiguration = action === "configuration" || ["save-settings", "save-emission-point", "save-document-sequence", "set-environment-enabled"].includes(action);
+    const auth = canonicalConfiguration
+      ? await configurationService.authenticateConfigurationRequest(client, request, requestedCompanyId)
+      : await authenticateCompanyRequest(client, request, requestedCompanyId, roles);
     const capabilityId = requiredCapability(action, request.method, body);
     if (!capabilityId) throw new SriValidationError("Accion SRI sin capability asignada.");
     await assertUserCapability(auth.accessToken, auth.companyId, capabilityId);
@@ -446,7 +332,7 @@ module.exports = async function handler(request, response) {
       return sendJson(response, 200, { ok: true, data: await getDocumentDetail(client, auth.companyId, queryValue(request, "documentId")) });
     }
     if (request.method === "GET" && action === "configuration") {
-      return sendJson(response, 200, { ok: true, data: await configuration(client, auth.companyId) });
+      return sendJson(response, 200, { ok: true, data: await configuration(client, auth.companyId, queryValue(request, "environment")) });
     }
     if (request.method === "GET" && action === "download") {
       return downloadFile(client, auth.companyId, queryValue(request, "fileId"), response);
@@ -473,9 +359,13 @@ module.exports = async function handler(request, response) {
       auth.user.id,
       body
     );
-    else if (action === "save-settings") data = await saveSettings(client, auth.companyId, auth.user.id, body.settings || {});
-    else if (action === "save-emission-point") data = await saveEmissionPoint(client, auth.companyId, auth.user.id, body.emissionPoint || {});
-    else if (action === "save-document-sequence") data = await saveDocumentSequence(client, auth.companyId, auth.user.id, body.sequence || {});
+    else if (action === "save-settings") data = await configurationService.saveSettings(getSupabaseUserContext(auth.accessToken), auth.companyId, body.settings || {}, body.operationId);
+    else if (action === "save-emission-point") data = await configurationService.saveEmissionPoint(getSupabaseUserContext(auth.accessToken), auth.companyId, body.emissionPoint || {}, body.operationId);
+    else if (action === "save-document-sequence") data = await configurationService.saveDocumentSequence(getSupabaseUserContext(auth.accessToken), auth.companyId, body.sequence || {}, body.operationId);
+    else if (action === "set-environment-enabled") {
+      if (body.enabled === true) await preflightIssuanceCertificate(client, auth.companyId);
+      data = await configurationService.setEnvironmentEnabled(getSupabaseUserContext(auth.accessToken), auth.companyId, body);
+    }
     else if (action === "upload-certificate") data = await uploadCertificate(client, auth.companyId, auth.user.id, body.certificate || {});
     else if (action === "save-accounting-rule") data = await saveAccountingRule(client, auth.companyId, auth.user.id, body.rule || {});
     else if (action === "cleanup-test-demo") data = await cleanupMarkedTestDemoDocuments(client, auth.companyId, body);

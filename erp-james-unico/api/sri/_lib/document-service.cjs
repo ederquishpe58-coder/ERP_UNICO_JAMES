@@ -1,7 +1,7 @@
 const purchaseVatCore = require("../../../scripts/services/purchase-vat-core.js");
 const { generateNumericCode } = require("./access-key.cjs");
 const { ecuadorDate, emissionDatePolicy } = require("./emission-date.cjs");
-const { storeArtifact, loadArtifact } = require("./artifact-store.cjs");
+const { storeArtifact, loadArtifact, sha256 } = require("./artifact-store.cjs");
 const { resolveCertificatePassword, parsePkcs12, canonicalCertificateCompany, assertStoredCertificateScope, releaseCertificateMaterial } = require("./certificate.cjs");
 const { SriBackendError, SriConfigurationError, SriValidationError } = require("./errors.cjs");
 const { signXadesBes } = require("./xades-signer.cjs");
@@ -9,6 +9,8 @@ const { buildDocumentXml, normalizeSriText } = require("./xml-builders.cjs");
 const softwareProvider = require("../../../scripts/config/software-provider.js");
 const { recoveryPolicy } = require("./recovery-policy.cjs");
 const { assertOfficialXsd } = require("./xsd-validator.cjs");
+const { requireEnvironment, environmentCode, assertEnvironmentEnabled } = require("./environment.cjs");
+const { assertCanonicalDocumentIdentity, assertDocumentXmlIdentity } = require("./xml-identity.cjs");
 
 const ENABLED_DOCUMENT_TYPES = new Set(["01", "04", "07"]);
 const HABITUAL_GOODS_EXPORTER_RUCS = new Set(["1717637084001"]);
@@ -240,6 +242,82 @@ function isExportInvoicePayload(payload = {}) {
     || Boolean(payload.invoice?.incoterm || payload.invoice?.originCountryCode || payload.invoice?.destinationCountryCode);
 }
 
+function assertWithholdingEligibility(settings, documentType) {
+  if (documentType === "07" && (settings.ruc === "1727970137001"
+    || !/^[0-9]+$/.test(String(settings.withholding_agent_number || ""))
+    || Number(settings.withholding_agent_number) <= 0)) {
+    throw new SriValidationError("La empresa no esta habilitada como agente para emitir retenciones 07.");
+  }
+}
+
+function assertEmissionPoint(point, document, { active = false } = {}) {
+  if (!point || point.id !== document.emission_point_id || point.company_id !== document.company_id
+    || point.environment !== document.environment || (active && point.active !== true)
+    || (document.establishment_code !== undefined && point.establishment_code !== document.establishment_code)
+    || (document.emission_point_code !== undefined && point.emission_point_code !== document.emission_point_code)) {
+    throw new SriValidationError("El punto de emision no corresponde a la empresa, ambiente y serie del comprobante.");
+  }
+}
+
+async function activeCertificateMetadata(client, companyId, settings, expectedRuc) {
+  if (settings.company_id !== companyId || settings.ruc !== expectedRuc) {
+    throw new SriValidationError("La configuracion SRI no coincide con el RUC canonico.");
+  }
+  const row = dbError(await client.from("digital_certificates").select("*")
+    .eq("company_id", companyId).eq("active", true).single(), "Certificado activo");
+  assertStoredCertificateScope(row, companyId);
+  const now = Date.now();
+  const from = new Date(row.valid_from).getTime();
+  const until = new Date(row.valid_until).getTime();
+  if (row.validation_status !== "VALID" || row.subject_ruc !== expectedRuc
+    || !row.valid_from || !row.valid_until || !Number.isFinite(from) || !Number.isFinite(until)
+    || from > now || until <= now || !row.last_validated_at || !Number.isFinite(new Date(row.last_validated_at).getTime())) {
+    throw new SriValidationError("El certificado de la empresa requiere validacion vigente antes de emitir.");
+  }
+  // Resolve only the company-bound secret reference; material is checked before issuance.
+  resolveCertificatePassword(row.password_secret_name);
+  return row;
+}
+
+async function verifyCertificateMaterialAvailable(client, row, companyId, expectedRuc) {
+  assertStoredCertificateScope(row, companyId);
+  const result = await client.storage.from(row.storage_bucket).download(row.storage_object_path);
+  if (result.error || !result.data || typeof result.data.arrayBuffer !== "function") {
+    throw new SriConfigurationError("El certificado privado de la empresa no esta disponible. No se creo el comprobante.");
+  }
+  let bytes;
+  let material;
+  try {
+    bytes = Buffer.from(await result.data.arrayBuffer());
+    if (!bytes.length || bytes.length > 3 * 1024 * 1024) throw new SriValidationError("El archivo de certificado no tiene un tamano valido.");
+    material = parsePkcs12(bytes, resolveCertificatePassword(row.password_secret_name), { companyId, expectedRuc });
+    if (String(material.metadata.fingerprintSha256).toLowerCase() !== row.fingerprint_sha256) {
+      throw new SriValidationError("El archivo almacenado no coincide con la huella canonica del certificado.");
+    }
+  } finally {
+    bytes?.fill(0);
+    releaseCertificateMaterial(material);
+  }
+}
+
+async function preflightIssuanceCertificate(client, companyId) {
+  const company = await canonicalCertificateCompany(client, companyId);
+  const settings = dbError(await client.from("sri_settings").select("*").eq("company_id", companyId).single(), "Configuracion SRI");
+  const row = await activeCertificateMetadata(client, companyId, settings, company.tax_id);
+  await verifyCertificateMaterialAvailable(client, row, companyId, company.tax_id);
+}
+
+function assertOriginalInvoice(original, document) {
+  if (!original || original.id !== document.parent_document_id || original.company_id !== document.company_id
+    || original.document_type !== "01" || original.status !== "AUTORIZADO"
+    || original.environment !== document.environment || original.emission_point_id !== document.emission_point_id
+    || (document.establishment_code !== undefined && original.establishment_code !== document.establishment_code)
+    || (document.emission_point_code !== undefined && original.emission_point_code !== document.emission_point_code)) {
+    throw new SriValidationError("La nota de credito requiere la empresa, ambiente y punto de su factura original autorizada.");
+  }
+  assertCanonicalDocumentIdentity(original);
+}
+
 async function createDraft(client, input, actorUserId) {
   const documentType = String(input.documentType || "");
   if (!ENABLED_DOCUMENT_TYPES.has(documentType)) throw new SriValidationError("Tipo SRI no habilitado en esta etapa.");
@@ -257,9 +335,41 @@ async function createDraft(client, input, actorUserId) {
   if (!companyId || !emissionPointId) throw new SriValidationError("Empresa y punto de emision son obligatorios.");
 
   const settings = dbError(await client.from("sri_settings").select("*").eq("company_id", companyId).single(), "Configuracion SRI");
-  if (settings.environment !== "TEST" || settings.production_enabled || settings.test_enabled !== true) {
-    throw new SriValidationError("Esta etapa solo permite el ambiente SRI de pruebas con produccion deshabilitada.");
+  let environment = requireEnvironment(settings.environment);
+  let original = null;
+  if (documentType === "04") {
+    original = dbError(await client.from("electronic_documents").select("*")
+      .eq("company_id", companyId).eq("id", uuidOrNull(input.parentDocumentId)).single(), "Factura original");
+    environment = requireEnvironment(original?.environment);
+    assertOriginalInvoice(original, { company_id: companyId, parent_document_id: uuidOrNull(input.parentDocumentId), environment, emission_point_id: emissionPointId });
+  } else if (input.parentDocumentId) {
+    throw new SriValidationError("Solo una nota de credito puede declarar factura original.");
   }
+  assertEnvironmentEnabled(settings, environment, companyId);
+  if ((input.environment !== undefined && input.environment !== environment)
+    || (payload.erpEmission?.environment !== undefined && payload.erpEmission.environment !== environment)
+    || (payload.document?.environmentCode !== undefined && payload.document.environmentCode !== environmentCode(environment))
+    || (payload.document?.environment !== undefined && payload.document.environment !== environment)
+    || (payload.document?.issuer?.ruc !== undefined && payload.document.issuer.ruc !== settings.ruc)) {
+    throw new SriValidationError("El ambiente o emisor solicitado no coincide con la configuracion canonica del comprobante.");
+  }
+  const company = await canonicalCertificateCompany(client, companyId);
+  if (company.tax_id !== settings.ruc) throw new SriValidationError("La configuracion SRI no coincide con el RUC canonico.");
+  assertWithholdingEligibility(settings, documentType);
+  const point = dbError(await client.from("emission_points").select("*")
+    .eq("company_id", companyId).eq("id", emissionPointId).single(), "Punto de emision");
+  assertEmissionPoint(point, { company_id: companyId, emission_point_id: emissionPointId, environment }, { active: true });
+  if (original) assertEmissionPoint(point, original, { active: true });
+  const certificateRow = await activeCertificateMetadata(client, companyId, settings, company.tax_id);
+  const sequence = dbError(await client.from("electronic_document_sequences").select("*")
+    .eq("company_id", companyId).eq("emission_point_id", emissionPointId).eq("environment", environment)
+    .eq("document_type", documentType).single(), "Secuencial configurado");
+  if (!sequence || sequence.company_id !== companyId || sequence.emission_point_id !== emissionPointId
+    || sequence.environment !== environment || sequence.document_type !== documentType
+    || !Number.isSafeInteger(Number(sequence.next_value)) || Number(sequence.next_value) < 1 || Number(sequence.next_value) > 1000000000) {
+    throw new SriValidationError("Configure un proximo secuencial valido para este punto, ambiente y tipo de comprobante.");
+  }
+  financials(payload, documentType);
   const version = documentVersion(settings, documentType);
   const exportInvoice = documentType === "01" && isExportInvoicePayload(payload);
   const datePolicy = emissionDatePolicy({
@@ -269,12 +379,14 @@ async function createDraft(client, input, actorUserId) {
   });
   payload.erpEmission = {
     ...(payload.erpEmission || {}),
+    environment,
     sourceOrderDate: datePolicy.sourceOrderDate,
     requestedIssueDate: datePolicy.requestedIssueDate,
     sriIssueDate: datePolicy.issueDate,
     issueDateAdjusted: datePolicy.adjusted,
     timeZone: datePolicy.timeZone
   };
+  payload.document = { ...(payload.document || {}), environment, environmentCode: environmentCode(environment), establishmentAddress: point.establishment_address };
   if (documentType === "01") {
     if (isExportInvoicePayload(payload)) {
       await resolveExportOrderInformation(client, companyId, input, payload);
@@ -297,6 +409,9 @@ async function createDraft(client, input, actorUserId) {
     }
     payload.erpEmission = { ...(payload.erpEmission || {}), ...(sourceOrderId ? { sourceOrderId } : { idempotencyKey }) };
   }
+  // 1000000000 is the exhausted sentinel. The locked RPC may still reuse the
+  // last ACTIVE/CONSUMED reservation; it alone decides whether a new number exists.
+  await verifyCertificateMaterialAvailable(client, certificateRow, companyId, company.tax_id);
   const numericCode = generateNumericCode();
   const rpc = await client.rpc("create_electronic_document_draft", {
     p_company_id: companyId,
@@ -326,6 +441,10 @@ async function createDraft(client, input, actorUserId) {
     p_created_by: actorUserId
   });
   const document = dbError(rpc, "Creacion de borrador SRI");
+  if (document?.company_id !== companyId || document.environment !== environment || document.emission_point_id !== emissionPointId) {
+    throw new SriBackendError("El backend devolvio una identidad de comprobante diferente de la solicitud canonica.");
+  }
+  assertCanonicalDocumentIdentity(document, { expectedRuc: company.tax_id });
   const reservationReused = document?._reservation_reused === true;
   if (reservationReused) {
     const existing = await getDocumentDetail(client, companyId, document.id);
@@ -426,8 +545,10 @@ async function getDocumentDetail(client, companyId, documentId) {
 }
 
 async function documentPayload(client, document) {
-  const settings = dbError(await client.from("sri_settings").select("*").eq("company_id", document.company_id).single(), "Configuracion SRI");
-  const point = dbError(await client.from("emission_points").select("*").eq("id", document.emission_point_id).single(), "Punto de emision");
+  const identity = assertCanonicalDocumentIdentity(document);
+  const point = dbError(await client.from("emission_points").select("*").eq("company_id", document.company_id)
+    .eq("id", document.emission_point_id).single(), "Punto de emision");
+  assertEmissionPoint(point, document);
   const lines = dbError(await client.from("electronic_document_lines").select("*").eq("document_id", document.id).order("line_number"), "Lineas");
   const taxes = dbError(await client.from("electronic_document_taxes").select("*").eq("document_id", document.id), "Impuestos");
   const source = structuredClone(document.source_snapshot || {});
@@ -448,25 +569,16 @@ async function documentPayload(client, document) {
   source.document = {
     ...(source.document || {}),
     version: document.xml_version,
-    environmentCode: "1",
+    environment: identity.environment,
+    environmentCode: identity.xmlEnvironment,
     emissionType: "1",
     accessKey: document.access_key,
     establishmentCode: document.establishment_code,
     emissionPointCode: document.emission_point_code,
     sequential: document.sequential_text,
     issueDate: document.issue_date,
-    establishmentAddress: point.establishment_address,
-    issuer: {
-      legalName: settings.legal_name,
-      commercialName: settings.commercial_name,
-      ruc: settings.ruc,
-      headOfficeAddress: settings.head_office_address,
-      accountingRequired: settings.accounting_required,
-      specialTaxpayerNumber: settings.special_taxpayer_number,
-      withholdingAgentNumber: settings.withholding_agent_number,
-      rimpeLabel: settings.rimpe_label,
-      habitualExporterLegend: habitualExporterLegend(settings.ruc)
-    }
+    establishmentAddress: source.document?.establishmentAddress || point.establishment_address,
+    issuer: structuredClone(document.issuer_snapshot)
   };
   source.buyer = document.buyer_snapshot;
   source.taxes = documentTaxes;
@@ -489,7 +601,9 @@ async function documentPayload(client, document) {
     taxes: lineTaxes.get(line.id) || []
   }));
   if (document.document_type === "04") {
-    const original = dbError(await client.from("electronic_documents").select("*").eq("id", document.parent_document_id).single(), "Factura original");
+    const original = dbError(await client.from("electronic_documents").select("*").eq("company_id", document.company_id)
+      .eq("id", document.parent_document_id).single(), "Factura original");
+    assertOriginalInvoice(original, document);
     source.originalInvoice = {
       id: original.id,
       status: original.status,
@@ -517,10 +631,15 @@ async function transition(client, document, newStatus, actorUserId, reason, mess
 async function generateXml(client, companyId, documentId, actorUserId, userClient) {
   let detail = await getDocumentDetail(client, companyId, documentId);
   let document = detail.document;
+  const settings = dbError(await client.from("sri_settings").select("*").eq("company_id", companyId).single(), "Configuracion SRI");
+  if (document.company_id !== companyId) throw new SriValidationError("El comprobante no pertenece a la empresa solicitada.");
+  assertEnvironmentEnabled(settings, document.environment, companyId);
+  const company = await canonicalCertificateCompany(client, companyId);
+  if (company.tax_id !== settings.ruc) throw new SriValidationError("La configuracion SRI no coincide con el RUC canonico.");
+  assertCanonicalDocumentIdentity(document, { expectedRuc: company.tax_id });
   if (["XML_GENERADO", "FIRMADO", "ENVIADO_SRI", "RECIBIDO_SRI", "AUTORIZADO"].includes(document.status)) return detail;
   if (!['BORRADOR', 'VALIDADO'].includes(document.status)) throw new SriValidationError(`No se puede generar XML desde ${document.status}.`);
-  const settings = dbError(await client.from("sri_settings").select("*").eq("company_id", companyId).single(), "Configuracion SRI");
-  if (settings.environment !== "TEST" || settings.production_enabled || settings.test_enabled !== true) throw new SriValidationError("La generacion XML requiere SRI TEST habilitado canonicamente para esta empresa.");
+  assertWithholdingEligibility(settings, document.document_type);
   if (document.document_type === "01" && document.source_snapshot?.erpEmission?.sourceOrderId) {
     if (!userClient) throw new SriValidationError("Se requiere una sesion autenticada para actualizar la direccion del comprador.");
     const refreshed = dbError(await userClient.rpc("refresh_electronic_document_buyer_address", {
@@ -537,24 +656,30 @@ async function generateXml(client, companyId, documentId, actorUserId, userClien
     }
     document = canonical;
   }
-  const payload = await documentPayload(client, document);
-  const exportInvoice = document.document_type === "01" && isExportInvoicePayload(payload.source || payload);
+  const exportInvoice = document.document_type === "01" && isExportInvoicePayload(document.source_snapshot);
   const currentIssueDate = ecuadorDate();
   if (exportInvoice) {
     emissionDatePolicy({ issueDate: document.issue_date, sourceOrderDate: document.issue_date, isExport: true });
   } else if (document.status === "BORRADOR" && document.issue_date !== currentIssueDate) {
-    document = dbError(await client.rpc("refresh_electronic_document_issue_date", {
+    const refreshed = dbError(await client.rpc("refresh_electronic_document_issue_date", {
       p_document_id: document.id,
       p_issue_date: currentIssueDate,
       p_actor_user_id: actorUserId
     }), "Actualizacion de fecha de emision SRI");
+    const fixed = ["id", "company_id", "status", "environment", "document_type", "emission_point_id", "establishment_code", "emission_point_code", "sequential", "numeric_code"];
+    if (!refreshed || fixed.some(key => refreshed[key] !== document[key]) || refreshed.issue_date !== currentIssueDate) {
+      throw new SriBackendError("El refresco de fecha debe conservar la identidad del mismo borrador SRI.");
+    }
+    document = refreshed;
   } else if (document.status === "VALIDADO" && document.issue_date !== currentIssueDate) {
     throw new SriValidationError("La fecha de emision SRI quedo desactualizada. Regrese el documento a borrador antes de generar el XML.");
   }
-  // documentPayload se construye antes de refrescar un borrador local. Mantener
-  // el XML y la fila de base de datos con exactamente la misma fecha oficial.
-  if (payload.document) payload.document.issueDate = document.issue_date;
+  // Build only after a date refresh: both the date and access key come from the
+  // acknowledged persisted row, including historical TEST under a PROD selector.
+  assertCanonicalDocumentIdentity(document, { expectedRuc: company.tax_id });
+  const payload = await documentPayload(client, document);
   const xml = buildDocumentXml(document.document_type, payload);
+  assertDocumentXmlIdentity(document, xml, { expectedRuc: company.tax_id });
   const xsdReport = await assertOfficialXsd({ documentType: document.document_type, version: document.xml_version, xml });
   if (document.status === "BORRADOR") document = await transition(client, document, "VALIDADO", actorUserId, "Validacion de datos y reglas de negocio completada");
   await Promise.all([
@@ -570,16 +695,24 @@ async function signDocument(client, companyId, documentId, actorUserId) {
   const detail = await getDocumentDetail(client, companyId, documentId);
   const document = detail.document;
   if (document.company_id !== companyId) throw new SriValidationError("El comprobante no pertenece a la empresa solicitada.");
-  if (["FIRMADO", "ENVIADO_SRI", "RECIBIDO_SRI", "AUTORIZADO"].includes(document.status)) return detail;
-  if (document.status !== "XML_GENERADO") throw new SriValidationError("El comprobante debe tener un XML validado antes de firmarse.");
   const settings = dbError(await client.from("sri_settings").select("*").eq("company_id", companyId).single(), "Configuracion SRI");
-  if (settings.environment !== "TEST" || settings.production_enabled || settings.test_enabled !== true) throw new SriValidationError("La firma requiere SRI TEST habilitado canonicamente para esta empresa.");
+  assertEnvironmentEnabled(settings, document.environment, companyId);
   const company = await canonicalCertificateCompany(client, companyId);
   if (settings.ruc !== company.tax_id) throw new SriValidationError("La configuracion SRI no coincide con el RUC canonico.");
-  const certificateRow = dbError(await client.from("digital_certificates").select("*")
-    .eq("company_id", companyId).eq("active", true).single(), "Certificado activo");
-  assertStoredCertificateScope(certificateRow, document.company_id);
+  assertCanonicalDocumentIdentity(document, { expectedRuc: company.tax_id });
+  if (["FIRMADO", "ENVIADO_SRI", "RECIBIDO_SRI", "AUTORIZADO"].includes(document.status)) return detail;
+  if (document.status !== "XML_GENERADO") throw new SriValidationError("El comprobante debe tener un XML validado antes de firmarse.");
+  assertWithholdingEligibility(settings, document.document_type);
   const unsigned = await loadArtifact(client, documentId, "UNSIGNED_XML");
+  if (unsigned.file.company_id !== companyId || unsigned.file.document_id !== documentId
+    || unsigned.file.file_type !== "UNSIGNED_XML" || unsigned.file.storage_bucket !== "sri-private"
+    || unsigned.file.storage_object_path !== `companies/${companyId}/documents/${documentId}/unsigned_xml-${unsigned.file.content_sha256}.xml`
+    || sha256(unsigned.buffer) !== unsigned.file.content_sha256) {
+    throw new SriValidationError("El XML almacenado no corresponde al comprobante o a su huella canonica.");
+  }
+  assertDocumentXmlIdentity(document, unsigned.buffer.toString("utf8"), { expectedRuc: company.tax_id });
+  await assertOfficialXsd({ documentType: document.document_type, version: document.xml_version, xml: unsigned.buffer.toString("utf8") });
+  const certificateRow = await activeCertificateMetadata(client, companyId, settings, company.tax_id);
   const { data: p12Blob, error: p12Error } = await client.storage.from(certificateRow.storage_bucket).download(certificateRow.storage_object_path);
   if (p12Error) throw p12Error;
   const password = resolveCertificatePassword(certificateRow.password_secret_name);
@@ -595,6 +728,7 @@ async function signDocument(client, companyId, documentId, actorUserId) {
       throw new SriValidationError("El archivo almacenado no coincide con la huella canonica del certificado.");
     }
     const signedXml = await signXadesBes({ xml: unsigned.buffer.toString("utf8"), certificate });
+    assertDocumentXmlIdentity(document, signedXml, { expectedRuc: company.tax_id });
     await assertOfficialXsd({ documentType: document.document_type, version: document.xml_version, xml: signedXml });
     await storeArtifact(client, { companyId, documentId, fileType: "SIGNED_XML", content: signedXml, schemaVersion: document.xml_version, createdBy: actorUserId });
     dbError(await client.from("digital_certificates").update({
@@ -669,6 +803,9 @@ module.exports = {
   listDocuments,
   registerDocumentAnnulment,
   documentPayload,
+  activeCertificateMetadata,
+  verifyCertificateMaterialAvailable,
+  preflightIssuanceCertificate,
   transition,
   normalizeExportAdditionalInformation,
   dbError,

@@ -44,6 +44,7 @@ const api = window.BlessERP.sriApi;
 
 function certificate(companyKey, ruc) {
   return {
+    company_id: companyKey === "BLESS_FLOWER" ? "11111111-1111-4111-8111-111111111111" : "22222222-2222-4222-8222-222222222222",
     id: `cert-${companyKey.toLowerCase()}`,
     alias: `Firmante ${companyKey}`,
     subject_name: `CN=${companyKey}`,
@@ -59,13 +60,16 @@ function configuration(profile) {
   const pointId = `point-${profile.key.toLowerCase()}`;
   return {
     settings: {
+      company_id: profile.companyId,
       ruc: profile.ruc,
       legal_name: profile.legalName,
       commercial_name: profile.commercialName,
       environment: "TEST",
+      test_enabled: true,
       production_enabled: false
     },
     emissionPoints: [{
+      company_id: profile.companyId,
       id: pointId,
       establishment_code: "001",
       emission_point_code: "001",
@@ -102,8 +106,10 @@ const bless = profiles.find(profile => profile.key === "BLESS_FLOWER");
 const imperio = profiles.find(profile => profile.key === "IMPERIO_FLOWERS");
 assert.ok(bless && imperio, "Faltan perfiles Bless o Imperio");
 assert.notEqual(bless.ruc, imperio.ruc, "Cada empresa debe conservar RUC independiente");
-assert.equal(bless.environmentCode, "1");
-assert.equal(imperio.environmentCode, "1");
+assert.equal(bless.environmentCode, null, "Sin configuracion canonica no debe inferirse ambiente");
+assert.equal(imperio.environmentCode, null, "Sin configuracion canonica no debe inferirse ambiente");
+bless.companyId = "11111111-1111-4111-8111-111111111111";
+imperio.companyId = "22222222-2222-4222-8222-222222222222";
 assert.equal(bless.defaultEmissionPoint, "003", "Bless debe usar por defecto el punto 003 para facturas");
 assert.equal(imperio.defaultEmissionPoint, "001", "Imperio debe conservar una serie independiente pendiente de confirmacion");
 
@@ -203,6 +209,7 @@ for (const profile of [bless, imperio]) {
   api.selectCompany(profile.key);
   assert.equal(api.activeCompanyKey(), profile.key);
   assert.equal(api.activeCompany().companyId.length, 36);
+  assert.equal(api.activeCompany().environmentCode, "1");
 }
 
 const persisted = JSON.stringify(Object.fromEntries(sessionValues));

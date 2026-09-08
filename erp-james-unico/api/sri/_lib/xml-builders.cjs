@@ -2,6 +2,7 @@ const { create } = require("xmlbuilder2");
 const purchaseVatCore = require("../../../scripts/services/purchase-vat-core.js");
 const { SriValidationError } = require("./errors.cjs");
 const { validateAccessKey } = require("./access-key.cjs");
+const { assertPayloadDocumentIdentity } = require("./xml-identity.cjs");
 const softwareProvider = require("../../../scripts/config/software-provider.js");
 
 const ENABLED_XML_VERSIONS = Object.freeze({
@@ -70,6 +71,7 @@ function addText(parent, name, value, options = {}) {
 }
 
 function addTributaryInfo(root, document) {
+  assertPayloadDocumentIdentity(document);
   const issuer = document.issuer || {};
   const info = root.ele("infoTributaria");
   addText(info, "ambiente", document.environmentCode, { required: true, label: "Ambiente" });

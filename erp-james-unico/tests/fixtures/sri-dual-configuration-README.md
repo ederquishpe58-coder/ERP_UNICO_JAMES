@@ -1,0 +1,14 @@
+# Pruebas y reversión de configuración SRI
+
+Ejecutar desde la raíz: `node validate-sri-dual-configuration.cjs`.
+Requiere Node y `@electric-sql/pglite`; no necesita credenciales, conexión a Supabase, archivos P12 ni servicios SRI.
+
+La fixture contiene columnas, restricciones CHECK/UNIQUE, claves compuestas de puntos, triggers del dominio, funciones actuales obtenidas con `pg_get_functiondef`, ACL/políticas de configuración y el evaluador real de capabilities canónicas. Los datos de empresas, usuarios, documentos, claves, archivos y certificados que inserta la prueba son sintéticos. No prueba la validación criptográfica del certificado, SOAP, RLS de dominios ajenos ni la contabilidad de compras; esas comprobaciones pertenecen a sus suites específicas. El objeto de Storage sintético prueba existencia y pertenencia, sin simular que un P12 fue descifrado.
+
+La suite verifica instalación repetida sin cambios de filas; actor, membership y capability sin bypass OWNER; configuración OFF; valor siguiente exacto; conflictos CAS/idempotencia; auditoría; colisiones contra documentos y reservas de cualquier estado; certificado canónico/vigencia/secreto; activación y selector atómicos sin efectos fiscales; secuencia ausente; reutilización comercial; identidad histórica TEST y NC del ambiente/punto original; número de autorización igual a clave; rechazo de configuración 06 y retención IMPERIO; falta de ACK y ambiente explícito inválido.
+
+Las migraciones `202609070020` y `202609070021` solo cambian infraestructura. No activan flags, sincronizan selectores, crean puntos/secuencias ni alteran filas existentes al aplicarse. Las operaciones posteriores mediante RPC escriben únicamente la configuración solicitada y su auditoría, con bloqueo de settings, punto y contador en ese orden.
+
+La activación SQL valida metadatos canónicos vigentes y existencia exacta del objeto privado en Storage. La API añade descifrado/validación real del P12 con el secreto de la empresa antes de activar ON. La creación fiscal está restringida al servicio del backend, que valida el P12 antes de consumir un secuencial; la RPC vuelve a verificar el actor/capability canónicos. SQL no afirma conocer las variables privadas de Vercel. OFF no necesita material criptográfico.
+
+`sri-dual-configuration-rollback.sql` es una reversión manual de infraestructura, basada en las definiciones/ACL previas verificadas. No se ejecuta automáticamente. Su precondición exige que PRODUCCIÓN ya esté OFF y ambos selectores ya estén en TEST; si no se cumple, aborta sin modificar nada. No desactiva entornos por su cuenta, no elimina puntos/secuencias PROD, documentos, archivos ni auditorías. El responsable del release debe coordinar el código anterior con esa reversión y comparar nuevamente los hashes de conservación. Si hubo activación/emisión posterior, se requiere revisar el estado antes de autorizar una reversión; el archivo no transforma ni borra ese historial.

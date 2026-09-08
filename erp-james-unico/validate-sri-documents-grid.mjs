@@ -28,7 +28,7 @@ assert.equal(typeof sri.resetDocumentsEntry, "function", "La bandeja SRI debe li
 const requiredHeaders = [
   "Fecha de emisión",
   "Fecha de vuelo",
-  "Número de factura",
+  "Comprobante",
   "Valor",
   "Cliente",
   "Cliente final",
@@ -54,7 +54,10 @@ assert.ok(!source.includes('${renderReadiness()}'), "La validación técnica no 
 assert.ok(!source.includes('<strong>Separacion tributaria:</strong>'), "La indicación de separación tributaria debe permanecer oculta.");
 assert.ok(source.includes('sri-document-number ${documentNumberStatusClass(row.authorizationStatus)}'), "El color del número debe derivarse del estado SRI canónico.");
 assert.ok(source.includes('normalized === "AUTORIZADO"') && source.includes('return "is-authorized"'), "La factura autorizada debe marcar su número en verde.");
-assert.ok(source.includes('row.authorizationStatus === "AUTORIZADO" ? ""'), "El badge AUTORIZADO redundante debe quedar oculto bajo el número.");
+const identityCell = source.match(/<td class="sri-document-identity">[\s\S]*?<\/td>/)?.[0];
+assert.ok(identityCell, "El comprobante debe tener una celda de identidad propia.");
+assert.ok(!identityCell.includes("status-badge"), "El badge AUTORIZADO redundante debe quedar oculto bajo el número.");
+assert.ok(source.includes("<th>Estado</th>") && source.includes('<td><span class="status-badge ${badgeClass(row.authorizationStatus)}">${utils.esc(row.authorizationStatus)}</span></td>'), "El estado SRI canónico debe conservar su columna separada.");
 assert.match(stateSource, /\["sriDaeNumber", "sriGuides", "awb", "hawb"\]/, "El estado comercial debe aceptar DAE, guía madre y guía hija.");
 assert.match(stateSource, /if \(!String\(order\.hawb \|\| ""\)\.trim\(\) && storedGuides\[1\]\) order\.hawb = storedGuides\[1\]/, "Editar una guía debe conservar la otra guía histórica.");
 

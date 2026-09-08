@@ -403,17 +403,21 @@
 
   async function reteEmissionPoint() {
     const api = BlessERP.sriApi;
-    if (!api?.status?.().ready) throw new Error("El backend SRI TEST no está disponible.");
+    if (!api?.status?.().ready) throw new Error("El backend SRI no está disponible.");
     const configuration = await api.configuration();
+    const companyId = api.activeCompany?.()?.companyId;
+    const environment = api.environmentDefinition(configuration.settings?.environment).name;
+    if (!companyId || configuration.settings?.company_id !== companyId) throw new Error("La configuracion SRI no corresponde a la empresa actual.");
     const sequence = BlessERP.services?.adminConfig?.findSequenceByCode?.("RETE") || {};
     const establishment = String(sequence.establishmentCode || "").padStart(3, "0");
     const point = String(sequence.emissionPointCode || "").padStart(3, "0");
     if (!/^\d{3}$/.test(establishment) || !/^\d{3}$/.test(point)) throw new Error("Configure el punto RETE antes de emitir retenciones.");
-    const emissionPoint = (configuration.emissionPoints || []).find(row => row.active !== false
-      && upper(row.environment || "TEST") === "TEST"
+    const matches = (configuration.emissionPoints || []).filter(row => row.active === true
+      && row.company_id === companyId && row.environment === environment
       && String(row.establishment_code || "").padStart(3, "0") === establishment
       && String(row.emission_point_code || "").padStart(3, "0") === point);
-    if (!emissionPoint?.id) throw new Error(`No existe el punto RETE ${establishment}-${point} activo en SRI TEST.`);
+    const emissionPoint = matches.length === 1 ? matches[0] : null;
+    if (!emissionPoint?.id) throw new Error(`No existe un punto RETE ${establishment}-${point} unico y activo en SRI ${environment}.`);
     return emissionPoint;
   }
 

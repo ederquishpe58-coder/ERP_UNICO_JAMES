@@ -1,12 +1,15 @@
 const { SriConfigurationError } = require("./sri/_lib/errors.cjs");
 const { getSupabaseAdmin } = require("./sri/_lib/supabase-admin.cjs");
 const { transmitDocument } = require("./sri/_lib/transmission-service.cjs");
+const { timingSafeEqual } = require("node:crypto");
 
 function authorized(request) {
   const configured = String(process.env.CRON_SECRET || process.env.SRI_RETRY_CRON_SECRET || "");
   if (!configured) throw new SriConfigurationError("No se configuro el secreto del trabajador SRI.");
   const supplied = String(request.headers?.authorization || "").replace(/^Bearer\s+/i, "");
-  return supplied.length === configured.length && supplied === configured;
+  const expected = Buffer.from(configured, "utf8");
+  const received = Buffer.from(supplied, "utf8");
+  return received.length === expected.length && timingSafeEqual(received, expected);
 }
 
 function send(response, status, payload) {
@@ -25,7 +28,7 @@ module.exports = async function retryHandler(request, response) {
     const client = getSupabaseAdmin();
     const now = new Date().toISOString();
     const { data: jobs, error } = await client.from("sri_transmissions")
-      .select("id, company_id, document_id, status, attempt_number, max_attempts, next_attempt_at")
+      .select("id, company_id, document_id, environment, transmission_type, endpoint_url, status, attempt_number, max_attempts, next_attempt_at")
       .in("status", ["PENDING", "RETRY_SCHEDULED"])
       .lte("next_attempt_at", now)
       .order("next_attempt_at", { ascending: true })
@@ -34,9 +37,13 @@ module.exports = async function retryHandler(request, response) {
 
     const due = (jobs || []).filter(job => job.attempt_number < job.max_attempts);
     const results = [];
+    const checkedDocuments = new Set();
     for (const job of due) {
+      const documentScope = `${job.company_id}:${job.document_id}`;
+      if (checkedDocuments.has(documentScope)) continue;
+      checkedDocuments.add(documentScope);
       try {
-        const detail = await transmitDocument(client, job.company_id, job.document_id, null, { force: false });
+        const detail = await transmitDocument(client, job.company_id, job.document_id, null, { force: false, retryJob: job });
         results.push({ jobId: job.id, documentId: job.document_id, status: detail.document.status, processed: true });
       } catch (error) {
         results.push({

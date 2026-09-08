@@ -1,12 +1,29 @@
 const { XMLParser } = require("fast-xml-parser");
 const { SriTransportError, SriValidationError } = require("./errors.cjs");
 const { validateAccessKey } = require("./access-key.cjs");
+const { ENVIRONMENTS, requireEnvironment, endpointFor, assertDocumentEnvironment } = require("./environment.cjs");
+const { assertDocumentXmlIdentity } = require("./xml-identity.cjs");
 const { UNCERTAIN, nativeDiagnostic, safeText } = require("./transport-diagnostic.cjs");
 
-const TEST_ENDPOINTS = Object.freeze({
-  reception: "https://celcer.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline",
-  authorization: "https://celcer.sri.gob.ec/comprobantes-electronicos-ws/AutorizacionComprobantesOffline"
-});
+const TEST_ENDPOINTS = ENVIRONMENTS.TEST.endpoints;
+const PRODUCTION_ENDPOINTS = ENVIRONMENTS.PRODUCTION.endpoints;
+
+function transportEndpoint(environment, transmissionType, suppliedEndpoint) {
+  const expected = endpointFor(environment, transmissionType);
+  if (suppliedEndpoint !== undefined && suppliedEndpoint !== expected) {
+    throw new SriValidationError("El endpoint no corresponde al ambiente y servicio oficial del comprobante.");
+  }
+  return expected;
+}
+
+function endpointIdentity(endpoint) {
+  for (const environment of Object.keys(ENVIRONMENTS)) {
+    for (const transmissionType of ["RECEPTION", "AUTHORIZATION_QUERY"]) {
+      if (endpointFor(environment, transmissionType) === endpoint) return { environment, transmissionType };
+    }
+  }
+  throw new SriValidationError("La transmision requiere un endpoint Offline oficial del SRI.");
+}
 
 const parser = new XMLParser({
   removeNSPrefix: true,
@@ -144,6 +161,7 @@ function parseAuthorizationResponse(xml) {
 }
 
 async function postSoap({ endpoint, envelope, timeoutMs = 20000, fetchImpl = globalThis.fetch }) {
+  const identity = endpointIdentity(endpoint);
   if (typeof fetchImpl !== "function") throw new SriTransportError("El backend no dispone de cliente HTTP.");
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -156,6 +174,7 @@ async function postSoap({ endpoint, envelope, timeoutMs = 20000, fetchImpl = glo
         SOAPAction: ""
       },
       body: envelope,
+      redirect: "error",
       signal: controller.signal
     });
     responseStatus = response.status;
@@ -172,8 +191,11 @@ async function postSoap({ endpoint, envelope, timeoutMs = 20000, fetchImpl = glo
     }
     return body;
   } catch (error) {
-    if (error instanceof SriTransportError) throw error;
-    const transport = nativeDiagnostic(error, { responseStatus });
+    if (error instanceof SriTransportError) {
+      error.details = { ...error.details, transport: { ...error.details?.transport, environment: identity.environment } };
+      throw error;
+    }
+    const transport = { ...nativeDiagnostic(error, { responseStatus }), environment: identity.environment };
     const timeoutFailure = transport.classification === "TIMEOUT";
     throw new SriTransportError(
       responseStatus ? `El Web Service del SRI respondio HTTP ${responseStatus}, pero no se pudo leer la respuesta completa.`
@@ -205,35 +227,45 @@ function safeResponse(body) {
   return safeText(body);
 }
 
-function responseFailure(error) {
+function responseFailure(error, environment) {
   if (!(error instanceof SriTransportError)) return error;
-  const transport = error.details?.transport || { classification: "NETWORK_OTHER", resultState: UNCERTAIN, nextAction: "AUTHORIZATION_LOOKUP_FIRST" };
-  error.details = { ...error.details, transport: { ...transport, httpStatus: 200 } };
+  const transport = error.details?.transport || { resultState: UNCERTAIN, nextAction: "AUTHORIZATION_LOOKUP_FIRST" };
+  // HTTP completed successfully; a malformed/unrecognized SOAP payload is a
+  // response-format failure, not evidence of a network connection failure.
+  error.details = { ...error.details, transport: { ...transport, classification: "SOAP", environment, httpStatus: 200 } };
   return error;
 }
 
 async function sendForReception(signedXml, options = {}) {
+  const environment = requireEnvironment(options.environment);
+  if (options.document?.environment !== environment) {
+    throw new SriValidationError("La recepcion requiere la identidad del comprobante en el ambiente solicitado.");
+  }
+  assertDocumentXmlIdentity(options.document, signedXml);
   const rawXml = await postSoap({
-    endpoint: options.endpoint || TEST_ENDPOINTS.reception,
+    endpoint: transportEndpoint(environment, "RECEPTION", options.endpoint),
     envelope: buildReceptionEnvelope(signedXml),
     timeoutMs: options.timeoutMs,
     fetchImpl: options.fetchImpl
   });
-  try { return parseReceptionResponse(rawXml); } catch (error) { throw responseFailure(error); }
+  try { return parseReceptionResponse(rawXml); } catch (error) { throw responseFailure(error, environment); }
 }
 
 async function queryAuthorization(accessKey, options = {}) {
+  const environment = requireEnvironment(options.environment);
+  assertDocumentEnvironment({ environment, access_key: accessKey });
   const rawXml = await postSoap({
-    endpoint: options.endpoint || TEST_ENDPOINTS.authorization,
+    endpoint: transportEndpoint(environment, "AUTHORIZATION_QUERY", options.endpoint),
     envelope: buildAuthorizationEnvelope(accessKey),
     timeoutMs: options.timeoutMs,
     fetchImpl: options.fetchImpl
   });
-  try { return parseAuthorizationResponse(rawXml); } catch (error) { throw responseFailure(error); }
+  try { return parseAuthorizationResponse(rawXml); } catch (error) { throw responseFailure(error, environment); }
 }
 
 module.exports = {
   TEST_ENDPOINTS,
+  PRODUCTION_ENDPOINTS,
   buildReceptionEnvelope,
   buildAuthorizationEnvelope,
   parseReceptionResponse,

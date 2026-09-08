@@ -7,6 +7,7 @@ const soap = require("./api/sri/_lib/sri-soap.cjs");
 const { nativeDiagnostic, safeText, UNCERTAIN, DEFINITE } = require("./api/sri/_lib/transport-diagnostic.cjs");
 const { recoveryPolicy } = require("./api/sri/_lib/recovery-policy.cjs");
 const { buildAccessKey } = require("./api/sri/_lib/access-key.cjs");
+const { environmentCode, authorizationEnvironmentLabel, endpointFor } = require("./api/sri/_lib/environment.cjs");
 const results = [];
 async function test(name, run) {
   try { await run(); results.push({ name, result: "PASS" }); }
@@ -24,19 +25,27 @@ async function caughtFrom(fetchImpl) {
 
 // In-memory backend; any document/sequence/journal creation is a test failure.
 // Runs the actual transmission/recovery service with only I/O boundaries replaced.
-function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true) {
+function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true, environment = "TEST") {
   const id = "fixture-document", company = "fixture-company";
-  const access = buildAccessKey({ issueDate: "2026-09-07", documentType: type, ruc: "1717637084001", environment: "TEST", establishmentCode: "001", emissionPointCode: "002", sequential: 3, numericCode: "97353364", emissionType: "1" });
-  const document = { id, company_id: company, status, access_key: access.accessKey, document_type: type, issuer_snapshot: { ruc: "1717637084001" }, establishment_code: "001", emission_point_code: "002", sequential_text: "000000003", full_number: "001-002-000000003", xml_version: "2.0.0", last_error: "network failure" };
+  const access = buildAccessKey({ issueDate: "2026-09-07", documentType: type, ruc: "1717637084001", environment, establishmentCode: "001", emissionPointCode: "002", sequential: 3, numericCode: "97353364", emissionType: "1" });
+  const document = { id, company_id: company, created_by: "actor", issue_date: "2026-09-07", environment, status, access_key: access.accessKey, document_type: type, issuer_snapshot: { ruc: "1717637084001" }, establishment_code: "001", emission_point_code: "002", sequential_text: "000000003", full_number: "001-002-000000003", xml_version: "2.0.0", last_error: "network failure" };
   const tables = {
     electronic_documents: [document],
-    sri_settings: [{ company_id: company, environment: "TEST", production_enabled: false, test_enabled: true, retry_max_attempts: 12 }],
-    sri_transmissions: legacy ? [{ id: "reception", document_id: id, company_id: company, transmission_type: "RECEPTION", idempotency_key: `${id}:RECEPTION`, endpoint_url: soap.TEST_ENDPOINTS.reception, status: "RETRY_SCHEDULED", attempt_number: 9, max_attempts: 12, error_class: "SRI_NETWORK_ERROR" }] : [],
+    sri_settings: [{ company_id: company, ruc: "1717637084001", environment, production_enabled: environment === "PRODUCTION", test_enabled: true, retry_max_attempts: 12 }],
+    companies: [{ id: company, tax_id: "1717637084001", is_active: true }],
+    sri_transmissions: legacy ? [{ id: "reception", document_id: id, company_id: company, environment, transmission_type: "RECEPTION", idempotency_key: `${id}:RECEPTION`, endpoint_url: endpointFor(environment, "RECEPTION"), status: "RETRY_SCHEDULED", attempt_number: 9, max_attempts: 12, error_class: "SRI_NETWORK_ERROR" }] : [],
     sri_transmission_attempts: legacy ? [{ id: "old-attempt", document_id: id, transmission_id: "reception", error_class: "SRI_NETWORK_ERROR", retryable: true }] : [],
     electronic_document_audit_logs: [], sri_responses: [], sri_error_messages: [],
     accounting_document_links: [{ id: "accounting", company_id: company, document_id: id, status: "POSTED", journal_entry_id: "existing-journal" }]
   };
   const calls = [], artifacts = [{ id: "ride", file_type: "RIDE_PDF" }];
+  const authority = { allowed: true };
+  function documentXml(key = document.access_key) {
+    const root = type === "01" ? "factura" : type === "04" ? "notaCredito" : "comprobanteRetencion";
+    const info = type === "01" ? "infoFactura" : type === "04" ? "infoNotaCredito" : "infoCompRetencion";
+    return `<${root} id="comprobante" version="2.0.0"><infoTributaria><ambiente>${environmentCode(environment)}</ambiente><tipoEmision>1</tipoEmision><claveAcceso>${key}</claveAcceso><codDoc>${type}</codDoc><ruc>1717637084001</ruc><estab>001</estab><ptoEmi>002</ptoEmi><secuencial>000000003</secuencial></infoTributaria><${info}><fechaEmision>07/09/2026</fechaEmision></${info}></${root}>`;
+  }
+  const signedArtifact = { xml: documentXml(), file: {} };
   function detail(requestCompany = company, requestId = id) {
     assert.equal(requestCompany, company); assert.equal(requestId, id);
     return structuredClone({ document, transmissions: tables.sri_transmissions.slice().reverse(), transmissionAttempts: tables.sri_transmission_attempts.slice().reverse(), audit: tables.electronic_document_audit_logs.slice().reverse(), errors: [], files: artifacts, accountingLinks: tables.accounting_document_links });
@@ -46,6 +55,7 @@ function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true) {
     select() { return this; }
     eq(k, v) { this.filters.push(row => row[k] === v); return this; }
     in(k, values) { this.filters.push(row => values.includes(row[k])); return this; }
+    lte(k, value) { this.filters.push(row => row[k] <= value); return this; }
     order() { return this; }
     limit(n) { this.maximum = n; return this; }
     update(patch) { this.operation = "update"; this.patch = patch; return this; }
@@ -75,6 +85,10 @@ function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true) {
     from: table => new Query(table),
     async rpc(name, args) {
       calls.push({ rpc: name, args });
+      if (name === "erp_sri_assert_transport_actor") {
+        assert.equal(args.p_company_id, company);
+        return { data: authority.allowed && args.p_actor_user_id === "actor" };
+      }
       if (name === "claim_sri_transmission") {
         const job = tables.sri_transmissions.find(j => j.id === args.p_transmission_id);
         if (job.attempt_number >= job.max_attempts) return { data: null };
@@ -99,7 +113,12 @@ function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true) {
       };
       if (name === "./artifact-store.cjs") return {
         sha256: value => require("node:crypto").createHash("sha256").update(value).digest("hex"),
-        loadArtifact: async () => ({ file: { id: "same-signed-file" }, buffer: Buffer.from(`<fixture><codDoc>${type}</codDoc></fixture>`) }),
+        loadArtifact: async () => {
+          const buffer = Buffer.from(signedArtifact.xml);
+          const hash = require("node:crypto").createHash("sha256").update(buffer).digest("hex");
+          return { file: { id: "same-signed-file", company_id: company, document_id: id, file_type: "SIGNED_XML", storage_bucket: "sri-private",
+            content_sha256: hash, storage_object_path: `companies/${company}/documents/${id}/signed_xml-${hash}.xml`, ...signedArtifact.file }, buffer };
+        },
         storeArtifact: async (_client, value) => { assert.equal(value.companyId, company); assert.equal(value.documentId, id); artifacts.push(value); return { id: "fixture-artifact" }; }
       };
       if (name === "./ride.cjs") return { generateRidePdf() { throw Error("Existing RIDE must be reused"); } };
@@ -107,12 +126,12 @@ function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true) {
     }
   }, { filename });
   function authResponse(state = "AUTORIZADO", key = document.access_key) {
-    return envelope(`<autorizacionComprobanteResponse><RespuestaAutorizacionComprobante><claveAccesoConsultada>${key}</claveAccesoConsultada><numeroComprobantes>${state === "NO_ENCONTRADO" ? 0 : 1}</numeroComprobantes>${state === "NO_ENCONTRADO" ? "" : `<autorizaciones><autorizacion><estado>${state}</estado><numeroAutorizacion>${key}</numeroAutorizacion><fechaAutorizacion>2026-09-07T12:00:00</fechaAutorizacion><ambiente>PRUEBAS</ambiente><comprobante><![CDATA[<${type === "01" ? "factura" : type === "04" ? "notaCredito" : "comprobanteRetencion"}><infoTributaria><claveAcceso>${key}</claveAcceso><codDoc>${type}</codDoc><ruc>1717637084001</ruc><estab>001</estab><ptoEmi>002</ptoEmi><secuencial>000000003</secuencial></infoTributaria></${type === "01" ? "factura" : type === "04" ? "notaCredito" : "comprobanteRetencion"}>]]></comprobante></autorizacion></autorizaciones>`}</RespuestaAutorizacionComprobante></autorizacionComprobanteResponse>`);
+    return envelope(`<autorizacionComprobanteResponse><RespuestaAutorizacionComprobante><claveAccesoConsultada>${key}</claveAccesoConsultada><numeroComprobantes>${state === "NO_ENCONTRADO" ? 0 : 1}</numeroComprobantes>${state === "NO_ENCONTRADO" ? "" : `<autorizaciones><autorizacion><estado>${state}</estado><numeroAutorizacion>${key}</numeroAutorizacion><fechaAutorizacion>2026-09-07T12:00:00</fechaAutorizacion><ambiente>${authorizationEnvironmentLabel(environment)}</ambiente><comprobante><![CDATA[${documentXml(key)}]]></comprobante></autorizacion></autorizaciones>`}</RespuestaAutorizacionComprobante></autorizacionComprobanteResponse>`);
   }
-  return { service: exported.exports, client, document, tables, calls, detail, authResponse, run: fetchImpl => exported.exports.transmitDocument(client, company, id, "actor", { force: true, fetchImpl }) };
+  return { service: exported.exports, client, document, tables, calls, detail, authResponse, authority, signedArtifact, run: fetchImpl => exported.exports.transmitDocument(client, company, id, "actor", { force: true, fetchImpl }) };
 }
 
-(async () => {
+if (require.main === module) (async () => {
   for (const [code, classification, state] of [["ENOTFOUND", "DNS", DEFINITE], ["CERT_HAS_EXPIRED", "TLS", DEFINITE], ["UND_ERR_CONNECT_TIMEOUT", "TIMEOUT", UNCERTAIN], ["ECONNRESET", "CONNECTION_RESET", UNCERTAIN]]) await test(`${code} classification and native cause`, async () => {
     const e = await caughtFrom(async () => { throw networkError(code); });
     assert.equal(e.details.transport.classification, classification);
@@ -151,7 +170,16 @@ function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true) {
     assert.equal(e.details.transport.native.cause.code, "ECONNRESET");
   });
   await test("SOAP fault classified and official message retained", async () => {
-    await assert.rejects(() => soap.sendForReception("<fixture/>", { fetchImpl: async () => ({ ok: true, status: 200, text: async () => fault }) }), e => e.code === "SRI_SOAP_FAULT" && e.details.transport.classification === "SOAP" && e.details.transport.httpStatus === 200 && e.message.includes("Servicio temporalmente no disponible"));
+    const b = backend();
+    await assert.rejects(() => soap.sendForReception(b.signedArtifact.xml, { document: b.document, environment: "TEST", fetchImpl: async () => ({ ok: true, status: 200, text: async () => fault }) }), e => e.code === "SRI_SOAP_FAULT" && e.details.transport.classification === "SOAP" && e.details.transport.httpStatus === 200 && e.message.includes("Servicio temporalmente no disponible"));
+  });
+  await test("HTTP 200 unreadable SOAP response stays SOAP, uncertain and lookup-first", async () => {
+    const b = backend();
+    for (const body of ["not an XML response", "<Envelope><Body><unexpected/></Body></Envelope>", "<Envelope><Body>"]) {
+      await assert.rejects(() => soap.sendForReception(b.signedArtifact.xml, { document: b.document, environment: "TEST", fetchImpl: async () => ({ ok: true, status: 200, text: async () => body }) }), error =>
+        error.details.transport.classification === "SOAP" && error.details.transport.httpStatus === 200
+        && error.details.transport.resultState === UNCERTAIN && error.details.transport.nextAction === "AUTHORIZATION_LOOKUP_FIRST");
+    }
   });
   for (const type of ["01", "04", "07"]) await test(`${type} uncertain legacy retry recovers same authorization; zero resends`, async () => {
     const b = backend(type), before = structuredClone(b.document), urls = [];
@@ -228,7 +256,7 @@ function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true) {
     const b = backend();
     await assert.rejects(() => b.run(async () => ({ ok: true, status: 200, text: async () => b.authResponse("NO_ENCONTRADO") })));
     let requests = 0;
-    await assert.rejects(() => b.service.transmitDocument(b.client, b.document.company_id, b.document.id, null, { force: false, fetchImpl: async () => { requests++; throw Error("Unexpected send"); } }), e => e.code === "SRI_TRANSMISSION_NOT_DUE");
+    await assert.rejects(() => b.service.transmitDocument(b.client, b.document.company_id, b.document.id, null, { force: false, retryJob: b.detail().transmissions[0], fetchImpl: async () => { requests++; throw Error("Unexpected send"); } }), e => e.code === "SRI_TRANSMISSION_NOT_DUE");
     assert.equal(requests, 0);
   });
   await test("Official NO AUTORIZADO is final; no reception retry", async () => {
@@ -242,12 +270,22 @@ function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true) {
     await assert.rejects(() => b.run(async () => ({ ok: true, status: 200, text: async () => b.authResponse("AUTORIZADO", "0".repeat(49)) })), e => e.code === "SRI_AUTHORIZATION_IDENTITY_MISMATCH");
     assert.equal(b.document.status, "PENDIENTE_REINTENTO");
   });
-  await test("SRI production environment/flag remain blocked", async () => {
-    for (const patch of [{ environment: "PRODUCTION" }, { production_enabled: true }]) {
-      const b = backend(); Object.assign(b.tables.sri_settings[0], patch); let requests = 0;
+  await test("Disabled document environment is blocked without HTTP", async () => {
+    for (const environment of ["TEST", "PRODUCTION"]) {
+      const b = backend("07", "FIRMADO", false, environment);
+      b.tables.sri_settings[0][environment === "TEST" ? "test_enabled" : "production_enabled"] = false;
+      let requests = 0;
       await assert.rejects(() => b.run(async () => { requests++; })); assert.equal(requests, 0);
     }
+  });
+  await test("Historical TEST retry remains query-only celcer after PROD activation", async () => {
+    const b = backend(); Object.assign(b.tables.sri_settings[0], { environment: "PRODUCTION", production_enabled: true });
+    const before = b.document.access_key;
+    await b.run(async url => { assert.equal(url, soap.TEST_ENDPOINTS.authorization); return { ok: true, status: 200, text: async () => b.authResponse() }; });
+    assert.equal(b.document.access_key, before); assert.equal(b.document.environment, "TEST");
   });
   console.log(JSON.stringify({ ok: results.every(r => r.result === "PASS"), passed: results.filter(r => r.result === "PASS").length, failed: results.filter(r => r.result === "FAIL").length, realTransmissions: 0, sequenceMutations: 0, results }, null, 2));
   process.exitCode = results.every(r => r.result === "PASS") ? 0 : 1;
 })();
+
+module.exports = { backend, envelope, received, fault, networkError };

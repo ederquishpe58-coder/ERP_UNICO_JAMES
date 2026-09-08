@@ -177,7 +177,11 @@ for (const profile of profiles) {
   let reception = null;
   let authorization = null;
   if (shouldTransmit) {
-    reception = await sendForReception(signedXml, { timeoutMs: 30000 });
+    reception = await sendForReception(signedXml, { environment: "TEST", timeoutMs: 30000,
+      document: { environment: "TEST", access_key: access.accessKey, document_type: "01", issuer_snapshot: { ruc: profile.ruc },
+        issue_date: issueDate, establishment_code: "001", emission_point_code: profile.emissionPointCode,
+        sequential_text: access.sequential, xml_version: "1.1.0" }
+    });
     assert.equal(
       reception.received,
       true,
@@ -185,7 +189,7 @@ for (const profile of profiles) {
     );
     for (let attempt = 0; attempt < 6; attempt += 1) {
       if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 2000));
-      authorization = await queryAuthorization(access.accessKey, { timeoutMs: 30000 });
+      authorization = await queryAuthorization(access.accessKey, { environment: "TEST", timeoutMs: 30000 });
       if (authorization.state !== "NO_ENCONTRADO") break;
     }
     assert.equal(
