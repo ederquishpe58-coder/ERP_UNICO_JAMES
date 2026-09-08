@@ -171,6 +171,15 @@ const nonIdentityPatch={commercial_customers:{commercialName:'Visible edited',ad
   await write('commercial_customers-C',{identification:''});const row=await get('commercial_customers-C');
   const result=await saveUI('commercial_customers',{...row.payload,fixedPhone:'987',__syncVersion:row.version});assert.equal(result.ok,true);assert.equal((await get(row.record_id)).payload.identification,'');
  });
+ await pass('DAE historical order number references remain stable; non-identity edits still allowed',async()=>{
+  const row=await get('commercial_dae-C',I,'commercial_dae');
+  const order={id:'historical-order',daeNumber:row.payload.number,sriDaeNumber:row.payload.number,status:'ANULADO'};
+  await db.query('insert into erp_entity_records(company_id,entity,record_id,payload) values($1,$2,$3,$4)',[I,'commercial_orders',order.id,JSON.stringify(order)]);
+  await assert.rejects(write(row.record_id,{number:'UNUSED-NEW-NUMBER'},I,'UPDATE','commercial_dae'),/DAE está referenciada/);
+  await write(row.record_id,{observation:'Historical notes updated'},I,'UPDATE','commercial_dae');
+  assert.equal((await get(row.record_id,I,'commercial_dae')).payload.number,row.payload.number);
+  assert.deepEqual((await db.query("select payload from erp_entity_records where entity='commercial_orders' and record_id=$1",[order.id])).rows[0].payload,order);
+ });
  await pass('forward migration idempotent without business data changes',async()=>{
   const before=(await db.query('select * from erp_entity_records order by id')).rows;await db.exec(read('supabase/migrations/202609080004_commercial_catalog_identity_updates.sql'));assert.deepEqual((await db.query('select * from erp_entity_records order by id')).rows,before);
  });

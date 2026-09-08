@@ -25,6 +25,15 @@ begin
    raise exception 'COMMERCIAL_CATALOG_IDENTITY_SCOPE_IMMUTABLE';
   end if;
   if new.payload is not distinct from old.payload and new.deleted_at is not distinct from old.deleted_at then return new; end if;
+  -- Existing route/report contract stores daeNumber on the order, not a daeId.
+  -- Keep that historical reference stable; never rewrite orders to accommodate a catalog edit.
+  if new.entity='commercial_dae' and new.payload->'number' is distinct from old.payload->'number'
+    and btrim(coalesce(old.payload->>'number',''))<>''
+    and exists(select 1 from public.erp_entity_records r where r.company_id=old.company_id and r.entity='commercial_orders'
+      and (btrim(coalesce(r.payload->>'daeNumber',''))=btrim(old.payload->>'number')
+        or btrim(coalesce(r.payload->>'sriDaeNumber',''))=btrim(old.payload->>'number'))) then
+    raise exception using errcode='23514',message='La DAE está referenciada por pedidos históricos. Conserve su número; puede editar los demás datos de la ficha.',detail='COMMERCIAL_DAE_NUMBER_IN_USE';
+  end if;
   reactivating := upper(coalesce(old.payload->>'status','')) in ('INACTIVO','INACTIVA','INACTIVE')
     and upper(coalesce(new.payload->>'status','')) not in ('INACTIVO','INACTIVA','INACTIVE');
   foreach field in array fields loop
