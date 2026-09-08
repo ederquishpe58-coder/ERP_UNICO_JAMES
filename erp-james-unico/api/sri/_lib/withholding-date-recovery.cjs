@@ -1,4 +1,4 @@
-const { XMLParser } = require("fast-xml-parser");
+const { XMLParser, XMLValidator } = require("fast-xml-parser");
 const { ecuadorDate } = require("./emission-date.cjs");
 const { assertCanonicalDocumentIdentity } = require("./xml-identity.cjs");
 const parser = new XMLParser({ removeNSPrefix: true, parseTagValue: false, trimValues: true });
@@ -35,10 +35,12 @@ function definitiveAuthorizationAbsent(document, result) {
       || result.accessKey !== document.access_key || result.documentCount !== 0
       || result.authorizations?.length !== 0 || result.messages?.length !== 0) return false;
   try {
+    if (XMLValidator.validate(result.rawXml) !== true) return false;
     const response = parser.parse(result.rawXml)?.Envelope?.Body
       ?.autorizacionComprobanteResponse?.RespuestaAutorizacionComprobante;
     return response?.claveAccesoConsultada === document.access_key
       && response?.numeroComprobantes === "0" && !response?.mensajes
+      && Object.keys(response).every(key => ["claveAccesoConsultada", "numeroComprobantes", "autorizaciones"].includes(key))
       && (!response.autorizaciones || response.autorizaciones === "");
   } catch { return false; }
 }

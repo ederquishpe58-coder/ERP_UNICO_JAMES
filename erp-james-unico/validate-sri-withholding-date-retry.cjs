@@ -80,6 +80,8 @@ function fixture(type='07', environment='PRODUCTION') {
   for(const [name,make] of [
     ['Pending explicit message',b=>b.authResponse('NO_ENCONTRADO').replace('</numeroComprobantes>','</numeroComprobantes><mensajes><mensaje><identificador>70</identificador></mensaje></mensajes>')],
     ['Missing count',b=>b.authResponse('NO_ENCONTRADO').replace('<numeroComprobantes>0</numeroComprobantes>','')],
+    ['Truncated XML',b=>b.authResponse('NO_ENCONTRADO').replace('</Body></Envelope>','')],
+    ['Unknown response content',b=>b.authResponse('NO_ENCONTRADO').replace('</numeroComprobantes>','</numeroComprobantes><error>pending</error>')],
     ['Contradictory count',b=>b.authResponse('NO_ENCONTRADO').replace('<numeroComprobantes>0','<numeroComprobantes>1')],
     ['SOAP fault',()=>fault]
   ])await test(name+' preserves lookup-first; no resend',async()=>{const b=fixture(),urls=[];await assert.rejects(()=>b.query(async url=>{urls.push(url);return response(make(b));}));assert.ok(urls.every(u=>u.includes('Autorizacion')));assert.equal(b.document.status,'DEVUELTO');});
