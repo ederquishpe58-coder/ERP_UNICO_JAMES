@@ -10,6 +10,7 @@
     detail: null,
     historyDraft: { dateFrom: `${today.slice(0, 7)}-01`, dateTo: today, provider: "", status: "", retentionNumber: "", purchaseNumber: "", search: "", pageSize: 25 }
   };
+  const recoveryInFlight = new Set();
   const esc = value => BlessERP.utils?.escapeHtml?.(String(value ?? "")) || String(value ?? "");
   const money = value => Number(value || 0).toLocaleString("es-EC", { style: "currency", currency: "USD" });
   const clone = value => BlessERP.utils?.clone?.(value) || JSON.parse(JSON.stringify(value));
@@ -92,7 +93,7 @@
           <label class="compact-field full"><span>Clave de acceso</span><input value="${esc(document.access_key || "-")}" readonly></label>
         </div>
         <div class="editor-actions">
-          ${policy.action === "QUERY_AUTHORIZATION" ? `<button class="primary-button" type="button" data-retention-v2-recover="${esc(document.id)}">${esc(policy.actionLabel || "Consultar estado SRI")}</button>` : ""}
+          ${policy.action === "QUERY_AUTHORIZATION" ? `<button class="primary-button" type="button" data-retention-v2-recover="${esc(document.id)}" ${recoveryInFlight.has(document.id) ? "disabled" : ""}>${recoveryInFlight.has(document.id) ? "Consultando..." : esc(policy.actionLabel || "Consultar estado SRI")}</button>` : ""}
           <small>${esc(policy.reason || "")}</small>
         </div>
       </section>
@@ -273,7 +274,7 @@
       finally { view.processing = false; BlessERP.layout.renderPage(); }
     });
     document.querySelectorAll("[data-retention-v2-view]").forEach(button => button.addEventListener("click", async () => { try { view.detail = await service().detail(button.dataset.retentionV2View); view.error = ""; } catch (error) { view.error = error.message; } BlessERP.layout.renderPage(); }));
-    document.querySelectorAll("[data-retention-v2-process]").forEach(button => button.addEventListener("click", async () => { if (view.processing) return; view.processing = true; view.error = ""; BlessERP.layout.renderPage(); try { const detail = await service().process(button.dataset.retentionV2Process); view.detail = detail; view.message = `Retención ${detail.document?.full_number || ""}: ${statusLabel(detail.document?.status)}.`; } catch (error) { view.error = error.message; try { view.detail = await service().detail(button.dataset.retentionV2Process); } catch {} } finally { view.processing = false; BlessERP.layout.renderPage(); } }));
+    document.querySelectorAll("[data-retention-v2-process]").forEach(button => button.addEventListener("click", async () => { if (view.processing || recoveryInFlight.has(button.dataset.retentionV2Process)) return; recoveryInFlight.add(button.dataset.retentionV2Process); view.processing = true; view.error = ""; BlessERP.layout.renderPage(); try { const detail = await service().process(button.dataset.retentionV2Process); view.detail = detail; view.message = `Retención ${detail.document?.full_number || ""}: ${statusLabel(detail.document?.status)}.`; } catch (error) { view.error = error.message; try { view.detail = await service().detail(button.dataset.retentionV2Process); } catch {} } finally { recoveryInFlight.delete(button.dataset.retentionV2Process); view.processing = false; BlessERP.layout.renderPage(); } }));
     document.querySelectorAll("[data-retention-v2-ride]").forEach(button => button.addEventListener("click", async () => {
       const row = findRetention(snapshot, button.dataset.retentionV2Ride); if (!row) return;
       try {
@@ -284,7 +285,24 @@
     document.querySelectorAll("[data-retention-v2-xml]").forEach(button => button.addEventListener("click", async () => { try { await service().downloadArtifact(button.dataset.retentionV2Xml, "AUTHORIZED_XML"); } catch (error) { view.error = error.message; BlessERP.layout.renderPage(); } }));
     document.querySelector("[data-retention-v2-detail-close]")?.addEventListener("click", () => { view.detail = null; BlessERP.layout.renderPage(); });
     document.querySelector("[data-retention-v2-detail-backdrop]")?.addEventListener("click", event => { if (event.target === event.currentTarget) { view.detail = null; BlessERP.layout.renderPage(); } });
-    document.querySelector("[data-retention-v2-recover]")?.addEventListener("click", async event => { try { view.detail = await service().recover(event.currentTarget.dataset.retentionV2Recover); view.message = "Estado consultado con la misma clave de acceso."; view.error = ""; } catch (error) { view.error = error.message; } BlessERP.layout.renderPage(); });
+    document.querySelector("[data-retention-v2-recover]")?.addEventListener("click", async event => {
+      const documentId = event.currentTarget.dataset.retentionV2Recover;
+      if (recoveryInFlight.has(documentId)) return;
+      recoveryInFlight.add(documentId); view.error = ""; view.message = "";
+      BlessERP.layout.renderPage();
+      try {
+        const detail = await service().recover(documentId);
+        if (view.detail?.document?.id === documentId) {
+          view.detail = detail;
+          view.message = "Estado consultado con la misma clave de acceso.";
+        }
+      } catch (error) {
+        if (view.detail?.document?.id === documentId) view.error = error.message;
+      } finally {
+        recoveryInFlight.delete(documentId);
+        BlessERP.layout.renderPage();
+      }
+    });
   }
 
   BlessERP.purchaseWithholdingV2Ui = Object.freeze({ render });

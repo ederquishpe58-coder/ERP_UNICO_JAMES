@@ -241,6 +241,94 @@ async function ensureJob(client, document, settings, transmissionType, requestFi
   return assertJobIdentity(job, document, transmissionType, requestFileId);
 }
 
+function claimResult(result, job, label = "Toma atomica de transmision") {
+  const databaseCode = String(result?.error?.code || "");
+  const databaseMessage = String(result?.error?.message || "");
+  if (databaseMessage === "SRI_MANUAL_AUTHORIZATION_CLAIM_LOST") {
+    throw new SriTransportError("La consulta de este comprobante terminó o está siendo atendida por otro proceso. Consulte su estado en unos segundos.", {
+      code: "SRI_MANUAL_AUTHORIZATION_CLAIM_LOST", httpStatus: 409, retryable: true,
+      details: { stage: job.transmission_type, databaseCode, databaseMessage, retryAfterSeconds: 30 }
+    });
+  }
+  if (["SRI_MANUAL_AUTHORIZATION_NOT_ELIGIBLE", "SRI_TRANSMISSION_ATTEMPTS_EXHAUSTED"].includes(databaseMessage)) {
+    throw new SriError("Este comprobante no admite otro intento automático. Revise su respuesta SRI antes de continuar.", {
+      code: databaseMessage, httpStatus: 409, retryable: false,
+      details: { stage: job.transmission_type, databaseCode, databaseMessage }
+    });
+  }
+  if (databaseCode === "55P03") {
+    const notDue = /NOT_DUE|COOLDOWN/.test(databaseMessage);
+    const exhausted = databaseMessage === "SRI_TRANSMISSION_NOT_CLAIMABLE" && job.status === "FAILED";
+    let retryAfterSeconds = 30;
+    try { retryAfterSeconds = Math.min(30, Math.max(1, Number(JSON.parse(result.error.hint)?.retryAfterSeconds) || 30)); } catch {}
+    throw new SriTransportError(exhausted
+      ? "Los intentos automáticos de este comprobante terminaron. Consulte su autorización con la misma clave de acceso."
+      : notDue
+        ? "La consulta de este comprobante tiene una espera programada. Intente nuevamente en unos segundos."
+        : "Este comprobante está siendo procesado. Intente nuevamente en unos segundos.", {
+      code: exhausted ? "SRI_TRANSMISSION_NOT_CLAIMABLE" : notDue ? "SRI_TRANSMISSION_NOT_DUE" : "SRI_TRANSMISSION_ALREADY_PROCESSING",
+      httpStatus: 409,
+      retryable: !exhausted,
+      details: { stage: job.transmission_type, databaseCode, databaseMessage, retryAfterSeconds }
+    });
+  }
+  return dbError(result, label);
+}
+
+async function claimManualAuthorization(client, job, document, actorUserId) {
+  const workerId = `manual-auth-${randomUUID()}`;
+  const claimed = claimResult(await client.rpc("claim_sri_manual_authorization", {
+    p_transmission_id: job.id, p_worker_id: workerId,
+    p_company_id: document.company_id, p_document_id: document.id, p_actor_user_id: actorUserId
+  }), job, "Consulta manual de autorización SRI");
+  assertJobIdentity(claimed, document, "AUTHORIZATION_QUERY");
+  const attempt = claimed.claim_attempt;
+  if (claimed.manual_recovery !== true || claimed.status !== "PROCESSING" || claimed.worker_id !== workerId
+      || claimed.id !== job.id || claimed.attempt_number !== job.attempt_number || claimed.max_attempts !== job.max_attempts
+      || !attempt?.id || attempt.status !== "STARTED" || attempt.transmission_id !== job.id
+      || attempt.company_id !== document.company_id || attempt.document_id !== document.id
+      || attempt.endpoint_url !== job.endpoint_url || attempt.request_sha256 !== sha256(document.access_key)
+      || !Number.isInteger(attempt.attempt_number) || attempt.attempt_number <= job.attempt_number) {
+    throw new SriValidationError("SRI_MANUAL_AUTHORIZATION_CANONICAL_ACK_REQUIRED");
+  }
+  return claimed;
+}
+
+async function assertManualAuthorizationClaim(client, job, attempt, actorUserId) {
+  if (!job.manual_recovery) return;
+  const allowed = claimResult(await client.rpc("assert_sri_manual_authorization_claim", {
+    p_transmission_id: job.id, p_worker_id: job.worker_id,
+    p_attempt_id: attempt.id, p_actor_user_id: actorUserId
+  }), job, "Vigencia de consulta manual SRI");
+  if (allowed !== true) throw new SriTransportError("Otro proceso está trabajando este comprobante. Consulte su estado en unos segundos.", {
+    code: "SRI_TRANSMISSION_ALREADY_PROCESSING", httpStatus: 409, retryable: true,
+    details: { stage: "AUTHORIZATION_QUERY", retryAfterSeconds: 30 }
+  });
+}
+
+async function settleAuthorizationJob(client, job, attempt, actorUserId, responseHash, error = null) {
+  if (!job.manual_recovery) {
+    await finishAttempt(client, attempt, { status: "SUCCEEDED", response_sha256: responseHash, http_status: 200 });
+    return completeJob(client, job);
+  }
+  const settled = claimResult(await client.rpc("settle_sri_manual_authorization", {
+    p_transmission_id: job.id, p_worker_id: job.worker_id, p_attempt_id: attempt.id, p_actor_user_id: actorUserId,
+    p_success: !error, p_response_sha256: responseHash || null,
+    p_http_status: error ? error.details?.transport?.httpStatus || null : 200,
+    p_error_class: error ? error.code === "SRI_AUTHORIZATION_IDENTITY_MISMATCH" ? error.code : "SRI_TRANSPORT_RESULT_UNCERTAIN" : null,
+    p_error_message: error ? safeText(error.message) : null
+  }), job, "Cierre canónico de consulta manual SRI");
+  if (!settled || settled.manual_recovery !== true || settled.status !== (error ? "FAILED" : "COMPLETED")
+      || settled.next_attempt_at !== null
+      || ["id", "company_id", "document_id", "environment", "transmission_type", "endpoint_url", "idempotency_key",
+        "worker_id", "attempt_number", "max_attempts"].some(field => settled[field] !== job[field])) {
+    throw new SriError("No se recibió la confirmación canónica del cierre de la consulta SRI. Consulte el estado del comprobante.", {
+      code: "SRI_MANUAL_AUTHORIZATION_CANONICAL_ACK_REQUIRED", httpStatus: 409, retryable: false
+    });
+  }
+  return settled;
+}
+
 async function claimJob(client, job, force = false) {
   if (["COMPLETED", "RECEIVED"].includes(job.status)) return null;
   const nextAttemptAt = job.next_attempt_at ? new Date(job.next_attempt_at) : null;
@@ -258,10 +346,10 @@ async function claimJob(client, job, force = false) {
     job = dbError(await client.from("sri_transmissions").update({ next_attempt_at: new Date().toISOString() })
       .eq("id", job.id).eq("status", "RETRY_SCHEDULED").select().single(), "Reintento inmediato");
   }
-  const claimed = dbError(await client.rpc("claim_sri_transmission", {
+  const claimed = claimResult(await client.rpc("claim_sri_transmission", {
     p_transmission_id: job.id,
     p_worker_id: `api-${randomUUID()}`
-  }), "Toma atomica de transmision");
+  }), job);
   if (!claimed) {
     throw new SriTransportError("La transmision SRI esta siendo procesada por otro intento. Espere unos segundos y vuelva a consultar.", {
       code: "SRI_TRANSMISSION_ALREADY_PROCESSING",
@@ -463,17 +551,28 @@ async function processAuthorization(client, settings, document, actorUserId, opt
   }
   let job = await ensureJob(client, current, settings, "AUTHORIZATION_QUERY");
   if (job.status === "COMPLETED") return getDocumentDetail(client, current.company_id, current.id);
-  job = await claimJob(client, job, options.force);
+  const manualRecovery = options.manualAuthorizationRecovery === true && !options.retryJob && Boolean(actorUserId)
+    && recoveryQuery && current.document_type === "07" && !recoverySourceStatus
+    && job.attempt_number >= job.max_attempts
+    && ((job.status === "FAILED" && job.error_class === "SRI_TRANSPORT_RESULT_UNCERTAIN")
+      || (job.status === "PROCESSING" && String(job.worker_id || "").startsWith("manual-auth-")));
+  job = manualRecovery
+    ? await claimManualAuthorization(client, job, current, actorUserId)
+    : await claimJob(client, job, options.force);
   assertJobIdentity(job, current, "AUTHORIZATION_QUERY");
-  const attempt = await beginAttempt(client, job, sha256(current.access_key));
+  const attempt = manualRecovery ? job.claim_attempt : await beginAttempt(client, job, sha256(current.access_key));
   let requeued = null;
+  let manualSettled = false;
+  let authorizationResponseHash = null;
   try {
+    await assertManualAuthorizationClaim(client, job, attempt, actorUserId);
     const result = await queryAuthorization(current.access_key, {
       environment: current.environment,
       endpoint: job.endpoint_url,
       timeoutMs: options.timeoutMs,
       fetchImpl: options.fetchImpl
     });
+    await assertManualAuthorizationClaim(client, job, attempt, actorUserId);
     validateAuthorizationIdentity(current, result);
     if (technicalRecoveryStatus && (result.authorized || ["NO AUTORIZADO", "NO_AUTORIZADO"].includes(result.state))) {
       current = await normalizeTechnicalRecoveryStatus(client, current, actorUserId);
@@ -482,7 +581,9 @@ async function processAuthorization(client, settings, document, actorUserId, opt
       client, current, job, "AUTHORIZATION", "AUTHORIZATION_RESPONSE",
       result.rawXml, result, result.messages, actorUserId
     );
+    authorizationResponseHash = persisted.hash;
     if (result.authorized) {
+      await assertManualAuthorizationClaim(client, job, attempt, actorUserId);
       await storeArtifact(client, {
         companyId: current.company_id,
         documentId: current.id,
@@ -491,6 +592,7 @@ async function processAuthorization(client, settings, document, actorUserId, opt
         schemaVersion: current.xml_version,
         createdBy: actorUserId
       });
+      await assertManualAuthorizationClaim(client, job, attempt, actorUserId);
       dbError(await client.rpc(recoverySourceStatus ? "record_sri_recovery_authorization" : "record_sri_authorization", {
         p_document_id: current.id,
         p_response_xml: result.rawXml,
@@ -501,13 +603,14 @@ async function processAuthorization(client, settings, document, actorUserId, opt
         p_authorized_xml: result.authorizedXml,
         p_actor_user_id: actorUserId
       }), "Autorizacion oficial SRI");
-      await finishAttempt(client, attempt, { status: "SUCCEEDED", response_sha256: persisted.hash, http_status: 200 });
-      await completeJob(client, job);
+      await settleAuthorizationJob(client, job, attempt, actorUserId, persisted.hash);
+      manualSettled = manualRecovery;
       const authorizedDetail = await getDocumentDetail(client, current.company_id, current.id);
       await generateAccountingForDocument(client, current.id, actorUserId);
       return ensureRide(client, authorizedDetail, actorUserId);
     }
     if (["NO AUTORIZADO", "NO_AUTORIZADO"].includes(result.state)) {
+      await assertManualAuthorizationClaim(client, job, attempt, actorUserId);
       dbError(await client.rpc(recoverySourceStatus ? "record_sri_recovery_authorization" : "record_sri_authorization", {
         p_document_id: current.id,
         p_response_xml: result.rawXml,
@@ -518,11 +621,11 @@ async function processAuthorization(client, settings, document, actorUserId, opt
         p_authorized_xml: null,
         p_actor_user_id: actorUserId
       }), "Respuesta NO AUTORIZADO");
-      await finishAttempt(client, attempt, { status: "SUCCEEDED", response_sha256: persisted.hash, http_status: 200 });
-      await completeJob(client, job);
+      await settleAuthorizationJob(client, job, attempt, actorUserId, persisted.hash);
+      manualSettled = manualRecovery;
       return getDocumentDetail(client, current.company_id, current.id);
     }
-    const dateRecovery = options.manualDateRecovery === true && withholdingDateRecovery(
+    const dateRecovery = !manualRecovery && options.manualDateRecovery === true && withholdingDateRecovery(
       await getDocumentDetail(client, current.company_id, current.id)
     );
     if (dateRecovery && definitiveAuthorizationAbsent(current, result)) {
@@ -552,6 +655,13 @@ async function processAuthorization(client, settings, document, actorUserId, opt
       } }
     });
   } catch (error) {
+    if (manualRecovery) {
+      if (!manualSettled && !["SRI_MANUAL_AUTHORIZATION_CLAIM_LOST", "SRI_MANUAL_AUTHORIZATION_CANONICAL_ACK_REQUIRED"].includes(error.code)) {
+        await settleAuthorizationJob(client, job, attempt, actorUserId, authorizationResponseHash, error);
+      }
+      if (error.retryable) error.details = { ...error.details, retryAfterSeconds: 30 };
+      throw error;
+    }
     if (error?.code === "SRI_AUTHORIZATION_IDENTITY_MISMATCH") {
       await failAuthorizationAttemptWithoutDocumentMutation(client, job, attempt, error);
       throw error;
@@ -658,6 +768,7 @@ async function transmitDocument(client, companyId, documentId, actorUserId, opti
     return processAuthorization(client, settings, document, actorUserId, {
       ...options,
       manualDateRecovery: !options.retryJob && Boolean(actorUserId),
+      manualAuthorizationRecovery: !options.retryJob && Boolean(actorUserId),
       force: options.force === true,
       recoveryQuery: true
     });
@@ -684,6 +795,7 @@ async function queryDocumentStatus(client, companyId, documentId, actorUserId, o
   return processAuthorization(client, settings, detail.document, actorUserId, {
     ...options,
     manualDateRecovery: Boolean(actorUserId),
+    manualAuthorizationRecovery: Boolean(actorUserId) && !options.retryJob,
     force: true,
     recoveryQuery: true
   });
