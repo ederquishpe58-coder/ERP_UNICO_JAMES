@@ -114,6 +114,19 @@
     };
   }
 
+  // Compare the complete editable projection; omitted legacy defaults are not writes.
+  // The server still validates the exact persisted payload, not this UI decision.
+  function isCustomerStatusOnlyInactivation(current, next) {
+    if (!current?.id || current.id !== next?.id
+      || current.status !== "ACTIVO" || next.status !== "INACTIVO") return false;
+    const snapshot = record => Object.fromEntries(Object.entries(createCustomer(record))
+      .filter(([key]) => key !== "status" && !key.startsWith("__sync")));
+    const expected = snapshot(current);
+    if (Object.keys(next).some(key => key !== "status" && !key.startsWith("__sync")
+      && !(key in expected) && JSON.stringify(next[key]) !== JSON.stringify(current[key]))) return false;
+    return JSON.stringify(expected) === JSON.stringify(snapshot(next));
+  }
+
   const customers = [
     {
       id: "customer-cvflor",
@@ -1326,6 +1339,7 @@
     normalizeSriPaymentMethod,
     sriPaymentMethodLabel,
     createCustomer,
+    isCustomerStatusOnlyInactivation,
     createLine,
     createOrder,
     createSeedOrders,

@@ -809,7 +809,8 @@
     const sameCompany = item => String(item.companyId || item.company_id) === String(draft.companyId || draft.company_id);
     const duplicateCode = store.customerCatalog.find(item => item.id !== draft.id && sameCompany(item) && String(item.code).trim().toUpperCase() === String(draft.code).trim().toUpperCase());
     const duplicateIdentification = store.customerCatalog.find(item => item.id !== draft.id && sameCompany(item) && String(item.identification).trim() === String(draft.identification).trim());
-    if (duplicateCode || duplicateIdentification) {
+    const statusOnlyInactivation = data.isCustomerStatusOnlyInactivation(existing, draft);
+    if (!statusOnlyInactivation && (duplicateCode || duplicateIdentification)) {
       setNotice(appState, duplicateCode ? "Ya existe un cliente con ese codigo." : "Ya existe un cliente con esa identificacion.", "warning");
       return { ok: false };
     }

@@ -176,7 +176,14 @@
         return { ok: true, confirmed: true, status: "SYNCED", mode: "SERVER_ALREADY_ABSENT", operationId, record: clone(record) };
       }
       const basePayload = current?.payload || {};
-      const payload = action === "DELETE" ? basePayload : canonicalPayload(entity, record, context);
+      const statusOnlyInactivation = entity === "commercial_customers" && action !== "DELETE"
+        && current && !current.deleted_at
+        && BlessERP.comercialData?.isCustomerStatusOnlyInactivation?.(basePayload, record) === true;
+      // Preserve every canonical field, including unknown legacy fields and absent defaults.
+      // The database permits only an exact status-only transition in the presence of duplicates.
+      const payload = action === "DELETE" ? basePayload : statusOnlyInactivation
+        ? { ...clone(basePayload), status: "INACTIVO" }
+        : canonicalPayload(entity, record, context);
       if (action !== "DELETE" && current && !current.deleted_at
         && JSON.stringify(basePayload) === JSON.stringify(payload)) {
         const canonical = await applyCanonical(current, "COMMERCIAL_MASTER_DATA_NOOP", context);
@@ -207,6 +214,11 @@
       let serverRecord = result.server_record || await readServerRecord(entity, id, context);
       if (typeof serverRecord === "string") serverRecord = JSON.parse(serverRecord);
       if (!serverRecord) throw new Error("Supabase confirmó la operación sin devolver el registro canónico.");
+      if (statusOnlyInactivation && (serverRecord.record_id !== id
+        || serverRecord.entity !== entity || serverRecord.deleted_at
+        || serverRecord.payload?.status !== "INACTIVO" || (result.discarded_fields || []).length)) {
+        throw new Error("Supabase no confirmó la inactivación del cliente. Actualice la ficha antes de reintentar.");
+      }
       const canonical = await applyCanonical(serverRecord, "COMMERCIAL_MASTER_DATA_CONFIRMATION", context);
       return {
         ok: true,
