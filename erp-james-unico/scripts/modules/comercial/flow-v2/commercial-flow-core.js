@@ -173,6 +173,7 @@
 
   function catalogs(appState) {
     const db = ensureDomain(appState);
+    const shared = BlessERP.sharedPostharvestCatalog?.selection(appState);
     const commercial = db.commercial;
     const companyId = activeCompanyId(appState);
     const sameCompany = row => !text(row?.companyId || row?.company_id) || text(row.companyId || row.company_id) === companyId;
@@ -184,8 +185,8 @@
       destinations: (commercial.destinationCatalog || []).filter(row => sameCompany(row) && upper(row.status || "ACTIVO") !== "INACTIVO"),
       daes: (commercial.daeCatalog || []).filter(row => sameCompany(row) && upper(row.status || "ACTIVA") === "ACTIVA"),
       countries: (commercial.countryCatalog || []).filter(row => upper(row.status || "ACTIVO") !== "INACTIVO"),
-      varieties: (db.operations?.masterData?.varieties || []).filter(row => row.active !== false),
-      lengths: (db.operations?.masterData?.lengths || []).filter(row => row.active !== false),
+      varieties: (shared ? shared.varieties : db.operations?.masterData?.varieties || []).filter(row => row.active !== false),
+      lengths: (shared ? shared.lengths : db.operations?.masterData?.lengths || []).filter(row => row.active !== false),
       boxTypes: data.boxTypes || []
     };
   }

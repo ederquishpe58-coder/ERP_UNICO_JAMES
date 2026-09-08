@@ -395,6 +395,21 @@
 
   function render(container, route, appState) {
     let html = "";
+    const shared = BlessERP.sharedPostharvestCatalog;
+    if (["commercial-order-master", "commercial-preorders", "commercial-export-products"].includes(route.id)
+        && shared?.isConsumer(appState) && !shared.ready(appState)) {
+      const catalogState = shared.state(appState);
+      const rerender = () => {
+        if (shared.state(appState) === catalogState && BlessERP.state.currentRoute()?.id === route.id) BlessERP.layout.renderPage();
+      };
+      container.innerHTML = `<section class="panel-card" role="status"><h2>Catálogo de variedades y medidas</h2><p>${catalogState.error ? utils.esc(catalogState.error) : "Cargando catálogo comercial..."}</p>${catalogState.error ? '<button type="button" data-shared-catalog-retry>Volver a consultar</button>' : ""}</section>`;
+      if (catalogState.error) container.querySelector("[data-shared-catalog-retry]")?.addEventListener("click", () => {
+        shared.load(appState, { force: true }).then(rerender, rerender);
+        rerender();
+      });
+      else if (!catalogState.loading) shared.load(appState).then(rerender, rerender);
+      return;
+    }
     if (route.id !== "commercial-senae-liquidation") {
       BlessERP.comercialSriAuthorization?.unmountSenae?.();
     }

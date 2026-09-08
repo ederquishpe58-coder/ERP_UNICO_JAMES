@@ -550,11 +550,12 @@
   function renderProductsPage(appState) {
     const product = data.products[0];
     const operationalStore = BlessERP.operacionesState?.getStore?.(appState);
-    const operationalVarieties = (operationalStore?.masterData?.varieties || [])
+    const shared = BlessERP.sharedPostharvestCatalog?.selection(appState);
+    const operationalVarieties = (shared ? shared.varieties : operationalStore?.masterData?.varieties || [])
       .filter(item => item.active !== false)
       .map(item => item.name)
       .filter(Boolean);
-    const varieties = operationalVarieties.length ? operationalVarieties : data.varieties;
+    const varieties = shared || operationalVarieties.length ? operationalVarieties : data.varieties;
 
     return `
       <section class="page-header">
