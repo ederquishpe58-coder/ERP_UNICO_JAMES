@@ -521,7 +521,10 @@ async function deleteUser(client, actorUser, input) {
 }
 
 async function accessPlan(client, actorUser, action, input = {}) {
-  const allowed = new Set(["companyKey", "contextCompanyKey", "targetUserId", "profileId", "overrides", "expectedVersion", "operationId", "reason"]);
+  const addingMembership = action === "add_existing_membership";
+  const allowed = new Set(addingMembership
+    ? ["companyKey", "contextCompanyKey", "targetUserId", "profileId", "membershipRole", "operationId", "reason"]
+    : ["companyKey", "contextCompanyKey", "targetUserId", "profileId", "overrides", "expectedVersion", "operationId", "reason"]);
   if (Object.keys(input).some(key => !allowed.has(key))) throw new Error("SECURITY_ACCESS_PLAN_INPUT_INVALID");
   if (!input.companyKey || input.companyKey !== input.contextCompanyKey) {
     throw Object.assign(new Error("SECURITY_COMPANY_CONTEXT_MISMATCH"), { statusCode: 403 });
@@ -540,6 +543,26 @@ async function accessPlan(client, actorUser, action, input = {}) {
     return data;
   }
   const scope = { p_company_id: company.id, p_target_user_id: target };
+  if (addingMembership) {
+    await assertCanManage(client, actorUser, company.id, input.membershipRole);
+    if (target === actorUser.id) throw new Error("SECURITY_SELF_ELEVATION_DENIED");
+    await existingTargetUser(client, { id: target });
+    const data = await rpc("erp_admin_add_existing_user_membership", {
+      ...scope, p_membership_role: input.membershipRole, p_profile_id: input.profileId,
+      p_operation_id: uuidOrNull(input.operationId), p_reason: input.reason
+    });
+    if (data.confirmed !== true || data.operation_id !== input.operationId || !data.membership?.id
+        || data.membership.company_id !== company.id || data.membership.user_id !== target
+        || (data.created !== true && data.already_member !== true)
+        || (data.created === true && (data.membership.membership_role !== input.membershipRole
+          || data.membership.membership_status !== "ACTIVE" || data.profile_id !== input.profileId
+          || data.overrides?.length !== 0))) throw new Error("CANONICAL_MEMBERSHIP_NOT_CONFIRMED");
+    const second = await rpc("erp_admin_preview_user_access_plan", scope);
+    for (const key of ["state_token", "profile_id", "overrides", "effective_capabilities", "membership", "version"]) {
+      if (JSON.stringify(data[key]) !== JSON.stringify(second[key])) throw new Error("CANONICAL_MEMBERSHIP_SECOND_READ_MISMATCH");
+    }
+    return { ...data, second_read_confirmed: true };
+  }
   if (action === "preview_access_plan") return rpc("erp_admin_preview_user_access_plan", {
     ...scope, p_profile_id: input.profileId ?? null, p_overrides: input.overrides ?? null
   });
@@ -575,7 +598,7 @@ module.exports = async function handler(request, response) {
     if (request.method !== "POST") return send(response, 405, { ok: false, error: "Método no permitido." });
     const body = bodyOf(request);
     const action = String(body.action || "").toLowerCase();
-    if (["preview_access_plan", "configure_access_plan"].includes(action)) {
+    if (["preview_access_plan", "configure_access_plan", "add_existing_membership"].includes(action)) {
       return send(response, 200, { ok: true, data: await accessPlan(client, currentActor, action, body.plan) });
     }
     if (action === "create_user" && body?.user && typeof body.user === "object") {

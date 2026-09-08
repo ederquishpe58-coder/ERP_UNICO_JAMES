@@ -275,7 +275,7 @@
     if (BlessERP.authAccess?.activeAccess?.()?.activeCompanyKey !== companyKey) return { ok: false, errors: ["SECURITY_COMPANY_CONTEXT_MISMATCH"] };
     if (!result.ok) return result;
     if (result.data?.target_user_id !== plan.targetUserId || !result.data.state_token || !Array.isArray(result.data.effective_capabilities)
-      || (action === "configure_access_plan" && (result.data.confirmed !== true || result.data.second_read_confirmed !== true))) {
+      || (["configure_access_plan", "add_existing_membership"].includes(action) && (result.data.confirmed !== true || result.data.second_read_confirmed !== true))) {
       return { ok: false, errors: ["CANONICAL_ACCESS_PLAN_NOT_CONFIRMED"] };
     }
     return result;
@@ -284,6 +284,7 @@
   BlessERP.remoteUserAccess = {
     previewAccessPlan: plan => accessPlan("preview_access_plan", plan),
     saveAccessPlan: plan => accessPlan("configure_access_plan", plan),
+    addExistingMembership: plan => accessPlan("add_existing_membership", plan),
     enabled,
     listDirectory,
     listUnlinked,

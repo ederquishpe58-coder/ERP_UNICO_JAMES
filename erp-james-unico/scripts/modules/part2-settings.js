@@ -244,6 +244,8 @@
     const stored = draft.id ? adminService.findUser(draft.id) : null;
     const remoteCanonical = BlessERP.remoteUserAccess?.enabled?.() === true;
     const canonicalProfiles = canonicalProfilesFor(selectedCompanyId);
+    const addingMembership = remoteCanonical && draft.cloudManaged && !membership.membershipId;
+    const companyName = companies.find(item => item.id === selectedCompanyId)?.commercialName || selectedCompanyId;
 
     return `
       <section class="panel-card user-access-editor">
@@ -257,7 +259,7 @@
             <button class="secondary-button" type="button" data-user-cancel>Cancelar</button>
             ${stored ? `<button class="danger-button" type="button" data-user-delete ${draft.id === currentUserId ? "disabled" : ""}>Eliminar</button>` : ""}
             ${remoteCanonical ? "" : `<button class="primary-button" type="button" data-user-preview>Vista previa</button>`}
-            <button class="primary-button" type="button" data-user-save>${stored ? "Guardar" : (remoteCanonical ? "Crear e invitar" : "Guardar")}</button>
+            <button class="primary-button" type="button" data-user-save ${addingMembership && (selectedCompanyId !== BlessERP.authAccess?.activeAccess?.()?.activeCompanyKey || draft.id === currentUserId) ? "disabled" : ""}>${addingMembership ? `Agregar usuario a ${esc(companyName)}` : (stored ? "Guardar" : (remoteCanonical ? "Crear e invitar" : "Guardar"))}</button>
           </div>
         </div>
         ${uiState.users.errors.length ? `<section class="inline-feedback danger">${uiState.users.errors.map(item => `<div>${esc(item)}</div>`).join("")}</section>` : ""}
@@ -313,7 +315,7 @@
                 : adminService.roleOptions.map(item => `<option value="${esc(item.code)}" ${membership.roleCode === item.code ? "selected" : ""}>${esc(item.label)}</option>`).join("")}
             </select>
           </label>
-          ${remoteCanonical && !stored?.cloudManaged ? `
+          ${remoteCanonical && (!stored?.cloudManaged || addingMembership) ? `
             <label class="compact-field">
               <span>Perfil canónico</span>
               <select data-user-company-profile="${esc(selectedCompanyId)}" ${membership.enabled ? "required" : "disabled"}>
@@ -337,7 +339,8 @@
             <div>Los permisos se confirman en el servidor. Bloquear prevalece sobre permitir y sobre el perfil base.</div>
             ${membership.legacyDependent ? `<div>LEGACY VISIBLE: existen ${esc(String(membership.legacyRoutePermissionCount || 0))} registro(s) históricos en user_route_permissions. No se editan ni se usan para construir este perfil.</div>` : ""}
           </section>
-          ${stored?.cloudManaged && draft.id !== currentUserId ? `<section data-user-access-plan></section>` : ""}
+          ${addingMembership ? `<p>Este usuario todavía no pertenece a ${esc(companyName)}. Seleccione el rol y el perfil para agregarlo. Sus accesos de otras empresas se conservan. Después podrá revisar y asignar permisos específicos de esta empresa.</p>` : ""}
+          ${stored?.cloudManaged && membership.membershipId && draft.id !== currentUserId ? `<section data-user-access-plan></section>` : ""}
         ` : `<div class="user-route-matrix">
           <div class="user-route-matrix-head">
             <div>
@@ -748,6 +751,53 @@
       let candidate = uiState.users.draft;
       let remoteResult = null;
       if (BlessERP.remoteUserAccess?.enabled?.()) {
+        const companyKey = uiState.users.accessCompanyId;
+        const membership = userAccessFor(candidate, companyKey);
+        if (candidate.cloudManaged && !membership.membershipId) {
+          const targetUserId = candidate.id;
+          try {
+            if (companyKey !== BlessERP.authAccess?.activeAccess?.()?.activeCompanyKey
+                || BlessERP.capabilityRuntime?.can?.("admin.users.manage") !== true) {
+              throw new Error("Abra el usuario en la empresa activa con permiso para administrar usuarios.");
+            }
+            if (!membership.enabled || membership.status !== "activo") throw new Error("Seleccione Permitir ingreso y una membresía activa.");
+            if (!membership.profileId) throw new Error("Seleccione el perfil canónico de esta empresa.");
+            if (!candidate.changeReason) throw new Error("Indique el motivo para agregar el usuario a esta empresa.");
+            const plan = { targetUserId, companyKey, membershipRole: membership.membershipRole,
+              profileId: membership.profileId, reason: candidate.changeReason };
+            const signature = JSON.stringify(plan);
+            if (candidate.__membershipRequest?.signature !== signature) {
+              candidate.__membershipRequest = { signature, operationId: window.crypto.randomUUID() };
+            }
+            const result = await BlessERP.remoteUserAccess.addExistingMembership({ ...plan, operationId: candidate.__membershipRequest.operationId });
+            if (companyKey !== BlessERP.authAccess?.activeAccess?.()?.activeCompanyKey
+                || uiState.users.draft?.id !== targetUserId || uiState.users.accessCompanyId !== companyKey) return;
+            if (!result?.ok) throw new Error(result?.errors?.join(" · ") || "No se pudo confirmar la membresía.");
+            const data = result.data;
+            if (data.confirmed !== true || data.second_read_confirmed !== true || !data.membership?.id) throw new Error("El servidor no confirmó la membresía.");
+            Object.assign(userAccessFor(uiState.users.draft, companyKey), {
+              membershipId: data.membership.id, membershipRole: data.membership.membership_role,
+              membershipStatus: data.membership.membership_status, isDefault: data.membership.is_default === true,
+              enabled: data.membership.membership_status === "ACTIVE",
+              status: data.membership.membership_status === "ACTIVE" ? "activo" : "inactivo",
+              profileId: data.profile_id, profileName: data.profiles?.find(p => p.profile_id === data.profile_id)?.display_name || data.profile_id,
+              profileState: data.profile_id ? "CANONICAL" : "PROFILE_MISSING"
+            });
+            delete uiState.users.draft.__membershipRequest;
+            uiState.users.errors = [];
+            uiState.users.unlinkedLoaded = false;
+            uiState.users.message = data.created ? "Usuario agregado; rol y perfil confirmados por servidor. Los permisos específicos se administran por separado."
+              : "La membresía ya existía y fue releída sin modificarla. Revise su rol y perfil antes de editar.";
+          } catch (error) {
+            if (companyKey === BlessERP.authAccess?.activeAccess?.()?.activeCompanyKey && uiState.users.draft?.id === targetUserId) {
+              uiState.users.errors = [error?.message || "No se pudo confirmar la membresía. Reintente para consultar el estado canónico."];
+            }
+          } finally {
+            button.disabled = false;
+            if (companyKey === BlessERP.authAccess?.activeAccess?.()?.activeCompanyKey && uiState.users.draft?.id === targetUserId) BlessERP.layout.renderPage();
+          }
+          return;
+        }
         if (!candidate.cloudManaged && !String(candidate.email || "").trim()) {
           uiState.users.errors = ["El correo es obligatorio para enviar la invitación."];
           button.disabled = false;
