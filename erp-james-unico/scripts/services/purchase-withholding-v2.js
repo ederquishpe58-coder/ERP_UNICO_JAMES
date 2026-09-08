@@ -288,7 +288,7 @@
     if (!purchase) throw new Error("La compra V2 ya no está pendiente o no existe.");
     return {
       purchaseId: purchase.id,
-      retentionDate: new Date().toISOString().slice(0, 10),
+      retentionDate: BlessERP.sriFiscalDate.ecuadorDate(),
       retentionLines: [
         { id: `rent-${uuid()}`, taxType: "RENTA", code: "", sriCode: "", description: "", baseAmount: round2(purchase.subtotal), percentage: 0, retainedAmount: 0, payableAccountCode: "" },
         { id: `iva-${uuid()}`, taxType: "IVA", code: "", sriCode: "", description: "", baseAmount: round2(purchase.iva), percentage: 0, retainedAmount: 0, payableAccountCode: "" }

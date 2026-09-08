@@ -86,16 +86,7 @@
   }
 
   function ecuadorToday(now = new Date()) {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/Guayaquil",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    }).formatToParts(now).reduce((result, part) => {
-      if (part.type !== "literal") result[part.type] = part.value;
-      return result;
-    }, {});
-    return `${parts.year}-${parts.month}-${parts.day}`;
+    return BlessERP.sriFiscalDate.ecuadorDate(now);
   }
 
   const ISSUE_MONTHS = Object.freeze([
