@@ -127,6 +127,41 @@
     return JSON.stringify(expected) === JSON.stringify(snapshot(next));
   }
 
+  const commercialCatalogIdentityFields = Object.freeze({
+    commercial_customers: Object.freeze(["code", "identification"]),
+    commercial_brands: Object.freeze(["code"]),
+    commercial_airlines: Object.freeze(["code", "awbPrefix"]),
+    commercial_agencies: Object.freeze(["code", "name"]),
+    commercial_dae: Object.freeze(["number"])
+  });
+
+  function catalogIdentityUnchanged(entity, current, next) {
+    const fields = commercialCatalogIdentityFields[entity];
+    if (!fields || !current || String(current.id) !== String(next?.id)
+      || String(current.companyId || current.company_id) !== String(next.companyId || next.company_id)) return false;
+    const inactive = value => ["INACTIVO", "INACTIVA", "INACTIVE"].includes(String(value || "").toUpperCase());
+    if (inactive(current.status) && !inactive(next.status)) return false;
+    return fields.every(field => JSON.stringify(current[field]) === JSON.stringify(next[field]));
+  }
+
+  function findCommercialCatalogDuplicate(entity, rows, draft) {
+    const fields = commercialCatalogIdentityFields[entity];
+    if (!fields) throw new Error("Catálogo sin contrato de identidad.");
+    const sameCompany = row => String(row.companyId || row.company_id) === String(draft.companyId || draft.company_id);
+    const current = rows.find(row => String(row.id) === String(draft.id) && sameCompany(row));
+    if (catalogIdentityUnchanged(entity, current, draft)) return "";
+    const uniqueValue = (field, value) => field === "identification"
+      ? String(value || "").trim() : String(value || "").trim().toUpperCase();
+    return fields.find(field => rows.some(row => String(row.id) !== String(draft.id) && sameCompany(row)
+      && uniqueValue(field, row[field]) === uniqueValue(field, draft[field]))) || "";
+  }
+
+  function commercialCatalogProjection(entity, record) {
+    const factory = { commercial_customers: createCustomer, commercial_brands: createBrand,
+      commercial_airlines: createAirline, commercial_agencies: createAgency, commercial_dae: createDae }[entity];
+    return factory ? factory(record) : null;
+  }
+
   const customers = [
     {
       id: "customer-cvflor",
@@ -1340,6 +1375,10 @@
     sriPaymentMethodLabel,
     createCustomer,
     isCustomerStatusOnlyInactivation,
+    commercialCatalogIdentityFields,
+    catalogIdentityUnchanged,
+    findCommercialCatalogDuplicate,
+    commercialCatalogProjection,
     createLine,
     createOrder,
     createSeedOrders,

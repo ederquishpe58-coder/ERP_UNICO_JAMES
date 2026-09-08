@@ -70,7 +70,7 @@ async function saveUI(record, rows) {
   const blessBefore=await get('bless',B);
   await db.exec(read('supabase/migrations/202609080003_customer_status_only_inactivation.sql'));
   for(const p of fixtures.slice(0,2)) await pass(p.commercialName+' UI → RPC → trigger → persisted INACTIVO',async()=>{
-    const old=await get(p.id); const result=await saveUI({...p,status:'INACTIVO'},fixtures); assert.equal(result.ok,true,JSON.stringify(result));
+    const old=await get(p.id); const result=await saveUI({...p,status:'INACTIVO',__syncVersion:old.version},fixtures); assert.equal(result.ok,true,JSON.stringify(result));
     const saved=await get(p.id); assert.deepEqual(saved.payload,{...old.payload,status:'INACTIVO'});
     assert.equal(saved.version,old.version+1); assert.deepEqual(lastParameters.p_field_changes.map(f=>f.path),[['status']]);
     assert.equal((await repo.getById(p.id)).record.status,'INACTIVO');

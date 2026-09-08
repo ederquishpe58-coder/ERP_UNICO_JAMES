@@ -176,18 +176,32 @@
         return { ok: true, confirmed: true, status: "SYNCED", mode: "SERVER_ALREADY_ABSENT", operationId, record: clone(record) };
       }
       const basePayload = current?.payload || {};
-      const statusOnlyInactivation = entity === "commercial_customers" && action !== "DELETE"
-        && current && !current.deleted_at
-        && BlessERP.comercialData?.isCustomerStatusOnlyInactivation?.(basePayload, record) === true;
-      // Preserve every canonical field, including unknown legacy fields and absent defaults.
-      // The database permits only an exact status-only transition in the presence of duplicates.
-      const payload = action === "DELETE" ? basePayload : statusOnlyInactivation
-        ? { ...clone(basePayload), status: "INACTIVO" }
-        : canonicalPayload(entity, record, context);
+      const protectedCatalog = ["commercial_customers", "commercial_brands", "commercial_airlines", "commercial_agencies", "commercial_dae"].includes(entity);
+      let payload = action === "DELETE" ? basePayload : canonicalPayload(entity, record, context);
+      if (protectedCatalog && action !== "DELETE" && current) {
+        assertActiveContext(context);
+        assertServerCompany(current, context);
+        if (current.deleted_at || current.record_id !== id || current.entity !== entity) {
+          throw new Error("El registro canónico ya no está disponible. Actualice el catálogo.");
+        }
+        const projected = BlessERP.comercialData?.commercialCatalogProjection?.(entity, basePayload);
+        if (projected) {
+          const requested = payload;
+          payload = clone(basePayload);
+          for (const [field, value] of Object.entries(requested)) {
+            if (field === "id" || field === "companyId" || field === "company_id") continue;
+            if (JSON.stringify(value) !== JSON.stringify(projected[field] ?? basePayload[field])) payload[field] = value;
+          }
+        }
+      }
       if (action !== "DELETE" && current && !current.deleted_at
         && JSON.stringify(basePayload) === JSON.stringify(payload)) {
         const canonical = await applyCanonical(current, "COMMERCIAL_MASTER_DATA_NOOP", context);
         return { ok: true, confirmed: true, status: "SYNCED", mode: "SERVER_ALREADY_CURRENT", operationId, record: canonical, serverRecord: current };
+      }
+      if (protectedCatalog && action !== "DELETE" && current
+        && Number(record.__syncVersion) !== Number(current.version)) {
+        return failure({ code: "COMMERCIAL_CATALOG_VERSION_CONFLICT", message: "La ficha cambió o no tiene una versión canónica. Actualice el catálogo y revise sus cambios antes de guardar." }, "", operationId);
       }
       const fieldChanges = action === "DELETE"
         ? [{ path: ["$delete"], base_exists: true, base: clone(basePayload), value_exists: false, value: null }]
@@ -214,10 +228,11 @@
       let serverRecord = result.server_record || await readServerRecord(entity, id, context);
       if (typeof serverRecord === "string") serverRecord = JSON.parse(serverRecord);
       if (!serverRecord) throw new Error("Supabase confirmó la operación sin devolver el registro canónico.");
-      if (statusOnlyInactivation && (serverRecord.record_id !== id
+      if (protectedCatalog && action !== "DELETE" && (serverRecord.record_id !== id
         || serverRecord.entity !== entity || serverRecord.deleted_at
-        || serverRecord.payload?.status !== "INACTIVO" || (result.discarded_fields || []).length)) {
-        throw new Error("Supabase no confirmó la inactivación del cliente. Actualice la ficha antes de reintentar.");
+        || Number(serverRecord.version) !== Number(current?.version || 0) + 1
+        || (result.discarded_fields || []).length)) {
+        throw new Error("Supabase no confirmó la versión guardada del catálogo. Actualice la ficha antes de reintentar.");
       }
       const canonical = await applyCanonical(serverRecord, "COMMERCIAL_MASTER_DATA_CONFIRMATION", context);
       return {

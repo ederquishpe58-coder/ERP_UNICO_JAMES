@@ -789,8 +789,8 @@
       return { ok: false };
     }
     draft.country = country.name;
-    if (!draft.code) draft.code = nextCatalogCode(store.customerCatalog, "CLI");
-    if (!String(draft.identification || "").trim()) {
+    if (!draft.code && !existing && draft.__syncVersion === undefined) draft.code = nextCatalogCode(store.customerCatalog, "CLI");
+    if (!String(draft.identification || "").trim() && !existing && draft.__syncVersion === undefined) {
       const receivableCustomers = Array.isArray(appState.db.customers) ? appState.db.customers : [];
       draft.identification = BlessERP.utils.nextCustomerExternalId(
         [...store.customerCatalog, ...receivableCustomers],
@@ -806,12 +806,9 @@
       setNotice(appState, "Complete razon social, nombre comercial y pais.", "warning");
       return { ok: false };
     }
-    const sameCompany = item => String(item.companyId || item.company_id) === String(draft.companyId || draft.company_id);
-    const duplicateCode = store.customerCatalog.find(item => item.id !== draft.id && sameCompany(item) && String(item.code).trim().toUpperCase() === String(draft.code).trim().toUpperCase());
-    const duplicateIdentification = store.customerCatalog.find(item => item.id !== draft.id && sameCompany(item) && String(item.identification).trim() === String(draft.identification).trim());
-    const statusOnlyInactivation = data.isCustomerStatusOnlyInactivation(existing, draft);
-    if (!statusOnlyInactivation && (duplicateCode || duplicateIdentification)) {
-      setNotice(appState, duplicateCode ? "Ya existe un cliente con ese codigo." : "Ya existe un cliente con esa identificacion.", "warning");
+    const duplicateField = data.findCommercialCatalogDuplicate("commercial_customers", store.customerCatalog, draft);
+    if (duplicateField) {
+      setNotice(appState, duplicateField === "code" ? "Ya existe un cliente con ese codigo." : "Ya existe un cliente con esa identificacion.", "warning");
       return { ok: false };
     }
     if (existing?.dedicatedInventoryEnabled === true && draft.dedicatedInventoryEnabled !== true) {
@@ -951,7 +948,7 @@
     draft.destination = country.name;
     draft.name = draft.finalClientName;
     draft.shortReference = draft.finalClientName;
-    if (!draft.code) draft.code = nextCatalogCode(store.brandCatalog, "MAR");
+    if (!draft.code && draft.__syncVersion === undefined && !store.brandCatalog.some(item => String(item.id) === String(draft.id))) draft.code = nextCatalogCode(store.brandCatalog, "MAR");
     const required = [draft.code, draft.customerId, draft.finalClientName, draft.country];
     if (required.some(value => !String(value || "").trim())) {
       setNotice(appState, "Complete cliente principal, apellidos y nombres / razon social y pais.", "warning");
@@ -961,14 +958,11 @@
       setNotice(appState, "El cliente principal seleccionado no existe en la misma empresa.", "warning");
       return { ok: false };
     }
-    const duplicateCode = store.brandCatalog.find(item => (
-      item.id !== draft.id
-      && String(item.companyId || item.company_id) === String(draft.companyId || draft.company_id)
-      && String(item.code).trim().toUpperCase() === String(draft.code).trim().toUpperCase()
-    ));
-    if (duplicateCode) {
-      setNotice(appState, "Ya existe una marca con ese codigo.", "warning");
-      return { ok: false };
+    const duplicateField = data.findCommercialCatalogDuplicate("commercial_brands", store.brandCatalog, draft);
+    if (duplicateField) {
+      const message = "Ya existe otro registro de esta empresa con ese " + (duplicateField === "name" ? "nombre" : duplicateField === "awbPrefix" ? "prefijo AWB" : duplicateField === "number" ? "número DAE" : "código") + ".";
+      setNotice(appState, message, "warning");
+      return { ok: false, message };
     }
     const result = await persistCatalogRecord(appState, BlessERP.getFinalBrandRepository?.(), draft, "el cliente final / marca");
     if (!result.ok) return result;
@@ -1056,17 +1050,17 @@
   async function saveAgency(appState) {
     const store = ensureStore(appState);
     const draft = bindCatalogCompany(data.createAgency(store.ui.agencyDraft || {}), appState);
-    if (!draft.code) draft.code = nextCatalogCode(store.agencyCatalog, "AG");
+    if (!draft.code && draft.__syncVersion === undefined && !store.agencyCatalog.some(item => String(item.id) === String(draft.id))) draft.code = nextCatalogCode(store.agencyCatalog, "AG");
     const required = [draft.code, draft.name, draft.coldRoom, draft.city];
     if (required.some(value => !String(value || "").trim())) {
       setNotice(appState, "Complete agencia, cuarto frio principal y ciudad.", "warning");
       return { ok: false, message: "Complete agencia, cuarto frío principal y ciudad." };
     }
-    const duplicateCode = store.agencyCatalog.find(item => item.id !== draft.id && String(item.code).trim().toUpperCase() === String(draft.code).trim().toUpperCase());
-    const duplicateName = store.agencyCatalog.find(item => item.id !== draft.id && String(item.name).trim().toUpperCase() === String(draft.name).trim().toUpperCase());
-    if (duplicateCode || duplicateName) {
-      setNotice(appState, duplicateCode ? "Ya existe una agencia con ese codigo." : "Ya existe una agencia con ese nombre.", "warning");
-      return { ok: false, message: duplicateCode ? "Ya existe una agencia con ese código." : "Ya existe una agencia con ese nombre." };
+    const duplicateField = data.findCommercialCatalogDuplicate("commercial_agencies", store.agencyCatalog, draft);
+    if (duplicateField) {
+      const message = "Ya existe otro registro de esta empresa con ese " + (duplicateField === "name" ? "nombre" : duplicateField === "awbPrefix" ? "prefijo AWB" : duplicateField === "number" ? "número DAE" : "código") + ".";
+      setNotice(appState, message, "warning");
+      return { ok: false, message };
     }
     const repository = BlessERP.getCargoAgencyRepository?.();
     if (!repository?.configured?.()) {
@@ -1161,11 +1155,11 @@
       setNotice(appState, "El prefijo AWB debe contener exactamente 3 caracteres alfanuméricos.", "warning");
       return { ok: false, message: "El prefijo AWB debe contener exactamente 3 caracteres alfanuméricos." };
     }
-    const duplicateCode = store.airlineCatalog.find(item => item.id !== draft.id && String(item.code).trim().toUpperCase() === String(draft.code).trim().toUpperCase());
-    const duplicatePrefix = store.airlineCatalog.find(item => item.id !== draft.id && item.awbPrefix === draft.awbPrefix);
-    if (duplicateCode || duplicatePrefix) {
-      setNotice(appState, duplicateCode ? "Ya existe una linea aerea con ese codigo." : "Ya existe una linea aerea con ese prefijo AWB.", "warning");
-      return { ok: false, message: duplicateCode ? "Ya existe una línea aérea con ese código." : "Ya existe una línea aérea con ese prefijo AWB." };
+    const duplicateField = data.findCommercialCatalogDuplicate("commercial_airlines", store.airlineCatalog, draft);
+    if (duplicateField) {
+      const message = "Ya existe otro registro de esta empresa con ese " + (duplicateField === "name" ? "nombre" : duplicateField === "awbPrefix" ? "prefijo AWB" : duplicateField === "number" ? "número DAE" : "código") + ".";
+      setNotice(appState, message, "warning");
+      return { ok: false, message };
     }
     const repository = BlessERP.getAirlineRepository?.();
     if (!repository?.configured?.()) {
@@ -1297,14 +1291,11 @@
       setNotice(appState, validation.message, "warning");
       return { ok: false };
     }
-    const duplicate = store.daeCatalog.find(item => (
-      item.id !== draft.id
-      && String(item.companyId || item.company_id) === String(draft.companyId || draft.company_id)
-      && String(item.number).trim().toUpperCase() === String(draft.number).trim().toUpperCase()
-    ));
-    if (duplicate) {
-      setNotice(appState, "Ya existe una DAE con ese numero.", "warning");
-      return { ok: false };
+    const duplicateField = data.findCommercialCatalogDuplicate("commercial_dae", store.daeCatalog, draft);
+    if (duplicateField) {
+      const message = "Ya existe otro registro de esta empresa con ese " + (duplicateField === "name" ? "nombre" : duplicateField === "awbPrefix" ? "prefijo AWB" : duplicateField === "number" ? "número DAE" : "código") + ".";
+      setNotice(appState, message, "warning");
+      return { ok: false, message };
     }
     const result = await persistCatalogRecord(appState, BlessERP.getDaeRepository?.(), draft, "la DAE");
     if (!result.ok) return result;

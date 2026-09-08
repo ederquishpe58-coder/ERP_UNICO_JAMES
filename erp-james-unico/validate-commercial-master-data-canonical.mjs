@@ -332,7 +332,7 @@ for (const entity of entities) {
 }
 
 assert.match(runtimeSource, /"VITE_ENABLE_COMMERCIAL_CATALOGS_SUPABASE":"true"/);
-assert.match(indexSource, /commercial-master-data-repository\.js\?v=20260908-customer-inactivation-1/);
+assert.match(indexSource, /commercial-master-data-repository\.js\?v=20260908-master-safe-update-1/);
 assert.match(incrementalSource, /EXPLICIT_SERVER_AUTHORITY/);
 assert.match(incrementalSource, /syncMode === "EXPLICIT_COMMERCIAL_MASTER_DATA"/);
 assert.match(incrementalSource, /!explicitServerAuthority && pending && pending\.status !== "synced"/);
