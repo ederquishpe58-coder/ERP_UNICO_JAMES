@@ -1,6 +1,6 @@
 const purchaseVatCore = require("../../../scripts/services/purchase-vat-core.js");
 const { generateNumericCode } = require("./access-key.cjs");
-const { ecuadorDate, emissionDatePolicy } = require("./emission-date.cjs");
+const { ECUADOR_TIME_ZONE, ecuadorDate, emissionDatePolicy, normalizeSourceDate } = require("./emission-date.cjs");
 const { storeArtifact, loadArtifact, sha256 } = require("./artifact-store.cjs");
 const { resolveCertificatePassword, parsePkcs12, canonicalCertificateCompany, assertStoredCertificateScope, releaseCertificateMaterial } = require("./certificate.cjs");
 const { SriBackendError, SriConfigurationError, SriValidationError } = require("./errors.cjs");
@@ -372,11 +372,20 @@ async function createDraft(client, input, actorUserId) {
   financials(payload, documentType);
   const version = documentVersion(settings, documentType);
   const exportInvoice = documentType === "01" && isExportInvoicePayload(payload);
-  const datePolicy = emissionDatePolicy({
+  const sourceOrderDate = input.sourceOrderDate || payload.document?.sourceOrderDate || payload.orderDate;
+  // Only Factura 01 has a LOCAL/EXPORT sales date policy. NC and withholding
+  // keep their explicit issue date for the canonical RPC/type-specific validators.
+  const datePolicy = documentType === "01" ? emissionDatePolicy({
     issueDate: input.issueDate,
-    sourceOrderDate: input.sourceOrderDate || payload.document?.sourceOrderDate || payload.orderDate,
+    sourceOrderDate,
     isExport: exportInvoice
-  });
+  }) : {
+    issueDate: input.issueDate,
+    requestedIssueDate: input.issueDate,
+    sourceOrderDate: normalizeSourceDate(sourceOrderDate),
+    adjusted: false,
+    timeZone: ECUADOR_TIME_ZONE
+  };
   payload.erpEmission = {
     ...(payload.erpEmission || {}),
     environment,
@@ -660,7 +669,7 @@ async function generateXml(client, companyId, documentId, actorUserId, userClien
   const currentIssueDate = ecuadorDate();
   if (exportInvoice) {
     emissionDatePolicy({ issueDate: document.issue_date, sourceOrderDate: document.issue_date, isExport: true });
-  } else if (document.status === "BORRADOR" && document.issue_date !== currentIssueDate) {
+  } else if (document.document_type === "01" && document.status === "BORRADOR" && document.issue_date !== currentIssueDate) {
     const refreshed = dbError(await client.rpc("refresh_electronic_document_issue_date", {
       p_document_id: document.id,
       p_issue_date: currentIssueDate,
@@ -671,7 +680,7 @@ async function generateXml(client, companyId, documentId, actorUserId, userClien
       throw new SriBackendError("El refresco de fecha debe conservar la identidad del mismo borrador SRI.");
     }
     document = refreshed;
-  } else if (document.status === "VALIDADO" && document.issue_date !== currentIssueDate) {
+  } else if (document.document_type === "01" && document.status === "VALIDADO" && document.issue_date !== currentIssueDate) {
     throw new SriValidationError("La fecha de emision SRI quedo desactualizada. Regrese el documento a borrador antes de generar el XML.");
   }
   // Build only after a date refresh: both the date and access key come from the

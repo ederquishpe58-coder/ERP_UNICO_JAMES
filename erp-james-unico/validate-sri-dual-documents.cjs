@@ -199,6 +199,53 @@ async function main() {
   const savedSecrets = Object.fromEntries(COMPANIES.map(company => [certificateApi.SECRET_REFERENCES[company.id], process.env[certificateApi.SECRET_REFERENCES[company.id]]]));
   try {
     for (const name of Object.keys(savedSecrets)) process.env[name] = "SYNTHETIC_TEST_SECRET_NOT_REAL";
+    // Sales date policy must never replace the dates of a withholding or NC.
+    for (const environment of ["TEST", "PRODUCTION"]) {
+      for (const company of COMPANIES) {
+        const local = fixture(company, environment, "01", "LOCAL"); const localCalls = effects();
+        await assert.rejects(() => service(localCalls).createDraft(mockClient(local, localCalls), { ...inputFor(local), issueDate: YESTERDAY }, "synthetic-actor"), /Las ventas locales/); checks++;
+        equals(localCalls.create, 0, "wrong local date blocked before reservation");
+        await service(localCalls).createDraft(mockClient(local, localCalls), inputFor(local), "synthetic-actor");
+        equals(local.document.issue_date, TODAY, "LOCAL current Ecuador date remains allowed");
+        const exp = fixture(company, environment, "01", "EXPORT"); const exportCalls = effects();
+        await service(exportCalls).createDraft(mockClient(exp, exportCalls), { ...inputFor(exp), issueDate: YESTERDAY }, "synthetic-actor");
+        equals(exp.document.issue_date, YESTERDAY, "EXPORT keeps its own date");
+        for (const date of [new Date(Date.parse(`${TODAY}T12:00:00Z`) + 86400000).toISOString().slice(0,10), "2020-01-01"]) {
+          const f = fixture(company, environment, "01", "EXPORT"); const calls = effects();
+          await rejection(() => service(calls).createDraft(mockClient(f, calls), { ...inputFor(f), issueDate: date }, "synthetic-actor"));
+          equals(calls.create, 0, "EXPORT future/60-day guard preserved");
+        }
+        for (const type of company === COMPANIES[0] ? ["04", "07"] : ["04"]) {
+          const f = fixture(company, environment, type); const calls = effects();
+          const input = { ...inputFor(f), issueDate: YESTERDAY, sourceOrderDate: "2026-08-01" };
+          if (type === "07") {
+            input.sourcePayload.withholding.fiscalPeriod = `${YESTERDAY.slice(5,7)}/${YESTERDAY.slice(0,4)}`;
+            input.sourcePayload.withholding.supportingDocuments[0].issueDate = "2026-08-01";
+          }
+          await service(calls).createDraft(mockClient(f, calls), input, "synthetic-actor");
+          equals(f.document.issue_date, YESTERDAY, `${type} uses its own issue date`);
+          equals(f.document.source_snapshot.erpEmission.issueDateAdjusted, false);
+          if (type === "07") equals(f.document.source_snapshot.withholding, input.sourcePayload.withholding, "support date and fiscal period unchanged");
+          const preserved = [f.document.id, f.document.issue_date, f.document.access_key, f.document.sequential, f.document.environment];
+          for (const status of ["BORRADOR", "VALIDADO"]) {
+            f.document.status = status; const xmlCalls = effects();
+            await service(xmlCalls).generateXml(mockClient(f, xmlCalls), company.id, f.document.id, "synthetic-actor");
+            equals(xmlCalls.refresh, 0, `${type} never receives LOCAL date refresh`);
+            equals([f.document.id, f.document.issue_date, f.document.access_key, f.document.sequential, f.document.environment], preserved, `${type} same date/key/identity at XML boundary`);
+          }
+        }
+      }
+      const withholding = fixture(COMPANIES[0], environment, "07");
+      const payload = await payloadFor(withholding);
+      for (const mutate of [p => { p.document.issueDate = "not-a-date"; }, p => { p.withholding.supportingDocuments[0].issueDate = "not-a-date"; }]) {
+        const invalid = structuredClone(payload); mutate(invalid);
+        rejects(() => buildDocumentXml("07", invalid), "existing retention issue/support/fiscal-period validators preserved");
+      }
+      const explicitPeriod = structuredClone(payload); explicitPeriod.withholding.fiscalPeriod = "08/2026";
+      check(buildDocumentXml("07", explicitPeriod).includes("<periodoFiscal>08/2026</periodoFiscal>"), "explicit canonical fiscal period preserved");
+      const derivedPeriod = structuredClone(payload); delete derivedPeriod.withholding.fiscalPeriod;
+      check(buildDocumentXml("07", derivedPeriod).includes(`<periodoFiscal>${TODAY.slice(5,7)}/${TODAY.slice(0,4)}</periodoFiscal>`), "existing fiscal-period derivation from issue date preserved");
+    }
     let xsdCases = 0;
     for (const company of COMPANIES) for (const environment of ["TEST", "PRODUCTION"]) for (const type of ["01", "04"]) for (const market of ["LOCAL", "EXPORT"]) {
       const f = fixture(company, environment, type, market); const payload = await payloadFor(f);
