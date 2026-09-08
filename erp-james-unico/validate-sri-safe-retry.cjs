@@ -25,10 +25,11 @@ async function caughtFrom(fetchImpl) {
 
 // In-memory backend; any document/sequence/journal creation is a test failure.
 // Runs the actual transmission/recovery service with only I/O boundaries replaced.
-function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true, environment = "TEST") {
+function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true, environment = "TEST", fixture = {}) {
   const id = "fixture-document", company = "fixture-company";
   const access = buildAccessKey({ issueDate: "2026-09-07", documentType: type, ruc: "1717637084001", environment, establishmentCode: "001", emissionPointCode: "002", sequential: 3, numericCode: "97353364", emissionType: "1" });
   const document = { id, company_id: company, created_by: "actor", issue_date: "2026-09-07", environment, status, access_key: access.accessKey, document_type: type, issuer_snapshot: { ruc: "1717637084001" }, establishment_code: "001", emission_point_code: "002", sequential_text: "000000003", full_number: "001-002-000000003", xml_version: "2.0.0", last_error: "network failure" };
+  Object.assign(document, fixture.document || {});
   const tables = {
     electronic_documents: [document],
     sri_settings: [{ company_id: company, ruc: "1717637084001", environment, production_enabled: environment === "PRODUCTION", test_enabled: true, retry_max_attempts: 12 }],
@@ -43,12 +44,12 @@ function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true, env
   function documentXml(key = document.access_key) {
     const root = type === "01" ? "factura" : type === "04" ? "notaCredito" : "comprobanteRetencion";
     const info = type === "01" ? "infoFactura" : type === "04" ? "infoNotaCredito" : "infoCompRetencion";
-    return `<${root} id="comprobante" version="2.0.0"><infoTributaria><ambiente>${environmentCode(environment)}</ambiente><tipoEmision>1</tipoEmision><claveAcceso>${key}</claveAcceso><codDoc>${type}</codDoc><ruc>1717637084001</ruc><estab>001</estab><ptoEmi>002</ptoEmi><secuencial>000000003</secuencial></infoTributaria><${info}><fechaEmision>07/09/2026</fechaEmision></${info}></${root}>`;
+    return `<${root} id="comprobante" version="2.0.0"><infoTributaria><ambiente>${environmentCode(environment)}</ambiente><tipoEmision>1</tipoEmision><claveAcceso>${key}</claveAcceso><codDoc>${type}</codDoc><ruc>1717637084001</ruc><estab>001</estab><ptoEmi>002</ptoEmi><secuencial>${document.sequential_text}</secuencial></infoTributaria><${info}><fechaEmision>${document.issue_date.split('-').reverse().join('/')}</fechaEmision></${info}></${root}>`;
   }
   const signedArtifact = { xml: documentXml(), file: {} };
   function detail(requestCompany = company, requestId = id) {
     assert.equal(requestCompany, company); assert.equal(requestId, id);
-    return structuredClone({ document, transmissions: tables.sri_transmissions.slice().reverse(), transmissionAttempts: tables.sri_transmission_attempts.slice().reverse(), audit: tables.electronic_document_audit_logs.slice().reverse(), errors: [], files: artifacts, accountingLinks: tables.accounting_document_links });
+    return structuredClone({ document, transmissions: tables.sri_transmissions.slice().reverse(), transmissionAttempts: tables.sri_transmission_attempts.slice().reverse(), audit: tables.electronic_document_audit_logs.slice().reverse(), errors: tables.sri_error_messages.slice().reverse(), responses: tables.sri_responses.slice().reverse(), files: artifacts, accountingLinks: tables.accounting_document_links });
   }
   class Query {
     constructor(table) { this.table = table; this.filters = []; this.operation = "select"; }
@@ -104,7 +105,7 @@ function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true, env
   const actualRequire = createRequire(filename);
   const exported = { exports: {} };
   vm.runInNewContext(fs.readFileSync(filename, "utf8"), {
-    module: exported, exports: exported.exports, Buffer, console: { error() {} },
+    module: exported, exports: exported.exports, Buffer, Date, console: { error() {} },
     require(name) {
       if (name === "./document-service.cjs") return {
         dbError(result) { if (result.error) throw Error(result.error.message); return result.data; },
@@ -128,7 +129,7 @@ function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true, env
   function authResponse(state = "AUTORIZADO", key = document.access_key) {
     return envelope(`<autorizacionComprobanteResponse><RespuestaAutorizacionComprobante><claveAccesoConsultada>${key}</claveAccesoConsultada><numeroComprobantes>${state === "NO_ENCONTRADO" ? 0 : 1}</numeroComprobantes>${state === "NO_ENCONTRADO" ? "" : `<autorizaciones><autorizacion><estado>${state}</estado><numeroAutorizacion>${key}</numeroAutorizacion><fechaAutorizacion>2026-09-07T12:00:00</fechaAutorizacion><ambiente>${authorizationEnvironmentLabel(environment)}</ambiente><comprobante><![CDATA[${documentXml(key)}]]></comprobante></autorizacion></autorizaciones>`}</RespuestaAutorizacionComprobante></autorizacionComprobanteResponse>`);
   }
-  return { service: exported.exports, client, document, tables, calls, detail, authResponse, authority, signedArtifact, run: fetchImpl => exported.exports.transmitDocument(client, company, id, "actor", { force: true, fetchImpl }) };
+  return { service: exported.exports, client, document, tables, calls, detail, authResponse, authority, artifacts, signedArtifact, run: fetchImpl => exported.exports.transmitDocument(client, company, id, "actor", { force: true, fetchImpl }) };
 }
 
 if (require.main === module) (async () => {

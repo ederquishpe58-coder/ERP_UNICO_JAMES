@@ -1,3 +1,4 @@
+const { withholdingDateRecovery } = require("./withholding-date-recovery.cjs");
 const ERROR_STATUSES = new Set([
   "DEVUELTO",
   "NO_AUTORIZADO",
@@ -69,6 +70,16 @@ function recoveryPolicy(detail = {}) {
       reason: status === "AUTORIZADO"
         ? "Un comprobante autorizado no puede volver a transmitirse."
         : "Un comprobante anulado no puede volver a transmitirse."
+    };
+  }
+
+  if (withholdingDateRecovery(detail)) {
+    return {
+      ...base,
+      action: "QUERY_AUTHORIZATION",
+      nextAction: "AUTHORIZATION_LOOKUP_FIRST",
+      actionLabel: "Consultar / reintentar SRI",
+      reason: "La fecha de emisión ya corresponde al día actual de Ecuador. Se consultará la misma clave; solo si no consta autorización se reenviará el XML firmado existente."
     };
   }
 

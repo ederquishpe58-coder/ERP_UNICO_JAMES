@@ -9,6 +9,7 @@ const { assertEnvironmentEnabled, assertDocumentEnvironment, environmentCode, au
 const { assertCanonicalDocumentIdentity, assertDocumentXmlIdentity } = require("./xml-identity.cjs");
 const { generateRidePdf } = require("./ride.cjs");
 const { diagnosticMessage, recoveryPolicy } = require("./recovery-policy.cjs");
+const { withholdingDateRecovery, definitiveAuthorizationAbsent } = require("./withholding-date-recovery.cjs");
 const { queryAuthorization, sendForReception } = require("./sri-soap.cjs");
 const { UNCERTAIN, DEFINITE, safeText, nativeDiagnostic } = require("./transport-diagnostic.cjs");
 
@@ -465,6 +466,7 @@ async function processAuthorization(client, settings, document, actorUserId, opt
   job = await claimJob(client, job, options.force);
   assertJobIdentity(job, current, "AUTHORIZATION_QUERY");
   const attempt = await beginAttempt(client, job, sha256(current.access_key));
+  let requeued = null;
   try {
     const result = await queryAuthorization(current.access_key, {
       environment: current.environment,
@@ -520,7 +522,28 @@ async function processAuthorization(client, settings, document, actorUserId, opt
       await completeJob(client, job);
       return getDocumentDetail(client, current.company_id, current.id);
     }
-    throw new SriTransportError("El comprobante todavia no aparece en autorizacion del SRI.", {
+    const dateRecovery = options.manualDateRecovery === true && withholdingDateRecovery(
+      await getDocumentDetail(client, current.company_id, current.id)
+    );
+    if (dateRecovery && definitiveAuthorizationAbsent(current, result)) {
+      // Revalidate immutable signed bytes BEFORE the canonical requeue transition.
+      const signed = await loadArtifact(client, current.id, "SIGNED_XML");
+      if (signed.file.id !== dateRecovery.signedFileId || signed.file.company_id !== current.company_id
+          || signed.file.document_id !== current.id || sha256(signed.buffer) !== signed.file.content_sha256) {
+        throw new SriValidationError("El XML firmado no corresponde a la retención devuelta.");
+      }
+      assertDocumentXmlIdentity(current, signed.buffer.toString("utf8"), { expectedRuc: settings.ruc });
+      requeued = dbError(await client.rpc("erp_sri_retry_returned_withholding_date", {
+        p_company_id: current.company_id, p_document_id: current.id, p_actor_user_id: actorUserId,
+        p_lookup_response_id: persisted.response.id, p_lookup_attempt_id: attempt.id,
+        p_reception_response_id: dateRecovery.receptionResponseId
+      }), "Reintento canónico de retención devuelta por fecha");
+      if (!requeued || requeued.document_id !== current.id || requeued.access_key !== current.access_key
+          || String(requeued.sequential).padStart(9, "0") !== current.sequential_text
+          || requeued.company_id !== current.company_id || requeued.environment !== current.environment) {
+        throw new SriValidationError("SRI_DATE_RETRY_CANONICAL_ACK_REQUIRED");
+      }
+    } else throw new SriTransportError("El comprobante todavia no aparece en autorizacion del SRI.", {
       code: "SRI_AUTHORIZATION_PENDING",
       retryable: true,
       details: { state: result.state, documentCount: result.documentCount, transport: {
@@ -536,6 +559,10 @@ async function processAuthorization(client, settings, document, actorUserId, opt
     await scheduleFailure(client, settings, current, job, attempt, error, actorUserId);
     throw error;
   }
+  // A reception failure belongs to reception, not to the successfully completed lookup.
+  const refreshed = await getDocumentDetail(client, current.company_id, current.id);
+  if (requeued?.requeued !== true) return refreshed;
+  return processReception(client, settings, refreshed.document, actorUserId, { ...options, force: true });
 }
 
 async function processReception(client, settings, document, actorUserId, options = {}) {
@@ -630,6 +657,7 @@ async function transmitDocument(client, companyId, documentId, actorUserId, opti
     const settings = await settingsFor(client, companyId, document);
     return processAuthorization(client, settings, document, actorUserId, {
       ...options,
+      manualDateRecovery: !options.retryJob && Boolean(actorUserId),
       force: options.force === true,
       recoveryQuery: true
     });
@@ -655,6 +683,7 @@ async function queryDocumentStatus(client, companyId, documentId, actorUserId, o
   const settings = await settingsFor(client, companyId, detail.document);
   return processAuthorization(client, settings, detail.document, actorUserId, {
     ...options,
+    manualDateRecovery: Boolean(actorUserId),
     force: true,
     recoveryQuery: true
   });
