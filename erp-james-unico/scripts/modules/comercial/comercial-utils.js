@@ -395,12 +395,8 @@
     const brand = findBrand(draft.brandId);
     const brands = findBrandsByCustomer(draft.customerId);
 
-    if (!customer) {
-      draft.brandId = "";
-    }
-    if (draft.brandId && !brands.some(item => item.id === draft.brandId)) {
-      draft.brandId = "";
-    }
+    // A partial frontend catalog cannot invalidate a persisted reference.
+    // Explicit selection/save validation remains responsible for the link.
 
     const activeBrand = findBrand(draft.brandId);
     if (activeBrand) {

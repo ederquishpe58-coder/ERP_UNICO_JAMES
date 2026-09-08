@@ -639,11 +639,12 @@
           renderConnectionStatus();
           return;
         }
-        if (routeId === "commercial-order-history" && entities.size && !entities.has("commercial_orders")) {
+        const historyEntities = ["commercial_orders", "commercial_customers", "commercial_brands"];
+        if (routeId === "commercial-order-history" && entities.size && !historyEntities.some(entity => entities.has(entity))) {
           renderConnectionStatus();
           return;
         }
-        if (routeId === "commercial-order-history" && (!entities.size || entities.has("commercial_orders"))) {
+        if (routeId === "commercial-order-history" && (!entities.size || historyEntities.some(entity => entities.has(entity)))) {
           BlessERP.comercialHistory?.invalidateRemotePage?.();
         }
         if (routeId === "operations-bunch-intake" && BlessERP.operacionesZebraIntakeController?.handleRealtime?.(event.detail)) {

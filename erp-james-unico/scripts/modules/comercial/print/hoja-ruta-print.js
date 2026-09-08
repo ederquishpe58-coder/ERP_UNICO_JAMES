@@ -36,6 +36,12 @@
     const rows = modelRows.map(modelRow => {
       const sourceOrder = modelRow.order;
       const rowContext = printUtils.buildContext(sourceOrder, context.appState);
+      const historyRead = BlessERP.commercialHistoryRead;
+      // Route-sheet CONSIGNATARIO is the selected final customer. The catalog's
+      // printedConsignee/printedMark remain independent and are never changed.
+      const finalCustomer = historyRead?.remote()
+        ? historyRead.reference(context.appState, "brands", sourceOrder.brandId)
+        : rowContext.brand;
       const counts = { OCT: 0, SB: 0, QB: 0, HB: 0, FB: 0 };
       Object.entries(rowContext.metrics.byBoxType || {}).forEach(([code, count]) => {
         const normalizedCode = String(code || "").toUpperCase();
@@ -44,6 +50,7 @@
       });
       return {
         ...rowContext,
+        routeFinalCustomer: finalCustomer?.finalClientName || finalCustomer?.name || "-",
         agency: modelRow.agency || rowContext.agency,
         counts,
         routeAgencyId: modelRow.agencyId,
@@ -106,7 +113,7 @@
       ${group.rows.map(row => `
         <tr>
           <td><strong>${utils.esc(row.order.sriInvoiceNumber || "-")}</strong><br><small>${utils.esc(row.order.number || row.order.id || "-")}</small></td>
-          <td><strong>${utils.esc(row.brand?.printedConsignee || "-")}</strong><br><small>${utils.esc(row.routeTransportLabel)} · ${utils.esc(row.routeIsLocal ? "" : row.routeMotherGuide || "GUIA PENDIENTE")} · ${utils.esc(row.routeDestination)}</small></td>
+          <td><strong>${utils.esc(row.routeFinalCustomer)}</strong><br><small>${utils.esc(row.routeTransportLabel)} · ${utils.esc(row.routeIsLocal ? "" : row.routeMotherGuide || "GUIA PENDIENTE")} · ${utils.esc(row.routeDestination)}</small></td>
           <td>${utils.esc(row.routeAgencyName)}</td>
           <td>${utils.esc(row.order.coldRoom || "-")}</td>
           <td class="numeric">${utils.esc(utils.number(row.metrics.totalBoxes))}</td>

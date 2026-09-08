@@ -646,7 +646,9 @@
     button.disabled = true;
     button.textContent = "Preparando...";
     try {
+      const company = flow.activeCompanyId(appState);
       await BlessERP.moduleLoader.loadGroup("commercial-coordination-print");
+      if (flow.activeCompanyId(appState) !== company) throw new Error("La empresa cambió durante la preparación.");
       const result = BlessERP.comercialPrintSystem.openDocuments("HR", orders, appState, {
         autoPrint,
         saveAsPdf: autoPrint,
@@ -760,6 +762,7 @@
     return true;
   }
 
+  let historyCompany = "";
   const historySelection = new Set();
   const historyPrintPending = new Set();
 
@@ -788,18 +791,24 @@
 
   function renderHistory(appState) {
     const state = flow.sessionFor(appState).history;
-    const page = orderRows(appState, state, "history");
+    const canonical = BlessERP.commercialHistoryController?.prepare(appState, state);
+    const company = flow.activeCompanyId(appState);
+    if (company !== historyCompany) { historySelection.clear(); historyCompany = company; }
+    const page = canonical?.page || orderRows(appState, state, "history");
+    const historyName = (kind, id) => canonical ? canonical.name(kind, id) : kind === "brands" ? brandName(appState, id) : customerName(appState, id);
+    const historyTotals = order => canonical && order.__historyServerPage ? canonical.totals(order) : orderTotals(order);
+    const feedback = canonical?.feedback || "";
     return `<section class="page-header commercial-history-v2-header"><div><p class="section-kicker">PEDIDOS / HISTORIAL</p><h1>Pedidos confirmados</h1><p>Lista ligera. Los documentos se generan únicamente al solicitarlos.</p></div><div class="page-header-side"><button type="button" class="primary-button" data-history-new>+ Nuevo pedido</button></div></section>
       <section class="panel-card commercial-v2-section commercial-history-v2-card">
         <form class="commercial-v2-filters commercial-history-v2-filters" data-history-filter><label>Fecha<input type="date" name="date" value="${esc(state.date)}"></label><label>Mercado<select name="market"><option value="TODOS">Todos</option><option value="EXPORTACION" ${state.market === "EXPORTACION" ? "selected" : ""}>Exportación</option><option value="LOCAL" ${state.market === "LOCAL" ? "selected" : ""}>Local</option></select></label><label>Buscar<input name="search" value="${esc(state.search)}" placeholder="Pedido, factura o cliente"></label><button class="primary-button" type="submit">Aplicar</button><button class="secondary-button" type="button" data-history-all>Todo</button></form>
         <div class="commercial-v2-document-actions commercial-history-v2-document-actions"><span><strong>${historySelection.size}</strong> seleccionado(s)</span><button type="button" class="secondary-button" data-history-print="COMMERCIAL_INVOICE_CLIENT" ${historySelection.size ? "" : "disabled"}>Factura cliente</button><button type="button" class="secondary-button" data-history-print="INVOICE_PACKING_REFERENCIAL" ${historySelection.size ? "" : "disabled"}>Commercial Invoice</button><button type="button" class="secondary-button" data-history-print="ETIQUETAS" ${historySelection.size ? "" : "disabled"}>Etiquetas</button></div>
-        <div class="table-wrap commercial-history-v2-table-wrap"><table class="commercial-history-v2-table"><thead><tr><th></th><th>Fecha</th><th>Pedido</th><th>Factura</th><th>Cliente</th><th>Cliente final</th><th>Cajas</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${page.rows.map(order => { const totals = orderTotals(order); const usesInventory = flow.orderUsesInventory(order); return `<tr class="commercial-history-v2-row"><td><input type="checkbox" data-history-select="${esc(order.id)}" ${historySelection.has(order.id) ? "checked" : ""}></td><td>${dateLabel(order.issuedAt)}</td><td><strong>${esc(order.number)}</strong>${usesInventory ? "" : "<small>SIN INVENTARIO</small>"}</td><td>${esc(BlessERP.comercialInvoiceSequence?.visibleInvoiceNumber?.(order) || "Pendiente")}</td><td>${esc(customerName(appState, order.customerId))}</td><td>${esc(brandName(appState, order.brandId))}</td><td>${totals.boxes}</td><td>${money(totals.total)}</td><td><span class="status-badge ${upper(order.status) === "ANULADO" ? "cancelled" : upper(order.status) === "COMPLETADO" ? "authorized" : "partial"}">${usesInventory ? esc(order.status) : "SIN INVENTARIO"}</span></td><td><div class="table-actions-inline commercial-history-v2-row-actions"><button type="button" class="secondary-button" data-history-edit="${esc(order.id)}">Editar</button>${usesInventory ? `<button type="button" class="secondary-button" data-history-track="${esc(order.id)}">Ver</button>` : ""}${usesInventory && upper(order.status) === "GUARDADO" ? `<button type="button" class="success-button" data-history-send="${esc(order.id)}">Cuarto Frío</button>` : ""}<button type="button" class="danger-button" data-history-annul="${esc(order.id)}">Anular</button></div></td></tr>`; }).join("") || `<tr><td colspan="10"><div class="empty-state compact">No existen pedidos con estos filtros.</div></td></tr>`}</tbody></table></div>${pagination(state, page)}
+        ${feedback}<div class="table-wrap commercial-history-v2-table-wrap"><table class="commercial-history-v2-table"><thead><tr><th></th><th>Fecha</th><th>Pedido</th><th>Factura</th><th>Cliente</th><th>Cliente final</th><th>Cajas</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${page.rows.map(order => { const totals = historyTotals(order); const usesInventory = flow.orderUsesInventory(order); return `<tr class="commercial-history-v2-row"><td><input type="checkbox" data-history-select="${esc(order.id)}" ${historySelection.has(order.id) ? "checked" : ""}></td><td>${dateLabel(order.issuedAt)}</td><td><strong>${esc(order.number)}</strong>${usesInventory ? "" : "<small>SIN INVENTARIO</small>"}</td><td>${esc(BlessERP.comercialInvoiceSequence?.visibleInvoiceNumber?.(order) || "Pendiente")}</td><td>${esc(historyName("customers", order.customerId))}</td><td>${esc(historyName("brands", order.brandId))}</td><td>${totals.boxes}</td><td>${money(totals.total)}</td><td><span class="status-badge ${upper(order.status) === "ANULADO" ? "cancelled" : upper(order.status) === "COMPLETADO" ? "authorized" : "partial"}">${usesInventory ? esc(order.status) : "SIN INVENTARIO"}</span></td><td><div class="table-actions-inline commercial-history-v2-row-actions"><button type="button" class="secondary-button" data-history-edit="${esc(order.id)}">Editar</button>${usesInventory ? `<button type="button" class="secondary-button" data-history-track="${esc(order.id)}">Ver</button>` : ""}${usesInventory && upper(order.status) === "GUARDADO" ? `<button type="button" class="success-button" data-history-send="${esc(order.id)}">Cuarto Frío</button>` : ""}<button type="button" class="danger-button" data-history-annul="${esc(order.id)}">Anular</button></div></td></tr>`; }).join("") || `<tr><td colspan="10"><div class="empty-state compact">${page.loading ? "Cargando…" : page.error ? "Consulta no disponible." : "No existen pedidos con estos filtros."}</div></td></tr>`}</tbody></table></div>${pagination(state, page)}
       </section>`;
   }
 
   async function printHistory(appState, docCode, button) {
     if (historyPrintPending.has(docCode)) return;
-    const orders = [...historySelection].map(id => flow.findOrder(appState, id)).filter(Boolean);
+    let orders = [...historySelection].map(id => ({ id }));
     if (!orders.length) return toast("Seleccione al menos un pedido.", "warning");
     historyPrintPending.add(docCode);
     const original = button.textContent;
@@ -812,8 +821,14 @@
     button.disabled = true;
     button.textContent = "Generando...";
     try {
+      const company = flow.activeCompanyId(appState);
+      orders = BlessERP.commercialHistoryRead?.remote()
+        ? await Promise.all(orders.map(row => BlessERP.commercialHistoryRead.fullOrder(appState, row.id)))
+        : orders.map(row => flow.findOrder(appState, row.id)).filter(Boolean);
+      if (!orders.length || flow.activeCompanyId(appState) !== company) throw new Error("No se pudo preparar el pedido en su empresa.");
       mark("data-ready", { orders: orders.length });
       await loadHistoryPrintResources(docCode);
+      if (flow.activeCompanyId(appState) !== company) throw new Error("La empresa cambió durante la preparación.");
       mark("resources-ready", { groups: historyPrintGroups(docCode).length });
       if (button.isConnected) button.textContent = docCode === "ETIQUETAS" ? "Preparando etiquetas..." : "Preparando documento...";
       const result = await BlessERP.comercialPrintSystem.openDocuments(docCode, orders, appState, {
@@ -860,6 +875,9 @@
   }
 
   function bindHistory(container, appState) {
+    const binding = BlessERP.commercialHistoryController.bind(container, appState, rerenderPage);
+    const listenerOptions = { signal: binding.signal }, active = binding.active;
+    const reader = BlessERP.commercialHistoryRead;
     const state = flow.sessionFor(appState).history;
     const warmPrintCore = () => BlessERP.moduleLoader.loadGroup("commercial-history-print-core").catch(error => {
       console.warn("[JAEDER PERF] No se pudo precargar el núcleo de documentos.", error);
@@ -869,20 +887,22 @@
     container.addEventListener("change", event => {
       const field = event.target.closest("[data-history-select]"); if (!field) return;
       if (field.checked) historySelection.add(field.dataset.historySelect); else historySelection.delete(field.dataset.historySelect); rerenderPage();
-    });
+    }, listenerOptions);
     container.addEventListener("pointerover", event => {
       const button = event.target.closest?.("[data-history-print]");
       if (button) prefetchHistoryPrint(button.dataset.historyPrint);
-    });
+    }, listenerOptions);
     container.addEventListener("focusin", event => {
       const button = event.target.closest?.("[data-history-print]");
       if (button) prefetchHistoryPrint(button.dataset.historyPrint);
-    });
+    }, listenerOptions);
     container.addEventListener("submit", event => {
       if (!event.target.matches("[data-history-filter]")) return; event.preventDefault(); const form = new FormData(event.target); state.date = String(form.get("date") || ""); state.market = String(form.get("market") || "TODOS"); state.search = String(form.get("search") || ""); state.page = 1; rerenderPage();
-    });
+    }, listenerOptions);
     container.addEventListener("click", async event => {
       const button = event.target.closest("button"); if (!button) return;
+      if (button.hasAttribute("data-history-retry")) { reader?.invalidate(); rerenderPage(); return; }
+      if (!await BlessERP.commercialHistoryController.prepareAction(appState, button, active)) return;
       if (button.dataset.page) { state.page = Number(button.dataset.page); rerenderPage(); return; }
       if (button.hasAttribute("data-history-new")) { flow.newDraft(appState); route("commercial-order-master"); return; }
       if (button.hasAttribute("data-history-all")) { state.date = ""; state.page = 1; rerenderPage(); return; }
@@ -901,7 +921,7 @@
         return;
       }
       if (button.dataset.historyPrint) void printHistory(appState, button.dataset.historyPrint, button);
-    });
+    }, listenerOptions);
   }
 
   function getVisibleAvailabilityRows(appState) {
@@ -1051,7 +1071,7 @@
       if (appState) flow.sessionFor(appState).selectedOrderId = orderId;
     }
   };
-  BlessERP.comercialHistory = { render: renderHistory, bind: bindHistory, invalidateRemotePage() {} };
+  BlessERP.comercialHistory = { render: renderHistory, bind: bindHistory, invalidateRemotePage() { BlessERP.commercialHistoryRead?.invalidate(); } };
   BlessERP.comercialAvailability = {
     bind: bindAvailability,
     buildCopyText: buildAvailabilityCopyText,

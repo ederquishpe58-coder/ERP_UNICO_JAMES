@@ -268,6 +268,12 @@
       try {
         const repository = BlessERP.getCommercialOrderRepository?.();
         if (!repository?.reserveInvoiceForDocuments) throw new Error("No está disponible la reserva canónica de factura.");
+        // Resolve HR names after opening the preview, before any reservation.
+        if (docCode === "HR" && BlessERP.commercialHistoryRead?.remote()) {
+          assertContext();
+          BlessERP.commercialHistoryRead.invalidate();
+          await BlessERP.commercialHistoryRead.references(appState);
+        }
         const resolved = [];
         for (const order of sourceOrders) { assertContext(); resolved.push(await repository.reserveInvoiceForDocuments(order, docCode)); }
         assertContext();
