@@ -92,12 +92,49 @@
           <label class="compact-field full"><span>Información adicional</span><textarea rows="2" readonly>${esc(diagnostic.additional || "-")}</textarea></label>
           <label class="compact-field full"><span>Clave de acceso</span><input value="${esc(document.access_key || "-")}" readonly></label>
         </div>
+        ${cancellationPanel(view.detail)}
         <div class="editor-actions">
           ${policy.action === "QUERY_AUTHORIZATION" ? `<button class="primary-button" type="button" data-retention-v2-recover="${esc(document.id)}" ${recoveryInFlight.has(document.id) ? "disabled" : ""}>${recoveryInFlight.has(document.id) ? "Consultando..." : esc(policy.actionLabel || "Consultar estado SRI")}</button>` : ""}
           <small>${esc(policy.reason || "")}</small>
         </div>
       </section>
     </div>`;
+  }
+
+  function cancellationPanel(detail) {
+    const policy = detail.cancellation;
+    if (!policy) return "";
+    const actions = policy.actions || [];
+    const labels = { DISCARD: "Descartar retención", REQUEST: "Solicitar anulación", SUBMIT_PORTAL_REFERENCE: "Registrar solicitud presentada en SRI", CONFIRM_OFFICIAL_ANNULMENT: "Registrar anulación oficial y revertir", REISSUE: "Volver a retener" };
+    const editable = actions.some(action => action !== "REISSUE");
+    return `<section class="panel-card">
+      <h4>Corrección de retención</h4>
+      ${policy.state !== "NONE" ? `<p>Trámite: <strong>${esc(policy.state.replaceAll("_", " "))}</strong></p>` : ""}
+      ${["AUTORIZADO"].includes(detail.document?.status) ? `<p>La retención sigue vigente hasta que el SRI confirme su anulación. La solicitud y su aceptación se gestionan en <a href="https://srienlinea.sri.gob.ec/" target="_blank" rel="noopener noreferrer">SRI en Línea</a>. Este formulario registra el trámite y su evidencia.</p>` : ""}
+      ${editable ? `<form id="retention-cancellation-form" class="compact-form-grid">
+        <label class="compact-field full"><span>Motivo</span><textarea name="reason" minlength="3" maxlength="500" required>${esc(policy.workflow?.reason || "")}</textarea></label>
+        ${actions.includes("SUBMIT_PORTAL_REFERENCE") || actions.includes("CONFIRM_OFFICIAL_ANNULMENT") ? `<label class="compact-field full"><span>Referencia del trámite / constancia oficial</span><input name="reference" minlength="3" maxlength="500" value="${esc(policy.workflow?.portal_reference || "")}" required></label>` : ""}
+        ${actions.includes("CONFIRM_OFFICIAL_ANNULMENT") ? `<label class="compact-field"><span>Fecha de anulación oficial</span><input name="annulmentDate" type="date" required></label>
+          <label class="compact-field"><span>Evidencia oficial (PDF, PNG o JPG, máximo 2 MB)</span><input name="evidenceFile" type="file" accept="application/pdf,image/png,image/jpeg" required></label>
+          <label class="compact-field full"><span>Número de autorización que consta en la evidencia</span><input name="authorizationNumber" required></label>
+          <label class="compact-field full"><span>Clave de acceso que consta en la evidencia</span><input name="accessKey" minlength="49" maxlength="49" required></label>
+          <label class="full"><input name="verified" type="checkbox" required> Verifiqué en SRI en Línea que este comprobante consta ANULADO, no pendiente de anulación.</label>` : ""}
+      </form>` : ""}
+      <div class="editor-actions">${actions.map(action => `<button class="secondary-button" type="button" data-retention-cancellation="${esc(action)}" ${view.processing ? "disabled" : ""}>${esc(labels[action])}</button>`).join("")}
+      ${policy.state === "PENDING_CANCELLATION" ? `<button class="secondary-button" type="button" data-retention-v2-view="${esc(policy.documentId)}">Consultar anulación registrada</button>` : ""}
+      ${policy.workflow?.evidence_sha256 ? `<button class="secondary-button" type="button" data-retention-cancellation-evidence="${esc(policy.documentId)}">Ver evidencia oficial</button>` : ""}</div>
+      ${(policy.history || []).length > 1 || ["DISCARDED", "ANULLED"].includes(policy.state) ? `<div class="compact-table-wrap"><table class="compact-table"><thead><tr><th>Retención</th><th>Estado fiscal</th><th>Trámite</th><th>Asiento de reversión</th></tr></thead><tbody>${(policy.history || []).map(row => `<tr><td><button type="button" class="row-action-button" data-retention-v2-view="${esc(row.documentId)}">${esc(row.fullNumber)}</button></td><td>${esc(row.status)}</td><td>${esc(row.cancellationState || "—")}</td><td>${esc(row.reversalJournalEntryId || "—")}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    </section>`;
+  }
+
+  async function evidenceBase64(file) {
+    if (!file || file.size > 2097152 || !["application/pdf", "image/png", "image/jpeg"].includes(file.type)) throw new Error("Adjunte evidencia oficial PDF, PNG o JPG de máximo 2 MB.");
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1]);
+      reader.onerror = () => reject(new Error("No se pudo leer la evidencia adjunta."));
+      reader.readAsDataURL(file);
+    });
   }
 
   function draftPanel() {
@@ -123,7 +160,7 @@
       <button class="row-action-button" type="button" data-retention-v2-view="${esc(row.id)}">Ver detalle</button>
       ${service()?.nextAction?.(row.status) ? `<button class="row-action-button" type="button" data-retention-v2-process="${esc(row.id)}">Procesar SRI</button>` : ""}
       <button class="row-action-button" type="button" data-retention-v2-ride="${esc(row.id)}">RIDE</button>
-      ${row.status === "AUTORIZADO" ? `<button class="row-action-button" type="button" data-retention-v2-xml="${esc(row.id)}">XML</button>` : ""}
+      ${row.status === "AUTORIZADO" || (row.status === "ANULADO" && row.authorizationNumber) ? `<button class="row-action-button" type="button" data-retention-v2-xml="${esc(row.id)}">XML original</button>` : ""}
     </div>`;
   }
 
@@ -219,6 +256,41 @@
   }
 
   function bind(snapshot) {
+    document.querySelectorAll("[data-retention-cancellation]").forEach(button => button.addEventListener("click", async () => {
+      if (view.processing) return;
+      const current = view.detail;
+      const action = button.dataset.retentionCancellation;
+      if (!current?.cancellation?.actions?.includes(action)) return;
+      const form = document.querySelector("#retention-cancellation-form");
+      if (action !== "REISSUE" && !form?.reportValidity()) return;
+      const fields = form?.elements;
+      const reason = fields?.reason?.value?.trim() || "";
+      const evidence = { accessKey: current.document.access_key, reference: fields?.reference?.value?.trim() || "" };
+      const file = fields?.evidenceFile?.files?.[0];
+      if (action === "CONFIRM_OFFICIAL_ANNULMENT") Object.assign(evidence, {
+        accessKey: fields.accessKey.value.trim(), authorizationNumber: fields.authorizationNumber.value.trim(),
+        officialStatus: "ANULADO", verifiedInSriOnline: fields.verified.checked,
+        annulmentDate: fields.annulmentDate.value, contentType: file?.type
+      });
+      view.processing = true; view.error = ""; view.message = ""; BlessERP.layout.renderPage();
+      try {
+        if (action === "REISSUE") {
+          view.draft = await service().prepareDraft(current.cancellation.purchaseId);
+          view.detail = null; view.activeTab = "pending";
+        } else {
+          if (action === "CONFIRM_OFFICIAL_ANNULMENT") evidence.fileBase64 = await evidenceBase64(file);
+          view.detail = await service().cancelWithholding(current, action, reason, evidence);
+          view.message = action === "REQUEST" ? "Trámite interno abierto. Presente la solicitud en SRI en Línea; la retención sigue vigente."
+            : action === "SUBMIT_PORTAL_REFERENCE" ? "Solicitud registrada. La retención sigue vigente mientras el SRI no confirme su anulación."
+            : "Retención conservada en historial, asiento revertido y compra disponible para volver a retener.";
+        }
+      } catch (error) { view.error = error.message; }
+      finally { view.processing = false; BlessERP.layout.renderPage(); }
+    }));
+    document.querySelectorAll("[data-retention-cancellation-evidence]").forEach(button => button.addEventListener("click", async () => {
+      try { await service().downloadCancellationEvidence(button.dataset.retentionCancellationEvidence); }
+      catch (error) { view.error = error.message; BlessERP.layout.renderPage(); }
+    }));
     document.querySelectorAll("[data-retention-v2-tab]").forEach(button => button.addEventListener("click", () => {
       view.activeTab = button.dataset.retentionV2Tab;
       view.error = "";
@@ -269,7 +341,7 @@
     document.querySelectorAll("[data-retention-v2-remove]").forEach(button => button.addEventListener("click", () => { view.draft = draftFromForm(); view.draft.retentionLines = view.draft.retentionLines.filter(line => line.id !== button.dataset.retentionV2Remove); BlessERP.layout.renderPage(); }));
     document.querySelector("[data-retention-v2-create]")?.addEventListener("click", async () => {
       if (view.processing) return; view.processing = true; view.error = ""; view.message = ""; view.draft = draftFromForm(); BlessERP.layout.renderPage();
-      try { const result = await service().createOrGet(view.draft); view.draft = null; view.message = `Retención ${result.retention?.fullNumber || "tipo 07"} creada en SRI TEST sin duplicar secuencial.`; }
+      try { const result = await service().createOrGet(view.draft); view.draft = null; view.message = `Retención ${result.retention?.fullNumber || "tipo 07"} creada. Pendiente de autorización SRI.`; }
       catch (error) { view.error = error.message; }
       finally { view.processing = false; BlessERP.layout.renderPage(); }
     });
@@ -278,7 +350,7 @@
     document.querySelectorAll("[data-retention-v2-ride]").forEach(button => button.addEventListener("click", async () => {
       const row = findRetention(snapshot, button.dataset.retentionV2Ride); if (!row) return;
       try {
-        if (row.status === "AUTORIZADO") await service().downloadArtifact(row.id, "RIDE_PDF");
+        if (row.status === "AUTORIZADO" || (row.status === "ANULADO" && row.authorizationNumber)) await service().downloadArtifact(row.id, "RIDE_PDF");
         else { const detail = await service().detail(row.id); const result = BlessERP.retentionRide?.open?.(detail.retention, detail.purchase, { print: false, note: "Vista previa de borrador. No constituye comprobante autorizado." }); if (!result?.ok) throw new Error(result?.message || "No se pudo abrir la vista previa RIDE."); }
       } catch (error) { view.error = error.message; BlessERP.layout.renderPage(); }
     }));

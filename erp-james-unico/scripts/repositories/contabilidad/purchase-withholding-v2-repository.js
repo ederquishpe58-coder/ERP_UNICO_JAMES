@@ -91,6 +91,29 @@
     });
   }
 
+  async function cancellationCall(name, args) {
+    const companyId = activeCompanyUuid();
+    const backend = await probeBackend();
+    if (!backend.ok) throw new Error(backend.message);
+    const { data, error } = await client().rpc(name, { ...args, p_company_id: companyId });
+    if (activeCompanyUuid() !== companyId) throw new Error("La empresa cambió. Vuelva a abrir la retención.");
+    if (error) throw new Error(error.message || "No se pudo completar la operación de anulación.");
+    if (!data?.ok || (data.companyId && data.companyId !== companyId)) throw new Error("No se recibió confirmación canónica de la anulación.");
+    return data;
+  }
+
+  function cancellationState(documentId) {
+    return cancellationCall("erp_purchase_withholding_cancellation_state", { p_document_id: documentId });
+  }
+
+  function cancelWithholding(args) {
+    return cancellationCall("erp_purchase_withholding_cancel", args);
+  }
+
+  function cancellationEvidence(documentId) {
+    return cancellationCall("erp_purchase_withholding_cancellation_evidence", { p_document_id: documentId });
+  }
+
   async function purchasePayable(purchase = {}) {
     const companyId = activeCompanyUuid();
     const fail = message => ({ ok: false, message, payable: null });
@@ -153,6 +176,9 @@
 
   BlessERP.purchaseWithholdingV2Repository = Object.freeze({
     activeCompanyUuid,
+    cancellationState,
+    cancellationEvidence,
+    cancelWithholding,
     canExecute,
     detailContext,
     purchasePayable,

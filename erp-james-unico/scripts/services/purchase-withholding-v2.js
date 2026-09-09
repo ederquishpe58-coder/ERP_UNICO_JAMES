@@ -478,18 +478,49 @@
       if (action === "transmit") break;
     }
     await refreshAfterMutation();
-    return detailValue;
+    return detail(documentId);
   }
 
   async function detail(documentId) {
-    const [sriDetail, context] = await Promise.all([
+    const [sriDetail, context, cancellation] = await Promise.all([
       BlessERP.sriApi.detail(documentId),
-      loadContext({ documentId })
+      loadContext({ documentId }),
+      repository().cancellationState(documentId)
     ]);
     const document = sriDetail.document || context.document || {};
     const retention = normalizeRetention({}, { ...context, document, retentionLines: retentionLines(document) });
     runtime.selected = retention;
-    return { ...sriDetail, context, purchase: context.purchase, journal: context.journal, journalLines: context.journalLines, retention };
+    return { ...sriDetail, context, cancellation, purchase: context.purchase, journal: context.journal, journalLines: context.journalLines, retention };
+  }
+
+  async function cancelWithholding(current, action, reason, evidence = {}) {
+    const state = current.cancellation;
+    if (!state?.actions?.includes(action) || state.documentId !== current.document?.id) {
+      throw new Error("Actualice el detalle: esta acción no está disponible para la retención.");
+    }
+    const operationId = uuid();
+    const deviceId = String(await BlessERP.offlineSync?.getDeviceId?.() || `WEB-${operationId.slice(0, 12)}`);
+    await repository().cancelWithholding({
+      p_document_id: state.documentId, p_operation_id: operationId, p_device_id: deviceId,
+      p_action: action, p_expected_version: state.version, p_document_updated_at: state.documentUpdatedAt,
+      p_reason: reason, p_evidence: evidence
+    });
+    purchaseDetails.delete(state.purchaseId);
+    await refreshAfterMutation();
+    return detail(state.documentId);
+  }
+
+  async function downloadCancellationEvidence(documentId) {
+    const result = await repository().cancellationEvidence(documentId);
+    const bytes = Uint8Array.from(atob(result.fileBase64.replace(/\s/g, "")), char => char.charCodeAt(0));
+    const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(n => n.toString(16).padStart(2, "0")).join("");
+    if (hash !== result.sha256) throw new Error("La evidencia no coincide con su huella canónica.");
+    const type = result.evidence.contentType;
+    const extension = { "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg" }[type];
+    if (!extension) throw new Error("Formato de evidencia no permitido.");
+    const url = URL.createObjectURL(new Blob([bytes], { type }));
+    const link = document.createElement("a"); link.href = url; link.download = `anulacion-${documentId}.${extension}`;
+    link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   async function recover(documentId) {
@@ -526,6 +557,8 @@
   BlessERP.services = BlessERP.services || {};
   BlessERP.services.purchaseWithholdingV2 = Object.freeze({
     createOrGet,
+    cancelWithholding,
+    downloadCancellationEvidence,
     defaultDraft,
     detail,
     downloadArtifact,
