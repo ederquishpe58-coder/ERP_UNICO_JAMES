@@ -127,6 +127,8 @@
         membershipRole: ["OWNER", "ADMIN", "EDITOR", "VIEWER"].includes(String(current.membershipRole || "").toUpperCase())
           ? String(current.membershipRole).toUpperCase()
           : "VIEWER",
+        membershipId: String(current.membershipId || ""),
+        membershipStatus: String(current.membershipStatus || ""),
         isDefault: current.isDefault === true,
         profileId: String(current.profileId || "").trim().toUpperCase(),
         profileName: String(current.profileName || "PROFILE_MISSING"),

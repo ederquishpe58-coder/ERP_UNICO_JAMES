@@ -340,7 +340,7 @@
             ${membership.legacyDependent ? `<div>LEGACY VISIBLE: existen ${esc(String(membership.legacyRoutePermissionCount || 0))} registro(s) históricos en user_route_permissions. No se editan ni se usan para construir este perfil.</div>` : ""}
           </section>
           ${addingMembership ? `<p>Este usuario todavía no pertenece a ${esc(companyName)}. Seleccione el rol y el perfil para agregarlo. Sus accesos de otras empresas se conservan. Después podrá revisar y asignar permisos específicos de esta empresa.</p>` : ""}
-          ${stored?.cloudManaged && membership.membershipId && draft.id !== currentUserId ? `<section data-user-access-plan></section>` : ""}
+          ${stored?.cloudManaged && membership.membershipId ? `<section data-user-access-plan></section>` : ""}
         ` : `<div class="user-route-matrix">
           <div class="user-route-matrix-head">
             <div>
@@ -562,7 +562,8 @@
     if (planRoot) BlessERP.userAccessOverrides?.mount(planRoot, {
       targetUserId: uiState.users.draft.id,
       companyKey: uiState.users.accessCompanyId,
-      openImmediately: !userAccessFor(uiState.users.draft, uiState.users.accessCompanyId).profileId,
+      openImmediately: uiState.users.draft.id === BlessERP.state.state.db.session?.activeUser?.id
+        || !userAccessFor(uiState.users.draft, uiState.users.accessCompanyId).profileId,
       onConfirmed: result => {
         const access = userAccessFor(uiState.users.draft, uiState.users.accessCompanyId);
         access.profileId = result.profile_id;

@@ -58,7 +58,7 @@
     const canManage = () => erp.capabilityRuntime?.can?.("admin.users.manage") === true;
     const scope = { targetUserId, companyKey };
     let loaded = null, preview = null, pending = null, busy = false, reviewed = null;
-    root.innerHTML = `<button type="button" class="secondary-button" data-access-plan-open>Perfil y permisos específicos de esta empresa</button><div data-access-plan-body></div><div data-access-plan-feedback role="status" aria-live="polite"></div>`;
+    root.innerHTML = `<h4>Permisos específicos de esta empresa</h4><button type="button" class="secondary-button" data-access-plan-open>Consultar perfil y permisos</button><div data-access-plan-body></div><div data-access-plan-feedback role="status" aria-live="polite"></div>`;
     const open = root.querySelector("[data-access-plan-open]");
     open.disabled = !current() || !canManage();
     const feedback = (text, fail = false) => {
@@ -80,6 +80,7 @@
     }
     const requireResult = result => { if (!result?.ok) throw new Error(result?.errors?.join(" · ") || "CANONICAL_ACCESS_PLAN_NOT_CONFIRMED"); return result.data; };
     function input() {
+      if (loaded?.can_edit !== true) throw new Error("Estos permisos son de solo lectura. Solicite el cambio a otro administrador autorizado de esta empresa.");
       const reason = root.querySelector("[data-access-plan-reason]").value.trim();
       if (!reason) throw new Error("Indique el motivo del cambio.");
       const profileId = root.querySelector("[data-access-plan-profile]").value;
@@ -102,7 +103,8 @@
       });
       open.hidden = true;
       const effects = new Map(loaded.overrides.map(row => [row.capability_id, row.effect]));
-      root.querySelector("[data-access-plan-body]").innerHTML = `<p>Empresa: ${esc(companyKey)}. Se reemplazará el conjunto completo de permisos específicos de esta membresía.</p>
+      root.querySelector("[data-access-plan-body]").innerHTML = `<p>Empresa: ${esc(companyKey)}.</p>
+        ${loaded.can_edit === true ? "" : '<p role="note">Puede consultar sus permisos. Para cambiarlos, solicítelo a otro administrador autorizado de esta empresa. La protección contra autoelevación permanece activa.</p>'}
         <label class="compact-field">Perfil base<select data-access-plan-profile><option value="">Seleccione un perfil</option>${loaded.profiles.map(p => `<option value="${esc(p.profile_id)}" ${p.profile_id === loaded.profile_id ? "selected" : ""}>${esc(display().profile(p).label)}</option>`).join("")}</select></label>
         <div data-access-profile-description></div>
         <p>Bloquear prevalece sobre permitir y sobre el perfil base. Los permisos se confirman en el servidor.</p>
@@ -150,6 +152,7 @@
         const desired = input();
         const result = requireResult(await erp.remoteUserAccess.previewAccessPlan(desired));
         if (!current()) return;
+        if (result.state_token !== loaded.state_token) throw new Error("Los permisos cambiaron en el servidor. Cierre y vuelva a abrir el editor antes de guardar.");
         preview = result; reviewed = result;
         root.querySelector("[data-access-review-stale]").hidden = true;
         updatePresentation();
@@ -161,10 +164,15 @@
         if (!preview || !pending) throw new Error("Revise el plan antes de guardar.");
         const result = requireResult(await erp.remoteUserAccess.saveAccessPlan(pending));
         if (!current()) return;
+        loaded = result; reviewed = result;
         preview = null; pending = null;
+        root.querySelector("[data-access-plan-summary]").innerHTML = summary(result);
         feedback("Perfil y permisos guardados; segunda lectura canónica confirmada.");
         onConfirmed?.(result);
       }));
+      if (loaded.can_edit !== true) {
+        root.querySelectorAll("[data-access-plan-profile],[data-access-plan-capability],[data-access-plan-reason],[data-access-plan-preview],[data-access-plan-save]").forEach(node => { node.disabled = true; });
+      }
       feedback("Acceso actual leído del servidor. No se han guardado cambios.");
     });
     open.addEventListener("click", loadCatalog);
