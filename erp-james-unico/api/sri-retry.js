@@ -27,12 +27,7 @@ module.exports = async function retryHandler(request, response) {
     if (!authorized(request)) return send(response, 401, { ok: false, error: "UNAUTHORIZED" });
     const client = getSupabaseAdmin();
     const now = new Date().toISOString();
-    const { data: jobs, error } = await client.from("sri_transmissions")
-      .select("id, company_id, document_id, environment, transmission_type, endpoint_url, status, attempt_number, max_attempts, next_attempt_at")
-      .in("status", ["PENDING", "RETRY_SCHEDULED"])
-      .lte("next_attempt_at", now)
-      .order("next_attempt_at", { ascending: true })
-      .limit(25);
+    const { data: jobs, error } = await client.rpc('erp_sri_manager_due_jobs', {p_limit:25});
     if (error) throw error;
 
     const due = (jobs || []).filter(job => job.attempt_number < job.max_attempts);

@@ -137,6 +137,7 @@
     "commercial-senae-liquidation": "commercial.senae_liquidation.view",
     "commercial-credit-notes": "commercial.credit_notes.view",
     "commercial-sri-authorization": "commercial.electronic_documents.view",
+    "sri-document-manager": "commercial.electronic_documents.view",
     "payroll-employees": "payroll.employees.view",
     "payroll-generation": "payroll.roles.view",
     "payroll-approved": "payroll.roles.view",

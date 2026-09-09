@@ -244,6 +244,11 @@ async function ensureJob(client, document, settings, transmissionType, requestFi
 function claimResult(result, job, label = "Toma atomica de transmision") {
   const databaseCode = String(result?.error?.code || "");
   const databaseMessage = String(result?.error?.message || "");
+  if (databaseMessage === "SRI_MANAGER_WAIT_SCHEDULED" || databaseMessage === "SRI_MANAGER_MANUAL_REVIEW_REQUIRED" || databaseMessage === "SRI_MANAGER_CORRECTION_IN_PROGRESS") {
+    throw new SriError(databaseMessage === "SRI_MANAGER_WAIT_SCHEDULED" ? "Espere hasta la próxima consulta programada." : "Los reintentos de este comprobante requieren revisión manual.", {
+      code: databaseMessage, httpStatus: 409, retryable: false, details: { nextAttemptAt: job.next_attempt_at || null }
+    });
+  }
   if (databaseMessage === "SRI_MANUAL_AUTHORIZATION_CLAIM_LOST") {
     throw new SriTransportError("La consulta de este comprobante terminó o está siendo atendida por otro proceso. Consulte su estado en unos segundos.", {
       code: "SRI_MANUAL_AUTHORIZATION_CLAIM_LOST", httpStatus: 409, retryable: true,
@@ -550,12 +555,12 @@ async function processAuthorization(client, settings, document, actorUserId, opt
     throw new SriValidationError(`No se puede consultar autorizacion desde ${current.status}.`);
   }
   let job = await ensureJob(client, current, settings, "AUTHORIZATION_QUERY");
-  if (job.status === "COMPLETED") return getDocumentDetail(client, current.company_id, current.id);
-  const manualRecovery = options.manualAuthorizationRecovery === true && !options.retryJob && Boolean(actorUserId)
+  if (job.status === "COMPLETED" && !options.managerRecovery) return getDocumentDetail(client, current.company_id, current.id);
+  const manualRecovery = (options.managerRecovery === true && !options.retryJob && Boolean(actorUserId)) || (options.manualAuthorizationRecovery === true && !options.retryJob && Boolean(actorUserId)
     && recoveryQuery && current.document_type === "07" && !recoverySourceStatus
     && job.attempt_number >= job.max_attempts
     && ((job.status === "FAILED" && job.error_class === "SRI_TRANSPORT_RESULT_UNCERTAIN")
-      || (job.status === "PROCESSING" && String(job.worker_id || "").startsWith("manual-auth-")));
+      || (job.status === "PROCESSING" && String(job.worker_id || "").startsWith("manual-auth-"))));
   job = manualRecovery
     ? await claimManualAuthorization(client, job, current, actorUserId)
     : await claimJob(client, job, options.force);
@@ -755,6 +760,11 @@ async function transmitDocument(client, companyId, documentId, actorUserId, opti
   const detail = await getDocumentDetail(client, companyId, documentId);
   const document = detail.document;
   if (document?.company_id !== companyId || document?.id !== documentId) throw new SriValidationError("El comprobante no pertenece a la empresa solicitada.");
+  const management = dbError(await client.from('erp_sri_document_management').select('automatic_paused,correction_in_progress')
+    .eq('company_id',companyId).eq('document_id',documentId).maybeSingle(), 'Control manual SRI');
+  if (management?.automatic_paused || management?.correction_in_progress) {
+    throw new SriError('Los envíos automáticos están pausados. Puede consultar o recuperar el mismo comprobante.',{code:'SRI_MANAGER_MANUAL_REVIEW_REQUIRED',httpStatus:409,retryable:false});
+  }
   for (const job of detail.transmissions) assertJobIdentity(job, document);
   if (options.retryJob || !actorUserId) {
     assertRetryJob(detail, options.retryJob);

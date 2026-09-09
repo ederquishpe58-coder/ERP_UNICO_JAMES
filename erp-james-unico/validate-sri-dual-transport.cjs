@@ -27,9 +27,10 @@ async function runWorker(b, { secret = "fixture-only-secret", supplied = secret,
   const actualRequire = createRequire(filename);
   const exported = { exports: {} };
   let selected = "";
-  const workerClient = jobs ? { from(table) {
-    assert.equal(table, "sri_transmissions");
-    return { select(fields) { selected = fields; return this; }, in() { return this; }, lte() { return this; }, order() { return this; }, limit: async () => ({ data: jobs }) };
+  const workerClient = jobs ? { async rpc(name,args) {
+    assert.equal(name,'erp_sri_manager_due_jobs');assert.equal(args.p_limit,25);
+    selected='id, company_id, document_id, environment, transmission_type, endpoint_url';
+    return {data:jobs};
   } } : b.client;
   vm.runInNewContext(fs.readFileSync(filename, "utf8"), {
     module: exported, exports: exported.exports, Buffer, process: { env: { SRI_RETRY_CRON_SECRET: secret } },

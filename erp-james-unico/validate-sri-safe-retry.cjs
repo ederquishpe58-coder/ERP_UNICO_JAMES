@@ -86,6 +86,7 @@ function backend(type = "07", status = "PENDIENTE_REINTENTO", legacy = true, env
     from: table => new Query(table),
     async rpc(name, args) {
       calls.push({ rpc: name, args });
+      if (name === 'erp_sri_manager_due_jobs') return {data:structuredClone(tables.sri_transmissions.filter(j=>['PENDING','RETRY_SCHEDULED'].includes(j.status)&&j.attempt_number<j.max_attempts&&Date.parse(j.next_attempt_at)<=Date.now()).slice(0,args.p_limit))};
       if (name === "erp_sri_assert_transport_actor") {
         assert.equal(args.p_company_id, company);
         return { data: authority.allowed && args.p_actor_user_id === "actor" };

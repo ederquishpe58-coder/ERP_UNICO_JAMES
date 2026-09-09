@@ -1,0 +1,25 @@
+.sri-manager{display:grid;gap:16px;color:var(--text,#19314e);font-size:13px;min-width:0}
+.sri-manager .card{background:var(--panel-soft,#fff);border:1px solid var(--line,#dce4ec);border-radius:16px;padding:20px;min-width:0}
+.sri-manager h1{font-size:23px;margin:0 0 8px}.sri-manager h2{font-size:19px;margin:0}.sri-manager h3{font-size:16px}
+.sri-manager p{line-height:1.6;overflow-wrap:anywhere}.sri-manager small{color:var(--muted,#60758c)}
+.sri-manager .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px;margin:16px 0}
+.sri-manager label,.sri-manager-dialog label{display:grid;gap:5px;font-size:12px;font-weight:600;min-width:0}
+.sri-manager input,.sri-manager select,.sri-manager-dialog input,.sri-manager-dialog textarea{font:inherit;color:inherit;min-width:0;width:100%;border:1px solid var(--line,#dce4ec);border-radius:7px;background:white;padding:8px;box-sizing:border-box}
+.sri-manager button,.sri-manager-dialog button{font:inherit;font-weight:600;color:inherit;background:white;border:1px solid var(--line,#dce4ec);border-radius:7px;padding:8px 12px;min-height:34px;cursor:pointer}
+.sri-manager button:hover:not(:disabled),.sri-manager-dialog button:hover:not(:disabled){background:#edf5fa;border-color:#8faabe}
+.sri-manager button:disabled{opacity:.48;cursor:not-allowed}.sri-manager button:focus-visible,.sri-manager-dialog button:focus-visible{outline:2px solid #24799f;outline-offset:2px}
+.sri-manager [data-action="recover"],.sri-manager [data-manager-filters]>button{background:#146d67;color:white;border-color:#146d67}
+.sri-manager [data-action="recover"]:hover:not(:disabled),.sri-manager [data-manager-filters]>button:hover:not(:disabled){background:#105952}
+.sri-manager .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}
+.sri-manager nav.toolbar{border-bottom:1px solid var(--line,#dce4ec);padding-bottom:10px}
+.sri-manager [data-tab][aria-pressed="true"]{background:#e7f2f2;border-color:#69a6a2;color:#105952}
+.sri-manager .table-wrap{overflow:auto;max-height:380px;margin:12px 0;border:1px solid var(--line,#dce4ec);border-radius:9px}
+.sri-manager table{width:100%;border-collapse:collapse;font-size:12px;text-align:left}
+.sri-manager th{position:sticky;top:0;background:#edf3f8;font-weight:700;z-index:1}
+.sri-manager td,.sri-manager th{padding:10px 12px;border-bottom:1px solid var(--line,#dce4ec);vertical-align:top}
+.sri-manager td{overflow-wrap:anywhere}.sri-manager tbody tr:hover{background:#f5f9fb}
+.sri-manager [role="alert"]{background:#fff0ec;color:#963b25;border-radius:8px;padding:10px}
+.sri-manager pre{font-size:11px;overflow-wrap:anywhere}.sri-manager details{padding:10px;border-bottom:1px solid var(--line,#dce4ec)}
+.sri-manager-dialog{color:var(--text,#19314e);border:1px solid #cbd8e4;border-radius:16px;padding:24px;max-width:580px;width:calc(100% - 80px)}
+.sri-manager-dialog::backdrop{background:#142a4566}.sri-manager-dialog form{display:grid;gap:14px}.sri-manager-dialog h3{margin:0}.sri-manager-dialog input[type="checkbox"]{width:auto}
+@media(max-width:650px){.sri-manager .card{padding:14px}.sri-manager .form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sri-manager .toolbar button{max-width:100%;white-space:normal}}

@@ -402,5 +402,5 @@ async function main() {
   }
 }
 
-module.exports = { fixture, payloadFor, COMPANIES, effects, mockClient, service, inputFor };
+module.exports = { fixture, payloadFor, COMPANIES, effects, mockClient, service, inputFor, syntheticCertificate };
 if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });

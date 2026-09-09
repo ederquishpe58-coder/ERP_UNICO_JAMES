@@ -16,6 +16,7 @@
     "commercial-order-history": ["commercial-history"],
     "commercial-availability-reservations": ["commercial-availability"],
     "commercial-sri-authorization": ["commercial-sri"],
+    "sri-document-manager": ["sri-manager"],
     "commercial-credit-notes": ["commercial-sri"],
     "commercial-senae-liquidation": ["commercial-senae"],
     "commercial-customers-brands": ["commercial-catalogs"],

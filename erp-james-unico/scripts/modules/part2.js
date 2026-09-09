@@ -685,6 +685,10 @@
       renderDiagnostics(container, route);
       return;
     }
+    if (routeId === "sri-document-manager") {
+      BlessERP.modules.sriDocumentManager.render(container, route, appState);
+      return;
+    }
     if (routeId === "commercial-panel") {
       renderCommercialPanel(container, route);
       return;

@@ -813,6 +813,7 @@ module.exports = {
   registerDocumentAnnulment,
   documentPayload,
   activeCertificateMetadata,
+  assertWithholdingEligibility,
   verifyCertificateMaterialAvailable,
   preflightIssuanceCertificate,
   transition,

@@ -206,6 +206,7 @@
       }
     });
     const contentType = response.headers.get("content-type") || "";
+    if(path.includes('action=manager-download')&&response.ok&&response.headers.get('content-disposition'))return response;
     if (!contentType.includes("application/json")) {
       if (!response.ok) throw new Error(`La API SRI respondio HTTP ${response.status}.`);
       return response;
@@ -442,8 +443,8 @@
     });
   }
 
-  async function download(fileId) {
-    const response = await api(query({ action: "download", fileId }));
+  async function download(fileId,action='download') {
+    const response = action==='manager-download'?await managerRequest(action,{fileId}):await api(query({ action: "download", fileId }));
     const blob = await response.blob();
     const disposition = response.headers.get("content-disposition") || "";
     const name = disposition.match(/filename="([^"]+)"/)?.[1] || "documento-sri";
@@ -682,7 +683,28 @@
     };
   }
 
+  function managerCompany() {
+    const reference=String(BlessERP.services?.companyContext?.activeCompanyId?.()||BlessERP.state?.state?.db?.activeCompanyId||'');
+    const matches=(BlessERP.authAccess?.activeAccess?.()?.companies||[]).filter(c=>[c.id,c.company_key,c.company_code].includes(reference));
+    if(matches.length!==1||!UUID_PATTERN.test(matches[0].id))throw new Error('Seleccione una empresa canónica autorizada.');
+    const row=matches[0],profile=profileDefinition(row.company_key)||profileDefinition(row.company_code)||profileDefinition(row.tax_id);
+    if(!profile||(row.tax_id&&row.tax_id!==profile.ruc))throw new Error('La identidad de la empresa activa no coincide con su perfil tributario.');
+    return {companyId:row.id,key:profile.key,commercialName:row.commercial_name||profile.commercialName};
+  }
+  async function managerRequest(action,values={},method='GET') {
+    if(!/^manager-[a-z-]+$/.test(action)||!['GET','POST'].includes(method))throw new Error('Acción del gestor inválida.');
+    const company=managerCompany();
+    if(values.companyId&&values.companyId!==company.companyId)throw new Error('La solicitud pertenece a otra empresa.');
+    const result=method==='GET'
+      ?await rawApi(query({...values,action,companyId:company.companyId}))
+      :await rawApi('',{method:'POST',body:JSON.stringify({...values,action,companyId:company.companyId})});
+    if(managerCompany().companyId!==company.companyId)throw new Error('La empresa cambió durante la solicitud. Actualice el gestor.');
+    return result;
+  }
   BlessERP.sriApi = {
+    managerCompany,
+    managerRequest,
+    managerDownload: fileId=>download(fileId,'manager-download'),
     TEST_ENVIRONMENT,
     PRODUCTION_ENVIRONMENT,
     environmentDefinition,

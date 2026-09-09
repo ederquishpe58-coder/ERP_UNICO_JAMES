@@ -16,7 +16,7 @@ async function test(name, run) {
 
 // Only I/O is modeled. Actual service, XML parser, policy, identities and SOAP run.
 // The companion DB suite executes claim/lease/concurrency against PostgreSQL.
-function fixture(environment = "PRODUCTION", type = "07") {
+function fixture(environment = "PRODUCTION", type = "07", manager = false) {
   const access = buildAccessKey({ issueDate: "2026-09-08", documentType: type, ruc: "1717637084001", environment,
     establishmentCode: "001", emissionPointCode: "002", sequential: 750, numericCode: "97353364", emissionType: "1" });
   const b = backend(type, "PENDIENTE_REINTENTO", true, environment, { document: {
@@ -66,7 +66,7 @@ function fixture(environment = "PRODUCTION", type = "07") {
         const old = b.tables.sri_transmission_attempts.find(row => row.status === "STARTED" && manualClaims.get(row.id) === queryJob.worker_id);
         if (!old || Date.now() - new Date(queryJob.claimed_at).getTime() < 180000) return error("55P03", "SRI_TRANSMISSION_ALREADY_PROCESSING", '{"retryAfterSeconds":5}');
         Object.assign(old, { status: "FAILED", finished_at: new Date().toISOString(), error_class: "SRI_TRANSPORT_RESULT_UNCERTAIN" });
-      } else if (queryJob.status !== "FAILED" || queryJob.attempt_number !== 12 || queryJob.error_class !== "SRI_TRANSPORT_RESULT_UNCERTAIN" || type !== "07") {
+      } else if ((!manager && (queryJob.status !== "FAILED" || queryJob.attempt_number !== 12 || queryJob.error_class !== "SRI_TRANSPORT_RESULT_UNCERTAIN" || type !== "07")) || (manager && !['FAILED','PENDING','RETRY_SCHEDULED','COMPLETED'].includes(queryJob.status))) {
         return error("23514", "SRI_MANUAL_AUTHORIZATION_NOT_ELIGIBLE");
       } else if (Date.now() - new Date(queryJob.finished_at).getTime() < 30000) {
         return error("55P03", "SRI_MANUAL_AUTHORIZATION_COOLDOWN", '{"retryAfterSeconds":30}');
@@ -103,7 +103,7 @@ function fixture(environment = "PRODUCTION", type = "07") {
   return b;
 }
 
-(async () => {
+if(require.main===module)(async () => {
   await test("750 FAILED 12/12 manual lookup recovers same authorization; no reception or fiscal identity changes", async () => {
     const b = fixture(), before = structuredClone(b.document), links = JSON.stringify(b.tables.accounting_document_links);
     const reception = JSON.stringify(b.tables.sri_transmissions[0]), oldAttempts = JSON.stringify(b.tables.sri_transmission_attempts), urls = [];
@@ -238,3 +238,4 @@ function fixture(environment = "PRODUCTION", type = "07") {
     realTransmissions: 0, additionalDocuments: 0, sequenceDelta: 0, accessKeyDelta: 0, journalDelta: 0 }, null, 2));
   process.exitCode = results.every(row => row.result === "PASS") ? 0 : 1;
 })();
+module.exports={fixture};

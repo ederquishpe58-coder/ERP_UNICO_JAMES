@@ -22,12 +22,19 @@ const { SUPPORTED_XML, validateSriConfiguration } = require("./sri/_lib/technica
 
 const configurationService = require("./sri/_lib/configuration-service.cjs");
 const { requireEnvironment } = require("./sri/_lib/environment.cjs");
+const manager = require("./sri/_lib/manager-service.cjs");
 
 const WRITE_ROLES = ["ADMIN", "TRIBUTACION", "CONTADOR", "EMISOR"];
 const CONFIG_ROLES = ["ADMIN", "TRIBUTACION"];
 const ADMIN_ROLES = ["ADMIN"];
 
 function requiredCapability(action, method, body = {}) {
+  if (action.startsWith("manager-")) {
+    if (method === "GET") return manager.CAPS.view;
+    return ({"manager-validate":manager.CAPS.validate,"manager-recover":manager.CAPS.recover,"manager-retry":manager.CAPS.retry,
+      "manager-pause":manager.CAPS.pause,"manager-resume":manager.CAPS.resume,"manager-evidence":manager.CAPS.evidence,
+      "manager-correct":manager.CAPS.correct,"manager-cancel":manager.CAPS.view})[action] || "";
+  }
   if (method === "GET") {
     return action === "configuration" ? "tax.parameters.view" : "commercial.electronic_documents.view";
   }
@@ -309,13 +316,49 @@ module.exports = async function handler(request, response) {
       : ["save-settings", "save-emission-point", "save-document-sequence", "upload-certificate", "save-accounting-rule"].includes(action)
         ? CONFIG_ROLES
       : (request.method === "GET" ? null : WRITE_ROLES);
-    const canonicalConfiguration = action === "configuration" || ["save-settings", "save-emission-point", "save-document-sequence", "set-environment-enabled"].includes(action);
+    const canonicalConfiguration = action.startsWith("manager-") || action === "configuration" || ["save-settings", "save-emission-point", "save-document-sequence", "set-environment-enabled"].includes(action);
     const auth = canonicalConfiguration
       ? await configurationService.authenticateConfigurationRequest(client, request, requestedCompanyId)
       : await authenticateCompanyRequest(client, request, requestedCompanyId, roles);
     const capabilityId = requiredCapability(action, request.method, body);
     if (!capabilityId) throw new SriValidationError("Accion SRI sin capability asignada.");
     await assertUserCapability(auth.accessToken, auth.companyId, capabilityId);
+
+    if (action.startsWith("manager-")) {
+      if (capabilityId !== manager.CAPS.view) await assertUserCapability(auth.accessToken, auth.companyId, manager.CAPS.view);
+      const userClient=getSupabaseUserContext(auth.accessToken);
+      const documentId=body.documentId||queryValue(request,"documentId");
+      let data;
+      if(request.method==="GET"&&action==="manager-list") data=await manager.list(userClient,auth.companyId,Object.fromEntries(["environment","documentType","status","sriStatus","group","series","sequential","accessKey","party","from","to","offset"].map(k=>[k,queryValue(request,k)])));
+      else if(request.method==="GET"&&action==="manager-detail") data=await manager.detail(client,userClient,auth.companyId,documentId);
+      else if(request.method==="GET"&&action==="manager-download") return downloadFile(client,auth.companyId,queryValue(request,"fileId"),response);
+      else if(request.method==="POST"&&action==="manager-validate") data=await manager.validateDocument(client,await manager.detail(client,userClient,auth.companyId,documentId));
+      else if(request.method==="POST"&&action==="manager-recover") data=await manager.recover(client,userClient,auth.companyId,documentId,auth.user.id);
+      else if(request.method==="POST"&&action==="manager-evidence") data=await manager.evidence(client,userClient,auth.companyId,documentId,auth.user.id,body);
+      else if(request.method==="POST"&&action==="manager-correct") {
+        await require('./sri/_lib/manager-correction.cjs').correct(client,auth.companyId,documentId,auth.user.id,body);
+        data=await manager.detail(client,userClient,auth.companyId,documentId);
+      }
+      else if(request.method==="POST"&&action==="manager-retry") {
+        const current=await manager.detail(client,userClient,auth.companyId,documentId);
+        if(!current.managerPolicy.actions.retry.allowed)throw new SriValidationError(current.managerPolicy.actions.retry.reason);
+        await transmitDocument(client,auth.companyId,documentId,auth.user.id,{force:false});
+        data=await manager.detail(client,userClient,auth.companyId,documentId);
+      } else if(request.method==="POST"&&["manager-pause","manager-resume"].includes(action)) {
+        const result=await userClient.rpc("erp_sri_manager_control",{p_company_id:auth.companyId,p_document_id:documentId,p_action:action==="manager-pause"?"PAUSE":"RESUME",p_operation_id:body.operationId,p_expected_version:body.version,p_reason:body.reason});
+        if(result.error)throw new SriValidationError(result.error.message);
+        data=await manager.detail(client,userClient,auth.companyId,documentId);
+      } else if(request.method==="POST"&&action==="manager-cancel") {
+        const current=await manager.detail(client,userClient,auth.companyId,documentId);
+          if(!current.cancellation?.actions?.includes(body.cancellationAction))throw new SriValidationError("El contrato canónico no permite esta acción de anulación.");
+          const r=current.document.document_type==='07'
+            ?await userClient.rpc("erp_purchase_withholding_cancel",{p_company_id:auth.companyId,p_document_id:documentId,p_operation_id:body.operationId,p_device_id:"SRI-MANAGER",p_action:body.cancellationAction,p_expected_version:body.version,p_document_updated_at:body.documentUpdatedAt,p_reason:body.reason,p_evidence:body.evidence||{}})
+            :await userClient.rpc('erp_sri_manager_cancellation_tracking',{p_company_id:auth.companyId,p_document_id:documentId,p_operation_id:body.operationId,p_action:body.cancellationAction,p_expected_version:body.version,p_expected_updated_at:body.documentUpdatedAt,p_reason:body.reason,p_evidence:body.evidence||{}});
+        if(r.error)throw new SriValidationError(r.error.message);
+        data=await manager.detail(client,userClient,auth.companyId,documentId);
+      } else throw new SriValidationError("Acción del gestor no disponible.");
+      return sendJson(response,200,{ok:true,data});
+    }
 
     if (request.method === "GET" && action === "list") {
       return sendJson(response, 200, { ok: true, data: await listDocuments(client, auth.companyId, {

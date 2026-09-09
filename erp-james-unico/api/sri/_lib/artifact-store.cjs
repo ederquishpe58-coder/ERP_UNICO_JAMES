@@ -25,7 +25,7 @@ function duplicateStorageError(error) {
   return Number(error?.statusCode) === 409 || /already exists|duplicate/i.test(String(error?.message || ""));
 }
 
-async function storeArtifact(client, options) {
+async function stageArtifact(client, options) {
   const [extension, contentType] = FILE_META[options.fileType] || [];
   if (!extension) throw new SriConfigurationError(`Tipo de archivo SRI no soportado: ${options.fileType}`);
   const buffer = asBuffer(options.content);
@@ -56,6 +56,11 @@ async function storeArtifact(client, options) {
     immutable: true,
     created_by: options.createdBy || null
   };
+  return row;
+}
+
+async function storeArtifact(client, options) {
+  const row = await stageArtifact(client, options);
   const { data, error } = await client
     .from("electronic_document_files")
     .upsert(row, { onConflict: "document_id,file_type,content_sha256", ignoreDuplicates: true })
@@ -66,11 +71,20 @@ async function storeArtifact(client, options) {
 }
 
 async function loadArtifact(client, documentId, fileType) {
-  const { data: file, error } = await client
+  // A correction may reuse an older content hash. Its committed revision, not
+  // the upload timestamp, determines which immutable artifact is current.
+  const revision = await client.from('erp_sri_document_manager_events')
+    .select('evidence').eq('document_id', documentId).eq('action', 'CORRECT')
+    .order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (revision.error) throw revision.error;
+  const revisionFile = revision.data?.evidence?.newArtifacts?.find(row => row.file_type === fileType);
+  let query = client
     .from("electronic_document_files")
     .select("*")
     .eq("document_id", documentId)
-    .eq("file_type", fileType)
+    .eq("file_type", fileType);
+  if (revisionFile) query = query.eq('content_sha256', revisionFile.content_sha256);
+  const { data: file, error } = await query
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -87,5 +101,6 @@ module.exports = {
   FILE_META,
   sha256,
   storeArtifact,
+  stageArtifact,
   loadArtifact
 };

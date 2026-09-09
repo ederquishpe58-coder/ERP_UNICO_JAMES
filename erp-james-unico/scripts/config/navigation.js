@@ -50,6 +50,7 @@
   }
 
   const menuGroups = [
+    { id: "sri", label: "SRI", shortLabel: "SRI", defaultRoute: "sri-document-manager", groupIds: ["sri-manager"] },
     { id: "core", label: "Core del sistema", shortLabel: "CS", defaultRoute: "dashboard-home", groupIds: ["dashboard"] },
     { id: "operations", label: "Operaciones / Poscosecha", shortLabel: "OP", defaultRoute: "operations-postharvest", groupIds: ["operations"] },
     { id: "commercial", label: "Comercial / Exportaciones", shortLabel: "CE", defaultRoute: "commercial-panel", groupIds: ["commercial"] },
@@ -60,6 +61,10 @@
   ];
 
   const groups = [
+    { id: "sri-manager", label: "Comprobantes electrónicos", shortLabel: "SRI", defaultRoute: "sri-document-manager", routes: [activeRoute({
+      id: "sri-document-manager", label: "Gestor de comprobantes electrónicos", title: "Gestor de comprobantes electrónicos",
+      description: "Validación, recuperación y trazabilidad por documento y ambiente.", checklist: ["Factura 01", "Nota de crédito 04", "Retención 07"]
+    })] },
     {
       id: "dashboard",
       label: "Core del sistema",
