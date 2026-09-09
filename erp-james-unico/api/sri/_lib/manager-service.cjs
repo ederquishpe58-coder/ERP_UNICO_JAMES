@@ -8,6 +8,7 @@ const { parseOfficialEvidence }=require('./manager-evidence.cjs');
 const { sha256 }=require('./artifact-store.cjs');
 const { assertDocumentXmlIdentity }=require('./xml-identity.cjs');
 const { verifyXadesBes }=require('./xades-signer.cjs');
+const { evaluateManualSameDocumentRetry }=require('./manual-retry-policy.cjs');
 function assertId(id){if(!uuidOrNull(id))throw new SriValidationError('Seleccione un comprobante canónico.');return id;}
 async function detail(client,userClient,companyId,documentId){
  const data=await getDocumentDetail(client,companyId,assertId(documentId));
@@ -20,8 +21,7 @@ async function detail(client,userClient,companyId,documentId){
   userClient.rpc('erp_security_get_effective_capabilities',{p_company_id:companyId})]);
  data.management=dbError(meta,'Control manual SRI')||{version:0,revision:1,automatic_paused:false};data.managerEvents=dbError(events,'Historial del gestor');
  const capabilities=dbError(rights,'Permisos canónicos').map(x=>x.capability_id);
- data.managerPolicy=managerPolicy(data,capabilities);
- data.technicalHistory=[...(data.audit||[]).map(x=>({timestamp:x.created_at,actor:x.actor_user_id,action:x.action,reason:safeText(x.reason),operationId:x.new_values?.operation_id||x.new_values?.operationId||null,attemptId:x.new_values?.attempt_id||x.new_values?.attemptId||null,result:x.new_status||'',classification:x.new_values?.transport?.classification||null})),...(data.transmissionAttempts||[]).map(x=>({timestamp:x.finished_at||x.started_at||x.created_at,actor:null,action:'TRANSMISSION_ATTEMPT',attemptId:x.id,operationId:x.transmission_id,result:x.status,reason:safeText(x.error_message),classification:x.error_class})),...data.managerEvents.map(x=>({timestamp:x.created_at,actor:x.actor_user_id,action:x.action,operationId:x.operation_id,reason:safeText(x.reason),result:x.after_state?.state||'REGISTRADO'}))].sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp)));
+ data.technicalHistory=[...(data.audit||[]).map(x=>({timestamp:x.created_at,actor:x.actor_user_id,action:x.action,reason:safeText(x.reason),operationId:x.new_values?.operation_id||x.new_values?.operationId||null,attemptId:x.new_values?.attempt_id||x.new_values?.attemptId||null,result:x.new_status||'',classification:x.new_values?.transport?.classification||null})),...(data.transmissionAttempts||[]).map(x=>({timestamp:x.finished_at||x.started_at||x.created_at,actor:null,action:data.transmissions.find(j=>j.id===x.transmission_id)?.transmission_type==='AUTHORIZATION_QUERY'?'AUTHORIZATION_LOOKUP_ATTEMPT':'TRANSMISSION_ATTEMPT',attemptId:x.id,operationId:x.transmission_id,result:x.status,reason:safeText(x.error_message),classification:x.error_class})),...data.managerEvents.map(x=>({timestamp:x.created_at,actor:x.actor_user_id,action:x.action,operationId:x.operation_id,reason:safeText(x.reason),result:x.after_state?.state||'REGISTRADO'}))].sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp)));
  data.source={orderId:data.document.source_order_id,originalInvoiceId:data.document.parent_document_id,purchaseId:data.document.source_snapshot?.erpWithholding?.purchaseDocumentId||data.document.source_snapshot?.purchaseId||null};
  data.officialMessages=(data.responses?.[0]?.payload?.messages||[]).map(m=>({code:safeText(m.identifier),message:safeText(m.message),additionalInformation:safeText(m.additionalInformation)}));
  if(data.document.document_type==='07'&&capabilities.includes('purchases.withholdings.view')){
@@ -34,6 +34,8 @@ async function detail(client,userClient,companyId,documentId){
    actions:capabilities.includes(CAPS.cancellation)?[event?'SUBMIT_PORTAL_REFERENCE':'REQUEST']:[],trackingOnly:true,
    unavailableReason:'Seguimiento interno de anulación. El comprobante sigue vigente. La anulación final está bloqueada hasta disponer del workflow canónico completo de este tipo documental.'};
  }
+ if(capabilities.includes(CAPS.retry)&&evaluateManualSameDocumentRetry(data).allowed) data.manualRetryValidation=await validateDocument(client,data);
+ data.managerPolicy=managerPolicy(data,capabilities);
  return data;
 }
 async function list(userClient,companyId,filters={}){

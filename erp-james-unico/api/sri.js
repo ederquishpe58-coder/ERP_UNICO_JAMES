@@ -340,10 +340,7 @@ module.exports = async function handler(request, response) {
         data=await manager.detail(client,userClient,auth.companyId,documentId);
       }
       else if(request.method==="POST"&&action==="manager-retry") {
-        const current=await manager.detail(client,userClient,auth.companyId,documentId);
-        if(!current.managerPolicy.actions.retry.allowed)throw new SriValidationError(current.managerPolicy.actions.retry.reason);
-        await transmitDocument(client,auth.companyId,documentId,auth.user.id,{force:false});
-        data=await manager.detail(client,userClient,auth.companyId,documentId);
+        data=await require('./sri/_lib/manual-retry-service.cjs').retrySameDocument(client,userClient,auth.companyId,documentId,auth.user.id,body);
       } else if(request.method==="POST"&&["manager-pause","manager-resume"].includes(action)) {
         const result=await userClient.rpc("erp_sri_manager_control",{p_company_id:auth.companyId,p_document_id:documentId,p_action:action==="manager-pause"?"PAUSE":"RESUME",p_operation_id:body.operationId,p_expected_version:body.version,p_reason:body.reason});
         if(result.error)throw new SriValidationError(result.error.message);

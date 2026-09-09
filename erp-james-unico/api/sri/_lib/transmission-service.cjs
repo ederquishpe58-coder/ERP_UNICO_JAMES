@@ -571,6 +571,7 @@ async function processAuthorization(client, settings, document, actorUserId, opt
   let authorizationResponseHash = null;
   try {
     await assertManualAuthorizationClaim(client, job, attempt, actorUserId);
+    if (manualRecovery && options.beforeAuthorizationLookup) await options.beforeAuthorizationLookup({ current, job, attempt });
     const result = await queryAuthorization(current.access_key, {
       environment: current.environment,
       endpoint: job.endpoint_url,
@@ -630,6 +631,9 @@ async function processAuthorization(client, settings, document, actorUserId, opt
       manualSettled = manualRecovery;
       return getDocumentDetail(client, current.company_id, current.id);
     }
+    if (manualRecovery && options.onAuthorizationAbsent && definitiveAuthorizationAbsent(current, result)) {
+      return await options.onAuthorizationAbsent({ current, job, attempt, persisted, result });
+    }
     const dateRecovery = !manualRecovery && options.manualDateRecovery === true && withholdingDateRecovery(
       await getDocumentDetail(client, current.company_id, current.id)
     );
@@ -661,7 +665,7 @@ async function processAuthorization(client, settings, document, actorUserId, opt
     });
   } catch (error) {
     if (manualRecovery) {
-      if (!manualSettled && !["SRI_MANUAL_AUTHORIZATION_CLAIM_LOST", "SRI_MANUAL_AUTHORIZATION_CANONICAL_ACK_REQUIRED"].includes(error.code)) {
+      if (!manualSettled && !options.manualRetryHandoff?.completed && !["SRI_MANUAL_AUTHORIZATION_CLAIM_LOST", "SRI_MANUAL_AUTHORIZATION_CANONICAL_ACK_REQUIRED"].includes(error.code)) {
         await settleAuthorizationJob(client, job, attempt, actorUserId, authorizationResponseHash, error);
       }
       if (error.retryable) error.details = { ...error.details, retryAfterSeconds: 30 };
@@ -696,7 +700,17 @@ async function processReception(client, settings, document, actorUserId, options
   const signedXml = signed.buffer.toString("utf8");
   assertDocumentXmlIdentity(current, signedXml, { expectedRuc: settings.ruc });
   // Validate existing immutable transport identity before changing document state.
-  let job = await ensureJob(client, current, settings, "RECEPTION", signed.file.id);
+  const manualClaim = options.manualReceptionClaim;
+  const assertManual = async () => {
+    if (!manualClaim) return;
+    const ok = dbError(await client.rpc('assert_sri_manual_reception_claim', {
+      p_transmission_id: manualClaim.id, p_worker_id: manualClaim.worker_id,
+      p_attempt_id: manualClaim.claim_attempt.id, p_actor_user_id: actorUserId
+    }), 'Vigencia del reintento manual');
+    if (ok !== true) throw new SriError('Otro proceso está trabajando este comprobante.', {code:'SRI_MANUAL_RECEPTION_CLAIM_LOST',httpStatus:409});
+  };
+  let job = manualClaim || await ensureJob(client, current, settings, "RECEPTION", signed.file.id);
+  await assertManual();
   if (job.status === "COMPLETED") {
     const refreshed = dbError(await client.from("electronic_documents").select("*").eq("id", current.id).eq("company_id", current.company_id).single(), "Comprobante recibido");
     return processAuthorization(client, settings, refreshed, actorUserId, options);
@@ -710,10 +724,13 @@ async function processReception(client, settings, document, actorUserId, options
   if (current.status !== "ENVIADO_SRI") {
     throw new SriValidationError(`No se puede transmitir recepcion desde ${current.status}.`);
   }
-  job = await claimJob(client, job, options.force);
+  job = manualClaim || await claimJob(client, job, options.force);
   assertJobIdentity(job, current, "RECEPTION", signed.file.id);
-  const attempt = await beginAttempt(client, job, sha256(signedXml));
+  const attempt = manualClaim?.claim_attempt || await beginAttempt(client, job, sha256(signedXml));
+  // Remove the one-shot hooks before any follow-up authorization; never recurse into reception.
+  const followup = manualClaim ? {timeoutMs:options.timeoutMs,fetchImpl:options.fetchImpl,managerRecovery:true,recoveryQuery:true} : options;
   try {
+    await assertManual();
     const result = await sendForReception(signedXml, {
       document: current,
       environment: current.environment,
@@ -721,6 +738,7 @@ async function processReception(client, settings, document, actorUserId, options
       timeoutMs: options.timeoutMs,
       fetchImpl: options.fetchImpl
     });
+    await assertManual();
     const persisted = await persistResponse(
       client, current, job, "RECEPTION", "RECEPTION_RESPONSE",
       result.rawXml, result, result.messages, actorUserId
@@ -729,14 +747,14 @@ async function processReception(client, settings, document, actorUserId, options
       current = await transition(client, current, "RECIBIDO_SRI", actorUserId, "SRI confirmo RECIBIDA", result.messages);
       await finishAttempt(client, attempt, { status: "SUCCEEDED", response_sha256: persisted.hash, http_status: 200 });
       await completeJob(client, job);
-      return processAuthorization(client, settings, current, actorUserId, options);
+      return processAuthorization(client, settings, current, actorUserId, followup);
     }
     if (result.returned) {
-      if (hasSriIdentifier(result.messages, "43")) {
+      if (hasSriIdentifier(result.messages, "43") || (manualClaim && ["45","70"].some(code=>hasSriIdentifier(result.messages,code)))) {
         await finishAttempt(client, attempt, { status: "SUCCEEDED", response_sha256: persisted.hash, http_status: 200 });
         await completeJob(client, job);
         return processAuthorization(client, settings, current, actorUserId, {
-          ...options,
+          ...followup,
           force: true,
           recoveryQuery: true
         });
@@ -751,6 +769,13 @@ async function processReception(client, settings, document, actorUserId, options
       details: { transport: { classification: "SOAP", resultState: UNCERTAIN, nextAction: "AUTHORIZATION_LOOKUP_FIRST", httpStatus: 200, state: safeText(result.state) } }
     });
   } catch (error) {
+    if (manualClaim) {
+      // Do not attribute a follow-up authorization error to a completed reception.
+      const fresh = dbError(await client.from('sri_transmission_attempts').select('*').eq('id',attempt.id).single(), 'Estado del intento manual');
+      if (fresh.status !== 'STARTED') throw error;
+      await assertManual();
+      error.retryable = false; // human retry never replenishes or restarts the automatic loop
+    }
     await scheduleFailure(client, settings, current, job, attempt, error, actorUserId);
     throw error;
   }
