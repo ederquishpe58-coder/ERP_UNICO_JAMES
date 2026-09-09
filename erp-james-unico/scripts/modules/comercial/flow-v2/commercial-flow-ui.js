@@ -199,7 +199,7 @@
             <label><span class="commercial-v2-field-label">Fecha de vuelo / salida</span><input type="date" value="${esc(order.flightDate)}" data-order-field="flightDate"></label>
             <label><span class="commercial-v2-field-label">Transporte</span><select data-order-field="transportType"><option value="aereo" ${upper(order.transportType) === "AEREO" ? "selected" : ""}>AÉREO</option><option value="maritimo" ${upper(order.transportType) === "MARITIMO" ? "selected" : ""}>MARÍTIMO</option><option value="terrestre" ${upper(order.transportType) === "TERRESTRE" ? "selected" : ""}>TERRESTRE</option></select></label>
             ${maritime
-              ? `<label><span class="commercial-v2-field-label">Destino</span><select data-order-field="destinationId">${options(destinations, destinationId, row => [row.destination, row.country].filter(Boolean).join(" · "), "Seleccione destino canónico")}</select><small class="commercial-v2-field-help">Catálogo canónico de destinos activos.</small></label>`
+              ? BlessERP.orderCountryCatalog.render(appState, order)
               : `<label><span class="commercial-v2-field-label">País</span><input value="${esc(order.destinationCountry || (local ? "ECUADOR" : ""))}" data-order-field="destinationCountry" ${local ? "readonly" : ""}></label>`}
             <label><span class="commercial-v2-field-label">DAE</span><select data-order-field="daeNumber" ${local ? "disabled" : ""}><option value="">${local ? "No aplica / opcional" : maritime ? "DAE pendiente · puede registrarse después" : "Seleccione DAE"}</option>${daes.map(row => `<option value="${esc(row.number)}" ${String(row.number) === String(order.daeNumber) ? "selected" : ""}>${esc(row.number)} · ${esc(row.country || row.destination)}</option>`).join("")}</select><small class="commercial-v2-field-help">${maritime && !order.daeNumber ? "La coordinación marítima puede continuar. SRI permanecerá pendiente de la DAE fiscal real." : ""}</small></label>
             <label><span class="commercial-v2-field-label">Agencia de carga</span><select data-order-field="agencyId"><option value="">${local ? "Retira en finca / opcional" : "Seleccione"}</option>${catalogs.agencies.map(row => `<option value="${esc(row.id)}" ${String(row.id) === String(order.agencyId) ? "selected" : ""}>${esc(row.name)}</option>`).join("")}</select></label>
@@ -333,7 +333,7 @@
       const input = container.querySelector(`[data-order-field="${field}"]`);
       if (!input) return;
       if (field === "destinationId") {
-        input.value = selectedDestinationId(order, catalogs.destinations || []);
+        input.value = order.destinationId || order.destination_id || "";
       } else if (field === "daeNumber") {
         const daes = catalogs.daes.filter(row => !order.destinationCountry || upper(row.country || row.destination) === upper(order.destinationCountry));
         const maritime = upper(utils.normalizeTransportType?.(order.transportType) || order.transportType) === "MARITIMO";
@@ -403,6 +403,7 @@
   }
 
   function bindOrder(container, appState) {
+    BlessERP.orderCountryCatalog?.mount(container, appState);
     if (container.dataset.commercialV2OrderBound === "true") return;
     container.dataset.commercialV2OrderBound = "true";
     if (!flow.sessionFor(appState).salesRepresentativesLoaded) {

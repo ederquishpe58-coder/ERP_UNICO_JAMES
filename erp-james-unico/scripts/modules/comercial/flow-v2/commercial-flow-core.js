@@ -200,6 +200,8 @@
   }
 
   function destinationFor(appState, destinationId) {
+    const country = BlessERP.orderCountryCatalog?.find(appState, destinationId);
+    if (country) return { id: country.id, destination: country.name, country: country.name };
     return catalogs(appState).destinations.find(row => String(row.id) === String(destinationId)) || null;
   }
 
@@ -222,8 +224,8 @@
     draft.destinationId = destination.id;
     draft.destination = destination.destination || destination.country || "";
     draft.destinationCountry = destination.country || destination.destination || "";
-    draft.destinationModifiedManual = false;
-    draft.destinationCountryModifiedManual = false;
+    draft.destinationModifiedManual = true;
+    draft.destinationCountryModifiedManual = true;
     return true;
   }
 
@@ -537,11 +539,14 @@
     if (field === "brandId") {
       const brand = brandFor(appState, value);
       if (brand) {
-        draft.destination = brand.destination || brand.country || draft.destination;
-        draft.destinationCountry = brand.country || draft.destinationCountry;
-        draft.destinationId = "";
-        const destination = matchingDestination(appState, draft);
-        if (destination) draft.destinationId = destination.id;
+        if (upper(commercialUtils?.normalizeTransportType?.(draft.transportType) || draft.transportType) !== "MARITIMO"
+            || (!draft.destinationModifiedManual && !draft.destinationCountryModifiedManual)) {
+          draft.destination = brand.destination || brand.country || draft.destination;
+          draft.destinationCountry = brand.country || draft.destinationCountry;
+          draft.destinationId = "";
+          const destination = matchingDestination(appState, draft);
+          if (destination) draft.destinationId = destination.id;
+        }
         draft.agencyId = brand.defaultAgencyId || draft.agencyId;
         if (brand.defaultAgencyId) selectAgencyLogistics(draft, agencyFor(appState, brand.defaultAgencyId));
         const matchingDaes = catalogs(appState).daes.filter(row => upper(row.country || row.destination) === upper(draft.destinationCountry));
@@ -550,7 +555,9 @@
       }
     }
     if (field === "destinationId") {
-      applyCanonicalDestination(draft, destinationFor(appState, value));
+      const country = BlessERP.orderCountryCatalog?.find(appState, value);
+      if (country) applyCanonicalDestination(draft, {id: country.id, destination: country.name, country: country.name});
+      else if (!value) { draft.destinationId = ""; draft.destination = ""; draft.destinationCountry = ""; }
     }
     if (field === "agencyId") selectAgencyLogistics(draft, agencyFor(appState, value));
     if (field === "coldRoom") {
@@ -722,9 +729,12 @@
     }
     const transport = upper(commercialUtils?.normalizeTransportType?.(draft.transportType) || draft.transportType || "AEREO");
     if (transport === "MARITIMO") {
-      const destination = matchingDestination(appState, draft);
-      if (!destination) errors.push("Seleccione un destino activo del catálogo canónico para el pedido marítimo.");
-      else applyCanonicalDestination(draft, destination);
+      const countryState = BlessERP.orderCountryCatalog?.state(appState);
+      const original = ensureDomain(appState).commercial.orders.find(row => row.id === draft.id && !row.unsavedDraft);
+      const unchanged = original && upper(original.transportType) === "MARITIMO"
+        && ["destinationId", "destination", "destinationCountry"].every(key => text(original[key]) === text(draft[key]));
+      if (!countryState?.loaded || countryState.error) errors.push("No se pudo cargar catálogo de países. Vuelva a consultar antes de guardar.");
+      else if (!unchanged && !BlessERP.orderCountryCatalog.find(appState, draft.destinationId)) errors.push("Seleccione un país activo del catálogo canónico para el pedido marítimo.");
       if (!commercialUtils?.isMaritimeMotherGuide?.(draft.awb)) errors.push("La guía madre marítima debe ser alfanumérica, admitir guion opcional y tener máximo 14 caracteres.");
       if (text(draft.airlineId || draft.airline_id || draft.airline || draft.airlineName)) errors.push("Un pedido marítimo no puede conservar una línea aérea.");
     }

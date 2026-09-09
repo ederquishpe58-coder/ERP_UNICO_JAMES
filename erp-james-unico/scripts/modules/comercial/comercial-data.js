@@ -572,6 +572,9 @@
     const companyId = seed.companyId || seed.company_id || BLESS_COMPANY_ID;
     return {
       id: seed.id || BlessERP.utils.uid("COM-PAIS"),
+      iso2: seed.iso2 || "",
+      iso3: seed.iso3 || "",
+      searchName: seed.searchName || "",
       company_id: companyId,
       companyId,
       code: String(seed.code || "").trim().toUpperCase(),

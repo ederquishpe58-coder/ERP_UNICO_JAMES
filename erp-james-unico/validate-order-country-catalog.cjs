@@ -1,0 +1,84 @@
+const fs=require('node:fs'),assert=require('node:assert/strict'),vm=require('node:vm'),{PGlite}=require('@electric-sql/pglite');
+const B='cf331b82-7ac3-4065-9e38-d0bbcde96cd5',I='ab60abdc-fe53-4289-9ae2-8f749ee21cff',J='10000000-0000-4000-8000-000000000001';
+const read=f=>fs.readFileSync(f,'utf8'),checks=[],migration=read('supabase/migrations/202609090004_commercial_order_countries.sql');
+const clone=x=>JSON.parse(JSON.stringify(x));
+global.fetch=()=>{throw Error('LIVE_NETWORK_FORBIDDEN');};
+(async()=>{
+ const db=new PGlite(),q=(sql,args=[])=>db.query(sql,args),test=async(name,f)=>{await f();checks.push(name);};
+ try{
+ await db.exec(`create role anon;create role authenticated;create role service_role;create schema auth;
+ create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('fixture.actor',true),'')::uuid$$;
+ create table companies(id uuid primary key);
+ create table user_profiles(user_id uuid primary key,is_active boolean);
+ create table user_company_memberships(user_id uuid,company_id uuid,membership_status text);
+ create table fixture_capabilities(user_id uuid,company_id uuid,capability_id text);
+ create table erp_entity_records(company_id uuid,entity text,record_id text,payload jsonb,version bigint default 1,updated_at timestamptz default now(),deleted_at timestamptz,primary key(company_id,entity,record_id));
+ create function erp_u2a_assert_company_read_access(c uuid) returns uuid language plpgsql stable as $$begin
+ if auth.uid() is null or not exists(select 1 from user_company_memberships where user_id=auth.uid() and company_id=c and membership_status='ACTIVE') then raise exception using errcode='42501',message='MEMBERSHIP_REQUIRED';end if;return auth.uid();end$$;
+ create function erp_security_has_capability(c uuid,k text) returns boolean language sql stable as $$select exists(select 1 from fixture_capabilities where user_id=auth.uid() and company_id=c and capability_id=k)$$;`);
+ for(const c of [B,I]){await q('insert into companies values($1)',[c]);await q("insert into user_company_memberships values($1,$2,'ACTIVE')",[J,c]);await q("insert into fixture_capabilities values($1,$2,'commercial.orders.create')",[J,c]);}
+ await q('insert into user_profiles values($1,true)',[J]);await q("select set_config('fixture.actor',$1,false)",[J]);
+ const insert=(c,e,id,p)=>q('insert into erp_entity_records(company_id,entity,record_id,payload) values($1,$2,$3,$4)',[c,e,id,JSON.stringify(p)]);
+ const get=(c,id)=>q("select payload from erp_entity_records where company_id=$1 and entity='commercial_orders' and record_id=$2",[c,id]).then(x=>x.rows[0].payload);
+ const update=(c,id,p)=>q("update erp_entity_records set payload=$3 where company_id=$1 and entity='commercial_orders' and record_id=$2",[c,id,JSON.stringify(p)]);
+ const call=async(c=I)=>(await q('select erp_commercial_order_countries($1) result',[c])).rows[0].result;
+ const fingerprint=async()=>JSON.stringify((await q('select * from erp_entity_records order by company_id,entity,record_id')).rows);
+ await insert(I,'commercial_countries','legacy-nl',{id:'legacy-nl',code:'PAIS-NL',name:'NETHERLANDS',status:'ACTIVO',privateData:'NEVER EXPOSE'});
+ await insert(I,'commercial_orders','history',{id:'history',transportType:'maritimo',destinationId:'OLD-DEST',destination:'HISTORIC PORT',destinationCountry:'OLD TEXT',brandId:'MAR0061'});
+ await insert(B,'inventory','secret',{cost:999});
+ const historical=await get(I,'history');
+ await db.exec(migration);
+ await test('ISO249 complete in each existing company catalog; legacy NL ID reused, no duplicate seed',async()=>{for(const c of [B,I]){const r=await call(c);assert.equal(r.records.length,249);assert.equal(new Set(r.records.map(x=>x.iso2)).size,249);assert(r.records.every(x=>x.active));}assert.equal((await call()).records.find(x=>x.iso2==='NL').id,'legacy-nl');});
+ await test('Seed replay changes no rows, versions or timestamps',async()=>{const before=await fingerprint();await db.exec(migration);assert.equal(await fingerprint(),before);});
+ await test('Existing IDs/names/codes and historical order payloads preserved',async()=>{assert.deepEqual(await get(I,'history'),historical);const p=(await q("select payload from erp_entity_records where company_id=$1 and record_id='legacy-nl'",[I])).rows[0].payload;assert.equal(p.name,'NETHERLANDS');assert.equal(p.code,'PAIS-NL');});
+ await test('Read projection cannot expose arbitrary payload, inventory or another company',async()=>{const r=await call();assert.equal(r.source,'commercial_countries');assert(r.records.every(x=>!('privateData'in x)&&!('cost'in x)));assert.equal(r.company_id,I);});
+ await test('Application roles cannot mutate through reader or invoke trigger helper',async()=>{const r=(await q("select has_function_privilege('anon','erp_commercial_order_countries(uuid)','EXECUTE') a,has_function_privilege('service_role','erp_commercial_order_countries(uuid)','EXECUTE') s,has_function_privilege('authenticated','erp_guard_order_country()','EXECUTE') g,has_table_privilege('authenticated','erp_entity_records','UPDATE') w")).rows[0];assert.deepEqual(r,{a:false,s:false,g:false,w:false});});
+ await test('Missing company membership and arbitrary company blocked',async()=>{await assert.rejects(()=>call('10000000-0000-4000-8000-000000000099'),e=>e.code==='42501');await assert.rejects(()=>call(null),e=>e.code==='42501');});
+ await test('Inactive membership blocked',async()=>{await q("update user_company_memberships set membership_status='INACTIVE' where company_id=$1",[I]);await assert.rejects(()=>call(),e=>e.code==='42501');await q("update user_company_memberships set membership_status='ACTIVE' where company_id=$1",[I]);});
+ await test('Inactive actor blocked even with capability',async()=>{await q('update user_profiles set is_active=false');await assert.rejects(()=>call(),e=>e.code==='42501');await q('update user_profiles set is_active=true');});
+ await test('No order capability blocked without OWNER bypass',async()=>{await q('delete from fixture_capabilities where company_id=$1',[I]);await assert.rejects(()=>call(),e=>e.code==='42501');await q("insert into fixture_capabilities values($1,$2,'commercial.orders.edit')",[J,I]);});
+ const order={id:'new',customerId:'QUALITY FLOWERS USA',agencyId:'USA AGENCY',airlineId:'',transportType:'maritimo',destinationId:'legacy-nl',destination:'Países Bajos',destinationCountry:'Países Bajos',brandId:'MAR0061'};
+ await test('Canonical ID plus snapshot save/reload; customer or agency country does not constrain destination',async()=>{await insert(I,'commercial_orders','new',order);assert.deepEqual(await get(I,'new'),order);});
+ await test('Edit country persists same order and preserves other fields',async()=>{const p={...order,destinationId:'COM-PAIS-US',destination:'Estados Unidos',destinationCountry:'Estados Unidos'};await update(I,'new',p);assert.deepEqual(await get(I,'new'),p);});
+ await test('Cross-company-only country reference blocked',async()=>{await assert.rejects(()=>insert(B,'commercial_orders','cross',order),e=>e.code==='23514');});
+ await test('Arbitrary canonical ID and false snapshot blocked',async()=>{for(const p of [{...order,destinationId:'FAKE'},{...order,destinationCountry:'Estados Unidos'}])await assert.rejects(()=>insert(I,'commercial_orders','bad',p),e=>e.code==='23514');});
+ await test('Country inactivated while form open blocks changed/new selection',async()=>{await q("update erp_entity_records set payload=payload||'{\"status\":\"INACTIVO\"}' where company_id=$1 and record_id='legacy-nl'",[I]);await assert.rejects(()=>insert(I,'commercial_orders','inactive',order),e=>e.code==='23514');assert.equal((await call()).records.find(x=>x.id==='legacy-nl').active,false);});
+ await test('Historical inactive/unresolved destination unchanged may retain its snapshot during edit',async()=>{await update(I,'history',{...historical,notes:'unrelated edit'});assert.equal((await get(I,'history')).destinationCountry,'OLD TEXT');});
+ await test('Maritime to aerial keeps historical destination, aerial to maritime validates new selection',async()=>{const p={...(await get(I,'new')),transportType:'aereo'};await update(I,'new',p);assert.equal((await get(I,'new')).destinationId,'COM-PAIS-US');await update(I,'new',{...p,transportType:'maritimo'});});
+ await q("update erp_entity_records set payload=payload||'{\"status\":\"ACTIVO\"}' where company_id=$1 and record_id='legacy-nl'",[I]);
+ // Actual browser catalog module and actual order mapper/core, with a fixture RPC boundary.
+ let company=I,calls=0,failure=false,delay=null;
+ const appState={db:{activeCompanyId:'COMP-IMPERIO-FLOWERS',commercial:{orders:[],customerCatalog:[],brandCatalog:[]}}};
+ const ERP={utils:{uid:()=>require('node:crypto').randomUUID(),clone,number:Number},authAccess:{activeAccess:()=>({activeCompany:{id:company},session:{user:{id:J}}})},services:{companyContext:{activeCompanyId:()=>appState.db.activeCompanyId}},getSupabaseClient:()=>({rpc:async(name,args)=>{assert.equal(name,'erp_commercial_order_countries');calls++;if(delay)await delay;if(failure)return{error:{message:'fixture database unavailable'}};return{data:await call(args.p_company_id)};}})};
+ const ctx=vm.createContext({window:{BlessERP:ERP},console,Intl,Date,Map,Set,WeakMap,AbortController,structuredClone});
+ for(const f of ['scripts/core/flower-quality.js','scripts/modules/comercial/invoice-sequence-core.js','scripts/modules/comercial/comercial-data.js','scripts/modules/comercial/comercial-utils.js','scripts/modules/comercial/order-box-builder.js','scripts/repositories/comercial/order-country-catalog.js','scripts/modules/comercial/flow-v2/commercial-flow-core.js','scripts/modules/comercial/flow-v2/commercial-flow-ui.js'])vm.runInContext(read(f),ctx,{filename:f});
+ const catalog=ERP.orderCountryCatalog,flow=ERP.commercialFlowV2;
+ await test('Empty browser cache never falls back to local customer/destination countries',async()=>{assert.equal(catalog.rows(appState).length,0);assert(catalog.render(appState,{}).includes('Cargando países'));});
+ await test('Backend read loads all active countries',async()=>{await catalog.load(appState);assert.equal(catalog.rows(appState).length,249);});
+ await test('Search Spanish country names, accents, case and ISO2/ISO3',async()=>{for(const [term,iso] of [['Estados Unidos','US'],['paises bajos','NL'],['CANADÁ','CA'],['USA','US'],['US','US']])assert(catalog.search(appState,term).some(x=>x.iso2===iso));});
+ await test('100 openings/searches/reloads deduplicate in-flight and fresh cached requests',async()=>{const before=calls;await Promise.all(Array.from({length:100},()=>catalog.load(appState)));for(let n=0;n<100;n++)catalog.search(appState,'US');assert.equal(calls,before);assert.equal(new Set(catalog.rows(appState).map(x=>x.id)).size,249);});
+ await test('Manual selection stores ID/snapshots; changing brand cannot override selection',async()=>{flow.newDraft(appState);flow.updateDraftField(appState,'transportType','maritimo');flow.updateDraftField(appState,'destinationId','legacy-nl');const d=flow.getDraft(appState);assert.equal(d.destinationCountry,'Países Bajos');assert.equal(d.destinationId,'legacy-nl');appState.db.commercial.brandCatalog=[{id:'MAR0061',name:'BOULEVARD',country:'USA'}];flow.updateDraftField(appState,'brandId','MAR0061');assert.equal(d.destinationCountry,'Países Bajos');});
+ await test('Actual order mapper save payload roundtrip/open preserves selected country',async()=>{const d=clone(flow.getDraft(appState));d.unsavedDraft=false;d.transportType='maritimo';appState.db.commercial.orders=[ERP.comercialData.createOrder(d)];flow.openOrder(appState,d.id);assert.equal(flow.getDraft(appState).destinationId,'legacy-nl');assert.equal(flow.getDraft(appState).destinationCountry,'Países Bajos');});
+ await test('Transport switches retain destination snapshot',async()=>{flow.updateDraftField(appState,'transportType','aereo');flow.updateDraftField(appState,'transportType','maritimo');assert.equal(flow.getDraft(appState).destinationId,'legacy-nl');});
+ await test('Failure visible, no false option, no automatic retry storm',async()=>{failure=true;await assert.rejects(()=>catalog.load(appState,{force:true}));const n=calls;await assert.rejects(()=>catalog.load(appState));assert.equal(calls,n);assert.equal(catalog.rows(appState).length,0);const html=catalog.render(appState,flow.getDraft(appState));assert(html.includes('No se pudo cargar catálogo de países'));assert(html.includes('data-country-retry'));});
+ await test('Explicit retry recovers from backend; no cache authority',async()=>{failure=false;await catalog.load(appState,{force:true});assert.equal(catalog.rows(appState).length,249);});
+ await test('Company switch discards previous company catalog',async()=>{company=B;appState.db.activeCompanyId='COMP-BLESS-FLOWER';assert.equal(catalog.rows(appState).length,0);await catalog.load(appState);assert.equal(catalog.rows(appState).length,249);assert(!catalog.rows(appState).some(x=>x.id==='legacy-nl'));});
+ await test('Late response cannot overwrite new company state',async()=>{let release;delay=new Promise(r=>release=r);const pending=catalog.load(appState,{force:true});company=I;appState.db.activeCompanyId='COMP-IMPERIO-FLOWERS';catalog.state(appState);release();await assert.rejects(()=>pending);delay=null;assert.equal(catalog.rows(appState).length,0);await catalog.load(appState);assert(catalog.find(appState,'legacy-nl'));});
+ for(const c of [B,I]) await test((c===B?'BLESS':'IMPERIO')+' actual order save/ACK/reload/edit with database country guard',async()=>{
+  company=c;appState.db.activeCompanyId=c===B?'COMP-BLESS-FLOWER':'COMP-IMPERIO-FLOWERS';await catalog.load(appState);
+  ERP.state={saveDbLocalOnly:()=>true};ERP.getEnvConfig=()=>({supabaseEnabled:true});ctx.window.location={protocol:'https:'};
+  ERP.getCommercialOrderRepository=()=>({canListPage:()=>true,saveConfirmedOrder:async(p)=>{const saved={...clone(p),number:'PED-COM-2026-000001',unsavedDraft:false};const exists=(await q("select 1 from erp_entity_records where company_id=$1 and entity='commercial_orders' and record_id=$2",[c,p.id])).rows.length;if(exists)await update(c,p.id,saved);else await insert(c,'commercial_orders',p.id,saved);return{ok:true,serverRecord:{payload:await get(c,p.id),version:2,record_id:p.id},operationId:require('node:crypto').randomUUID()};}});
+  appState.db.commercial.customerCatalog=[{id:'C',commercialName:'QUALITY FLOWERS',country:'USA',status:'ACTIVO'}];
+  appState.db.commercial.brandCatalog=[{id:'M',customerId:'C',name:'BOULEVARD',country:'USA'}];
+  const d=flow.newDraft(appState,{transportType:'maritimo'});Object.assign(d,{customerId:'C',brandId:'M',saleType:'EXPORTACION',transportType:'maritimo',inventoryMode:'NO_INVENTORY',issuedAt:'2026-09-09',seller_id:'SELLER',sellerEmployeeId:'EMP',seller_name:'SELLER',awb:'SEA-123'});
+  d.lines=[ERP.comercialData.createLine({variety:'EXPLORER',length:60,quality:'PREMIUM',boxNumber:1,boxType:'HB',bunches:4,stemsPerBunch:25,unitPrice:0.5})];
+  const nl=catalog.rows(appState).find(x=>x.iso2==='NL');flow.updateDraftField(appState,'destinationId',nl.id);
+  const saved=await flow.saveOrderConfirmed(appState);assert.equal(saved.ok,true,JSON.stringify(saved));assert.equal(saved.confirmedByServer,true);
+  const persisted=await get(c,d.id);appState.db.commercial.orders=[ERP.comercialData.createOrder(persisted)];flow.openOrder(appState,d.id);assert.equal(flow.getDraft(appState).destinationId,nl.id);assert.equal(flow.getDraft(appState).destinationCountry,'Países Bajos');
+  const jp=catalog.rows(appState).find(x=>x.iso2==='JP');flow.updateDraftField(appState,'destinationId',jp.id);const changed=await flow.saveOrderConfirmed(appState);assert.equal(changed.ok,true,JSON.stringify(changed));assert.equal((await get(c,d.id)).destinationCountry,'Japón');assert.equal((await get(c,d.id)).brandId,'M');
+ });
+ await test('Inactive country excluded from selector but selected historical snapshot still visible',async()=>{await q("update erp_entity_records set payload=payload||'{\"active\":false}' where company_id=$1 and record_id='legacy-nl'",[I]);await catalog.load(appState,{force:true});assert(!catalog.find(appState,'legacy-nl'));assert(catalog.render(appState,order).includes('histórico'));});
+ await test('Catalog mapper preserves ISO search metadata through existing normalization',async()=>{const p=ERP.comercialData.createCountry({id:'x',iso2:'US',iso3:'USA',searchName:'Estados Unidos',name:'USA'});assert.equal(p.searchName,'Estados Unidos');assert.equal(p.iso3,'USA');});
+ console.log(JSON.stringify({result:'PASS',count:checks.length,checks,realOrders:0,realSequences:0,realSRI:0,authorizationHelpers:'fixture contracts; live helper authority independently preserved'},null,2));
+ }finally{await db.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});
