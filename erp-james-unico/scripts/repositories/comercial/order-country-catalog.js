@@ -18,6 +18,41 @@
     return current.loaded && !current.error ? current.rows.filter(row => row.active) : [];
   }
   function find(appState, id) { return rows(appState).find(row => row.id === text(id)) || null; }
+  function fiscalContext(appState) {
+    const current = state(appState);
+    return { countries: current.fiscalRows, countryCompanyId: current.company };
+  }
+  async function loadFiscal(appState) {
+    const current = state(appState);
+    current.fiscalRows = undefined;
+    // The selector RPC authorizes the catalog but does not project SRI fields.
+    // Read those from the same company records under the caller's RLS session.
+    const catalog = await load(appState, {force: true});
+    const records = [];
+    for (let offset = 0; ; offset += 200) {
+      const {data, error} = await ERP.getSupabaseClient().from("erp_entity_records")
+        .select("company_id,record_id,payload")
+        .eq("company_id", current.company).eq("entity", "commercial_countries")
+        .is("deleted_at", null).order("record_id").range(offset, offset + 199);
+      if (error) throw Error("No se pudo leer el codigo SRI canonico del pais.");
+      if (!Array.isArray(data)) throw Error("Respuesta fiscal de paises no valida.");
+      records.push(...data);
+      if (data.length < 200) break;
+    }
+    if (state(appState) !== current) throw Error("La empresa o sesion cambio durante la consulta fiscal.");
+    const normalized = records.map(row => {
+      const selected = catalog.find(item => item.id === row.record_id);
+      if (row.company_id !== current.company || !selected) throw Error("El registro fiscal no corresponde al catalogo autorizado.");
+      const country = ERP.comercialData.createCountry({...row.payload, id: row.record_id,
+        companyId: current.company, company_id: current.company});
+      return Object.freeze({...country, name: selected.name, legacyName: selected.legacyName});
+    });
+    if (catalog.filter(row => row.active).some(row => !normalized.some(item => item.id === row.id))) {
+      throw Error("Lectura fiscal incompleta o restringida; no se puede determinar el codigo SRI.");
+    }
+    current.fiscalRows = Object.freeze(normalized);
+    return fiscalContext(appState);
+  }
   async function load(appState, {force = false} = {}) {
     const current = state(appState);
     if (current.loading) return current.promise;
@@ -86,5 +121,5 @@
     host.addEventListener("click", event => { if (event.target.closest("[data-country-retry]")) request(true); }, {signal: controller.signal});
     request(false);
   }
-  ERP.orderCountryCatalog = Object.freeze({state, rows, find, load, search, render, mount});
+  ERP.orderCountryCatalog = Object.freeze({state, rows, find, load, loadFiscal, fiscalContext, search, render, mount});
 })();

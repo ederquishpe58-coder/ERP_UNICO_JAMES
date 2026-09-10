@@ -146,8 +146,13 @@ for (const [profile, localKey] of [[bless, blessKey], [imperio, imperioKey]]) {
   assert.equal(backendAccessKey.validateAccessKey(localKey.accessKey), true);
 }
 
-const exportInvoice = sriQueueCore.buildInvoicePayload({
+const exportContext = {
+  countryCompanyId: bless.companyId,
+  countries: [{id: "fixture-us", company_id: bless.companyId, name: "ESTADOS UNIDOS", sriCountryCode: "110"}],
   order: {
+    company_id: bless.companyId,
+    destinationId: "fixture-us",
+    destinationCountry: "ESTADOS UNIDOS",
     number: "PED-TEST-001",
     issuedAt: new Date().toLocaleDateString("en-CA", { timeZone: "America/Guayaquil" }),
     transportType: "MARITIMO",
@@ -156,7 +161,7 @@ const exportInvoice = sriQueueCore.buildInvoicePayload({
     awb: "014-12345678",
     hawb: "HAWB-TEST-001",
     packingListNumber: "000000037",
-    destinationCountryCode: "840"
+    destinationCountryCode: "110"
   },
   customer: {
     identification: "9999999999999",
@@ -180,7 +185,12 @@ const exportInvoice = sriQueueCore.buildInvoicePayload({
       unitPrice: 0.45
     }]
   }
+};
+const exportInvoice = sriQueueCore.buildInvoicePayload(exportContext);
+const conflictingCountry = sriQueueCore.buildInvoicePayload({
+  ...exportContext, order: {...exportContext.order, destinationCountryCode: "840"}
 });
+assert.equal(conflictingCountry.ok, false, "Un ISO persistido contradictorio requiere revision explicita");
 assert.equal(exportInvoice.ok, true);
 assert.equal(exportInvoice.payload.invoice.originCountryCode, "593", "El país de origen Ecuador debe usar el catálogo SRI");
 assert.equal(exportInvoice.payload.invoice.destinationCountryCode, "110", "Estados Unidos debe usar código SRI 110, no ISO 840");

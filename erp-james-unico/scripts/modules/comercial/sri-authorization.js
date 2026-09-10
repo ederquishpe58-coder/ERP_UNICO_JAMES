@@ -1613,6 +1613,7 @@
   function localContext(appState, order) {
     const identity = BlessERP.sriApi?.companyIdentity?.(ui.companyKey) || {};
     return {
+      ...BlessERP.orderCountryCatalog?.fiscalContext?.(appState),
       order,
       customer: utils.findCustomer(order?.customerId),
       brand: utils.findBrand(order?.brandId),
@@ -1935,6 +1936,7 @@
 
     if (!detail) {
     if (!order) throw new Error("No se encontro el pedido relacionado en Crear pedido.");
+      if (queueCore.isExportOrder(order)) await BlessERP.orderCountryCatalog.loadFiscal(appState);
       const context = localContext(appState, order);
       const sourceOrderDate = sourceOrderIssueDate(order);
       const emissionOrder = orderForSriEmission(order, context.brand);
@@ -2006,9 +2008,13 @@
         throw new Error(`No existe el punto de emision ${expected.establishment || "001"}-${expected.emissionPoint || "001"} activo en ${selectedEnvironmentLabel()} para ${order?.number || "el pedido"}.`);
       }
 
+      if (selected.some(row => {
+        const order = localOrder(appState, row.orderId);
+        return order && !existingDocumentId(row) && queueCore.isExportOrder(order);
+      })) await BlessERP.orderCountryCatalog.loadFiscal(appState);
       const invalid = selected.flatMap(row => {
         const order = localOrder(appState, row.orderId);
-        if (!order || row.sourceType === "remote") return [];
+        if (!order || row.sourceType === "remote" || existingDocumentId(row)) return [];
         const context = localContext(appState, order);
         const emissionOrder = orderForSriEmission(order, context.brand);
         const errors = queueCore.validateOrder({ ...context, order: emissionOrder, today: ecuadorToday() });

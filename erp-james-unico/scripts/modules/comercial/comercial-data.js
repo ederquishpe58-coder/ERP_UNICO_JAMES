@@ -570,7 +570,11 @@
 
   function createCountry(seed = {}) {
     const companyId = seed.companyId || seed.company_id || BLESS_COMPANY_ID;
+    const fiscalFields = ["sriCountryCode", "sri_country_code", "sriCode", "sri_code",
+      "countrySriCode", "country_sri_code", "codigoSri", "codigo_sri", "codigoSriPais", "codigo_sri_pais"];
     return {
+      ...Object.fromEntries(fiscalFields.filter(field => Object.hasOwn(seed, field))
+        .map(field => [field, String(seed[field] ?? "").trim()])),
       id: seed.id || BlessERP.utils.uid("COM-PAIS"),
       iso2: seed.iso2 || "",
       iso3: seed.iso3 || "",

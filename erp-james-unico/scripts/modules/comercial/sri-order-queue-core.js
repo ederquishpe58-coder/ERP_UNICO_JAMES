@@ -6,26 +6,6 @@
     root.BlessERP.comercialSriOrderQueueCore = api;
   }
 })(typeof window !== "undefined" ? window : globalThis, function(){
-  const countryCodes = Object.freeze({
-    ECUADOR: "593",
-    USA: "110",
-    "UNITED STATES": "110",
-    "ESTADOS UNIDOS": "110",
-    KAZAJSTAN: "348",
-    KAZAKHSTAN: "348",
-    NETHERLANDS: "215",
-    "PAISES BAJOS": "215",
-    "REPUBLICA DOMINICANA": "122",
-    RUSIA: "230",
-    RUSSIA: "230"
-  });
-  const legacyIsoCountryCodes = Object.freeze({
-    "840": "110",
-    "398": "348",
-    "528": "215",
-    "214": "122",
-    "643": "230"
-  });
   const selectableStatuses = new Set([
     "PENDIENTE", "BORRADOR", "VALIDADO", "XML_GENERADO", "FIRMADO",
     "ENVIADO_SRI", "RECIBIDO_SRI", "ERROR_ENVIO", "PENDIENTE_REINTENTO"
@@ -70,10 +50,46 @@
     return salePaymentMethodCodes.has(fallback) ? fallback : "20";
   }
 
-  function countryCode(order = {}, brand = {}) {
-    const explicit = String(order.destinationCountryCode || "").replace(/\D+/g, "");
-    if (/^\d{3}$/.test(explicit)) return legacyIsoCountryCodes[explicit] || explicit;
-    return countryCodes[normalizedKey(brand?.country || order.destinationCountry || order.destination)] || "";
+  const sriCountryFields = Object.freeze([
+    "sriCountryCode", "sri_country_code", "sriCode", "sri_code",
+    "countrySriCode", "country_sri_code", "codigoSri", "codigo_sri",
+    "codigoSriPais", "codigo_sri_pais"
+  ]);
+
+  function resolveDestinationCountry(order = {}, countries, companyId = "") {
+    const fail = (reason, message) => ({ ok: false, code: "", reason, message });
+    const ids = [...new Set([order.destinationId, order.destination_id,
+      order.destinationCountryId, order.destination_country_id].map(value => normalizeText(value)).filter(Boolean))];
+    const names = [order.destinationCountry, order.destination_country].map(normalizedKey).filter(Boolean);
+    if (!ids.length && !names.length) return fail("COUNTRY_ABSENT", "Falta la referencia del pais de destino del embarque.");
+    if (ids.length > 1) return fail("COUNTRY_CONFLICT", "Las referencias guardadas del pais de destino son contradictorias.");
+    if (!Array.isArray(countries)) return fail("CATALOG_NOT_LOADED", "El catalogo fiscal de paises no esta cargado; vuelva a consultar.");
+    if (!companyId) return fail("COUNTRY_COMPANY_REQUIRED", "No se pudo verificar la empresa del catalogo de paises.");
+    const owner = order.sellingCompanyId || order.selling_company_id || order.company_id || order.companyId;
+    let ownerId = owner;
+    try { ownerId = globalThis.BlessERP?.sriApi?.companyIdentity?.(owner)?.companyId || owner; }
+    catch { return fail("COUNTRY_COMPANY_CONFLICT", "No se pudo verificar la empresa del pedido."); }
+    if (!ownerId || ownerId !== companyId) return fail("COUNTRY_COMPANY_CONFLICT", "El pedido y el catalogo fiscal pertenecen a empresas distintas o no verificadas.");
+    const scoped = countries.filter(row => row.company_id === companyId);
+    const matches = scoped.filter(row => ids.length ? row.id === ids[0]
+      : names.some(name => [row.name, row.searchName, row.legacyName].map(normalizedKey).includes(name)));
+    if (!matches.length) return fail("COUNTRY_NOT_FOUND", "El pais guardado no se encontro en el catalogo canonico de esta empresa.");
+    if (matches.length !== 1) return fail("COUNTRY_AMBIGUOUS", "El pais guardado coincide con varios registros canonicos.");
+    const country = matches[0];
+    const acceptedNames = [country.name, country.searchName, country.legacyName].map(normalizedKey);
+    if (names.some(name => !acceptedNames.includes(name))) return fail("COUNTRY_CONFLICT", "El nombre guardado contradice la referencia canonica del pais.");
+    const codes = [...new Set(sriCountryFields.map(field => normalizeText(country[field])).filter(Boolean))];
+    if (!codes.length) return fail("SRI_MAPPING_ABSENT", "El pais seleccionado no tiene codigo SRI en el catalogo canonico.");
+    if (codes.length !== 1 || !/^\d{3}$/.test(codes[0])) return fail("SRI_MAPPING_INVALID", "El codigo SRI canonico del pais es invalido o contradictorio.");
+    const persisted = ["destinationCountryCode", "destination_country_code", "destinationSriCountryCode",
+      "destination_sri_country_code", "sriDestinationCountryCode", "sri_destination_country_code"]
+      .map(field => normalizeText(order[field])).filter(Boolean);
+    if (persisted.some(code => code !== codes[0])) return fail("SRI_CODE_CONFLICT", "El codigo de pais guardado contradice el codigo SRI canonico; requiere revision.");
+    return { ok: true, code: codes[0], country, reason: "", message: "" };
+  }
+
+  function countryCode(order = {}, brand = {}, countries, companyId = "") {
+    return resolveDestinationCountry(order, countries, companyId).code;
   }
 
   function guides(order = {}) {
@@ -94,8 +110,8 @@
     const declaredType = normalizedKey(order.saleType || order.salesType || order.tipoVenta);
     if (["LOCAL", "VENTA LOCAL", "VENTA_LOCAL"].includes(declaredType)) return true;
     if (["EXPORTACION", "EXPORTACIÓN", "EXPORT"].includes(declaredType)) return false;
-    const destination = normalizedKey(order.destinationCountry || order.destination || brand?.country);
-    return destination === "ECUADOR" || countryCode(order, brand) === "593";
+    const destination = normalizedKey(order.destinationCountry || order.destination);
+    return destination === "ECUADOR";
   }
 
   function isExportOrder(order = {}, brand = {}) {
@@ -192,7 +208,10 @@
     }
     if (exportOrder && !normalizeText(order.awb, 50)) errors.push("La exportacion requiere guia madre para autorizar en el SRI.");
     if (exportOrder && !normalizeText(order.hawb, 50)) errors.push("La exportacion requiere guia hija para autorizar en el SRI.");
-    if (exportOrder && !countryCode(order, brand)) errors.push("Falta el codigo SRI del pais de destino.");
+    if (exportOrder) {
+      const destination = resolveDestinationCountry(order, context.countries, context.countryCompanyId);
+      if (!destination.ok) errors.push(destination.message);
+    }
     const today = String(context.today || new Date().toLocaleDateString("en-CA", { timeZone: "America/Guayaquil" })).slice(0, 10);
     const issueDate = String(order.issuedAt || order.createdAt || order.date || "").slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(issueDate)) {
@@ -351,7 +370,7 @@
             originCountryCode: "593",
             portOfLoading: incotermPlace,
             portOfDestination: normalizeText(order.destination || brand.destination || brand.city || brand.country, 300),
-            destinationCountryCode: countryCode(order, brand),
+            destinationCountryCode: countryCode(order, brand, context.countries, context.countryCompanyId),
             totalWithoutTaxIncoterm: incoterm
           } : {}),
           totalWithoutTax: economics.totalWithoutTax,
@@ -402,6 +421,8 @@
   }
 
   return {
+    resolveDestinationCountry,
+    sriCountryFields,
     buildInvoicePayload,
     allocateCommercialDiscount,
     countryCode,
