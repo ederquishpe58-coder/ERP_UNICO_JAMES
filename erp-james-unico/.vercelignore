@@ -3,6 +3,7 @@
 .codex
 .codex-tmp
 .vercel
+supabase/.temp
 node_modules
 dist
 VERCEL-UN-SOLO-ARCHIVO

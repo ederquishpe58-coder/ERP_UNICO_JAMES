@@ -49,6 +49,7 @@ Verification commands:
 - node validate-sri-country-migration.cjs
 - node validate-sri-country-real-case.cjs planned
 - node validate-sri-country-real-case.cjs after
+- node validate-sri-country-preservation.cjs
 - node validate-sri-country-pipeline.cjs
 - node validate-sri-country-pipeline.cjs dist
 - node validate-sri-country-reader.cjs
@@ -67,3 +68,10 @@ found commercial.electronic_documents.view/create/correct/authorize for James
 in IMPERIO (GERENCIA_GENERAL), as well as commercial.countries.view.
 This does not establish browser visibility or membership in the separate SRI
 service; root cause is not diagnosed and no access changes are included.
+
+PROD application: the exact migration was applied twice using authenticated
+infrastructure authority. The first application produced 337 audit rows.
+Persisted catalog after application resolves the real Georgia order to 246.
+Both captures preserve the before hashes of every protected business table.
+Second application leaves all country payloads and versions unchanged.
+No real signing or SRI transmission was tested; XML validation uses fixtures.
