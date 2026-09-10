@@ -1,0 +1,1310 @@
+{
+  "source": {
+    "url": "https://www.sri.gob.ec/o/sri-portlet-biblioteca-alfresco-internet/descargar/f8d9bb36-5632-4f96-b463-b9265b55338c/FICHA%20TE%CC%81CNICA%20COMPROBANTES%20ELECTRO%CC%81NICOS%20ESQUEMA%20OFFLINE%20Versio%CC%81n%202.34.pdf",
+    "version": "2.34",
+    "date": "JULIO 2026",
+    "sha256": "7333aebfbdf2cb3ba83f9fc67a7a7f0346ca59506480a260cc42f96dbdfc13c9",
+    "pages": [
+      80,
+      81,
+      82
+    ]
+  },
+  "table": [
+    {
+      "code": "016",
+      "name": "AMERICAN SAMOA",
+      "page": 80
+    },
+    {
+      "code": "334",
+      "name": "QATAR",
+      "page": 80
+    },
+    {
+      "code": "074",
+      "name": "BOUVET ISLAND",
+      "page": 80
+    },
+    {
+      "code": "335",
+      "name": "MALDIVAS",
+      "page": 80
+    },
+    {
+      "code": "101",
+      "name": "ARGENTINA",
+      "page": 80
+    },
+    {
+      "code": "336",
+      "name": "NEPAL",
+      "page": 80
+    },
+    {
+      "code": "102",
+      "name": "BOLIVIA",
+      "page": 80
+    },
+    {
+      "code": "337",
+      "name": "OMAN",
+      "page": 80
+    },
+    {
+      "code": "103",
+      "name": "BRASIL",
+      "page": 80
+    },
+    {
+      "code": "338",
+      "name": "SINGAPUR",
+      "page": 80
+    },
+    {
+      "code": "104",
+      "name": "CANADÁ",
+      "page": 80
+    },
+    {
+      "code": "339",
+      "name": "SRI LANKA (CEILAN)",
+      "page": 80
+    },
+    {
+      "code": "105",
+      "name": "COLOMBIA",
+      "page": 80
+    },
+    {
+      "code": "341",
+      "name": "VIETNAM",
+      "page": 80
+    },
+    {
+      "code": "106",
+      "name": "COSTA RICA",
+      "page": 80
+    },
+    {
+      "code": "342",
+      "name": "YEMEN",
+      "page": 80
+    },
+    {
+      "code": "107",
+      "name": "CUBA",
+      "page": 80
+    },
+    {
+      "code": "343",
+      "name": "ISLAS HEARD Y MCDONALD",
+      "page": 80
+    },
+    {
+      "code": "108",
+      "name": "CHILE",
+      "page": 80
+    },
+    {
+      "code": "344",
+      "name": "BRUNEI DARUSSALAM",
+      "page": 80
+    },
+    {
+      "code": "109",
+      "name": "ANGUILA",
+      "page": 80
+    },
+    {
+      "code": "346",
+      "name": "TURQUÍA",
+      "page": 80
+    },
+    {
+      "code": "110",
+      "name": "ESTADOS UNIDOS",
+      "page": 80
+    },
+    {
+      "code": "347",
+      "name": "AZERBAIJÁN",
+      "page": 80
+    },
+    {
+      "code": "111",
+      "name": "GUATEMALA",
+      "page": 80
+    },
+    {
+      "code": "348",
+      "name": "KAZAJSTÁN",
+      "page": 80
+    },
+    {
+      "code": "112",
+      "name": "HAITÍ",
+      "page": 80
+    },
+    {
+      "code": "349",
+      "name": "KIRGUIZISTÁN",
+      "page": 80
+    },
+    {
+      "code": "113",
+      "name": "HONDURAS",
+      "page": 80
+    },
+    {
+      "code": "350",
+      "name": "TAJIKISTAN",
+      "page": 80
+    },
+    {
+      "code": "114",
+      "name": "JAMAICA",
+      "page": 80
+    },
+    {
+      "code": "351",
+      "name": "TURKMENISTÁN",
+      "page": 80
+    },
+    {
+      "code": "115",
+      "name": "MALVINAS ISLAS",
+      "page": 80
+    },
+    {
+      "code": "352",
+      "name": "UZBEKISTÁN",
+      "page": 80
+    },
+    {
+      "code": "116",
+      "name": "MÉXICO",
+      "page": 80
+    },
+    {
+      "code": "353",
+      "name": "PALESTINA",
+      "page": 80
+    },
+    {
+      "code": "117",
+      "name": "NICARAGUA",
+      "page": 80
+    },
+    {
+      "code": "354",
+      "name": "HONG KONG",
+      "page": 80
+    },
+    {
+      "code": "118",
+      "name": "PANAMÁ",
+      "page": 80
+    },
+    {
+      "code": "355",
+      "name": "MACAO",
+      "page": 80
+    },
+    {
+      "code": "119",
+      "name": "PARAGUAY",
+      "page": 80
+    },
+    {
+      "code": "356",
+      "name": "ARMENIA",
+      "page": 80
+    },
+    {
+      "code": "120",
+      "name": "PERÚ",
+      "page": 80
+    },
+    {
+      "code": "382",
+      "name": "MONTENEGRO",
+      "page": 80
+    },
+    {
+      "code": "121",
+      "name": "PUERTO RICO",
+      "page": 80
+    },
+    {
+      "code": "402",
+      "name": "BURKINA FASO",
+      "page": 80
+    },
+    {
+      "code": "122",
+      "name": "REPÚBLICA DOMINICANA",
+      "page": 80
+    },
+    {
+      "code": "403",
+      "name": "ARGELIA",
+      "page": 80
+    },
+    {
+      "code": "123",
+      "name": "EL SALVADOR",
+      "page": 80
+    },
+    {
+      "code": "404",
+      "name": "BURUNDÍ",
+      "page": 80
+    },
+    {
+      "code": "124",
+      "name": "TRINIDAD Y TOBAGO",
+      "page": 80
+    },
+    {
+      "code": "405",
+      "name": "CAMERÚN",
+      "page": 80
+    },
+    {
+      "code": "125",
+      "name": "URUGUAY",
+      "page": 80
+    },
+    {
+      "code": "406",
+      "name": "CONGO",
+      "page": 80
+    },
+    {
+      "code": "126",
+      "name": "VENEZUELA",
+      "page": 80
+    },
+    {
+      "code": "407",
+      "name": "ETIOPÍA",
+      "page": 80
+    },
+    {
+      "code": "127",
+      "name": "CURAZAO",
+      "page": 80
+    },
+    {
+      "code": "408",
+      "name": "GAMBIA",
+      "page": 80
+    },
+    {
+      "code": "129",
+      "name": "BAHAMAS",
+      "page": 80
+    },
+    {
+      "code": "409",
+      "name": "GUINEA",
+      "page": 80
+    },
+    {
+      "code": "130",
+      "name": "BARBADOS",
+      "page": 80
+    },
+    {
+      "code": "410",
+      "name": "LIBERIA",
+      "page": 80
+    },
+    {
+      "code": "131",
+      "name": "GRANADA",
+      "page": 80
+    },
+    {
+      "code": "412",
+      "name": "MADAGASCAR",
+      "page": 80
+    },
+    {
+      "code": "132",
+      "name": "GUYANA",
+      "page": 80
+    },
+    {
+      "code": "413",
+      "name": "MALAWI",
+      "page": 80
+    },
+    {
+      "code": "133",
+      "name": "SURINAM",
+      "page": 80
+    },
+    {
+      "code": "414",
+      "name": "MALÍ",
+      "page": 80
+    },
+    {
+      "code": "134",
+      "name": "ANTIGUA Y BARBUDA",
+      "page": 80
+    },
+    {
+      "code": "415",
+      "name": "MARRUECOS",
+      "page": 80
+    },
+    {
+      "code": "135",
+      "name": "BELICE",
+      "page": 80
+    },
+    {
+      "code": "416",
+      "name": "MAURITANIA",
+      "page": 80
+    },
+    {
+      "code": "136",
+      "name": "DOMINICA",
+      "page": 80
+    },
+    {
+      "code": "417",
+      "name": "NIGERIA",
+      "page": 80
+    },
+    {
+      "code": "137",
+      "name": "SAN CRISTOBAL Y NEVIS",
+      "page": 80
+    },
+    {
+      "code": "419",
+      "name": "ZIMBABWE (RHODESIA)",
+      "page": 80
+    },
+    {
+      "code": "138",
+      "name": "SANTA LUCÍA",
+      "page": 80
+    },
+    {
+      "code": "420",
+      "name": "SENEGAL",
+      "page": 80
+    },
+    {
+      "code": "139",
+      "name": "SAN VICENTE Y LAS GRANAD.",
+      "page": 80
+    },
+    {
+      "code": "421",
+      "name": "SUDÁN",
+      "page": 80
+    },
+    {
+      "code": "140",
+      "name": "ANTILLAS HOLANDESAS",
+      "page": 80
+    },
+    {
+      "code": "422",
+      "name": "SUDAFRICA (CISKEI)",
+      "page": 80
+    },
+    {
+      "code": "141",
+      "name": "ARUBA",
+      "page": 80
+    },
+    {
+      "code": "423",
+      "name": "SIERRA LEONA",
+      "page": 80
+    },
+    {
+      "code": "142",
+      "name": "BERMUDA",
+      "page": 80
+    },
+    {
+      "code": "425",
+      "name": "TANZANIA",
+      "page": 80
+    },
+    {
+      "code": "143",
+      "name": "GUADALUPE",
+      "page": 80
+    },
+    {
+      "code": "426",
+      "name": "UGANDA",
+      "page": 80
+    },
+    {
+      "code": "144",
+      "name": "GUYANA FRANCESA",
+      "page": 80
+    },
+    {
+      "code": "427",
+      "name": "ZAMBIA",
+      "page": 80
+    },
+    {
+      "code": "145",
+      "name": "ISLAS CAIMÁN",
+      "page": 80
+    },
+    {
+      "code": "428",
+      "name": "ÅLAND ISLANDS",
+      "page": 80
+    },
+    {
+      "code": "146",
+      "name": "ISLAS VIRGENES (BRITANICAS)",
+      "page": 80
+    },
+    {
+      "code": "429",
+      "name": "BENIN",
+      "page": 80
+    },
+    {
+      "code": "147",
+      "name": "JOHNSTON ISLA",
+      "page": 80
+    },
+    {
+      "code": "430",
+      "name": "BOTSWANA",
+      "page": 80
+    },
+    {
+      "code": "148",
+      "name": "MARTINICA",
+      "page": 80
+    },
+    {
+      "code": "431",
+      "name": "REPUBLICA CENTROAFRICANA",
+      "page": 80
+    },
+    {
+      "code": "149",
+      "name": "MONTSERRAT ISLA",
+      "page": 80
+    },
+    {
+      "code": "432",
+      "name": "COSTA DE MARFIL",
+      "page": 80
+    },
+    {
+      "code": "151",
+      "name": "TURCAS Y CAICOS ISLAS",
+      "page": 80
+    },
+    {
+      "code": "433",
+      "name": "CHAD",
+      "page": 80
+    },
+    {
+      "code": "152",
+      "name": "VIRGENES, ISLAS (NORT.AMER.)",
+      "page": 81
+    },
+    {
+      "code": "434",
+      "name": "EGIPTO",
+      "page": 81
+    },
+    {
+      "code": "201",
+      "name": "ALBANIA",
+      "page": 81
+    },
+    {
+      "code": "435",
+      "name": "GABON",
+      "page": 81
+    },
+    {
+      "code": "202",
+      "name": "ALEMANIA",
+      "page": 81
+    },
+    {
+      "code": "436",
+      "name": "GHANA",
+      "page": 81
+    },
+    {
+      "code": "203",
+      "name": "AUSTRIA",
+      "page": 81
+    },
+    {
+      "code": "437",
+      "name": "GUINEA-BISSAU",
+      "page": 81
+    },
+    {
+      "code": "204",
+      "name": "BÉLGICA",
+      "page": 81
+    },
+    {
+      "code": "438",
+      "name": "GUINEA ECUATORIAL",
+      "page": 81
+    },
+    {
+      "code": "205",
+      "name": "BULGARIA",
+      "page": 81
+    },
+    {
+      "code": "439",
+      "name": "KENIA",
+      "page": 81
+    },
+    {
+      "code": "207",
+      "name": "ALBORAN Y PEREJIL",
+      "page": 81
+    },
+    {
+      "code": "440",
+      "name": "LESOTHO",
+      "page": 81
+    },
+    {
+      "code": "208",
+      "name": "DINAMARCA",
+      "page": 81
+    },
+    {
+      "code": "441",
+      "name": "MAURICIO",
+      "page": 81
+    },
+    {
+      "code": "209",
+      "name": "ESPAÑA",
+      "page": 81
+    },
+    {
+      "code": "442",
+      "name": "MOZAMBIQUE",
+      "page": 81
+    },
+    {
+      "code": "211",
+      "name": "FRANCIA",
+      "page": 81
+    },
+    {
+      "code": "443",
+      "name": "MAYOTTE",
+      "page": 81
+    },
+    {
+      "code": "212",
+      "name": "FINLANDIA",
+      "page": 81
+    },
+    {
+      "code": "444",
+      "name": "NIGER",
+      "page": 81
+    },
+    {
+      "code": "213",
+      "name": "REINO UNIDO",
+      "page": 81
+    },
+    {
+      "code": "445",
+      "name": "RWANDA",
+      "page": 81
+    },
+    {
+      "code": "214",
+      "name": "GRECIA",
+      "page": 81
+    },
+    {
+      "code": "446",
+      "name": "SEYCHELLES",
+      "page": 81
+    },
+    {
+      "code": "215",
+      "name": "PAISES BAJOS (HOLANDA)",
+      "page": 81
+    },
+    {
+      "code": "447",
+      "name": "SAHARA OCCIDENTAL",
+      "page": 81
+    },
+    {
+      "code": "216",
+      "name": "HUNGRÍA",
+      "page": 81
+    },
+    {
+      "code": "448",
+      "name": "SOMALIA",
+      "page": 81
+    },
+    {
+      "code": "217",
+      "name": "IRLANDA",
+      "page": 81
+    },
+    {
+      "code": "449",
+      "name": "SANTO TOME Y PRINCIPE",
+      "page": 81
+    },
+    {
+      "code": "218",
+      "name": "ISLANDIA",
+      "page": 81
+    },
+    {
+      "code": "450",
+      "name": "SWAZILANDIA",
+      "page": 81
+    },
+    {
+      "code": "219",
+      "name": "ITALIA",
+      "page": 81
+    },
+    {
+      "code": "451",
+      "name": "TOGO",
+      "page": 81
+    },
+    {
+      "code": "220",
+      "name": "LUXEMBURGO",
+      "page": 81
+    },
+    {
+      "code": "452",
+      "name": "TUNEZ",
+      "page": 81
+    },
+    {
+      "code": "221",
+      "name": "MALTA",
+      "page": 81
+    },
+    {
+      "code": "453",
+      "name": "ZAIRE",
+      "page": 81
+    },
+    {
+      "code": "222",
+      "name": "NORUEGA",
+      "page": 81
+    },
+    {
+      "code": "454",
+      "name": "ANGOLA",
+      "page": 81
+    },
+    {
+      "code": "223",
+      "name": "POLONIA",
+      "page": 81
+    },
+    {
+      "code": "456",
+      "name": "CABO VERDE",
+      "page": 81
+    },
+    {
+      "code": "224",
+      "name": "PORTUGAL",
+      "page": 81
+    },
+    {
+      "code": "458",
+      "name": "COMORAS",
+      "page": 81
+    },
+    {
+      "code": "225",
+      "name": "RUMANIA",
+      "page": 81
+    },
+    {
+      "code": "459",
+      "name": "DJIBOUTI",
+      "page": 81
+    },
+    {
+      "code": "226",
+      "name": "SUECIA",
+      "page": 81
+    },
+    {
+      "code": "460",
+      "name": "NAMIBIA",
+      "page": 81
+    },
+    {
+      "code": "227",
+      "name": "SUIZA",
+      "page": 81
+    },
+    {
+      "code": "463",
+      "name": "ERITREA",
+      "page": 81
+    },
+    {
+      "code": "228",
+      "name": "CANARIAS ISLAS",
+      "page": 81
+    },
+    {
+      "code": "464",
+      "name": "MOROCCO",
+      "page": 81
+    },
+    {
+      "code": "229",
+      "name": "UCRANIA",
+      "page": 81
+    },
+    {
+      "code": "465",
+      "name": "REUNION",
+      "page": 81
+    },
+    {
+      "code": "230",
+      "name": "RUSIA",
+      "page": 81
+    },
+    {
+      "code": "466",
+      "name": "SANTA ELENA",
+      "page": 81
+    },
+    {
+      "code": "231",
+      "name": "YUGOSLAVIA",
+      "page": 81
+    },
+    {
+      "code": "499",
+      "name": "JERSEY",
+      "page": 81
+    },
+    {
+      "code": "233",
+      "name": "ANDORRA",
+      "page": 81
+    },
+    {
+      "code": "501",
+      "name": "AUSTRALIA",
+      "page": 81
+    },
+    {
+      "code": "234",
+      "name": "LIECHTENSTEIN",
+      "page": 81
+    },
+    {
+      "code": "503",
+      "name": "NUEVA ZELANDA",
+      "page": 81
+    },
+    {
+      "code": "235",
+      "name": "MÓNACO",
+      "page": 81
+    },
+    {
+      "code": "504",
+      "name": "SAMOA OCCIDENTAL",
+      "page": 81
+    },
+    {
+      "code": "237",
+      "name": "SAN MARINO",
+      "page": 81
+    },
+    {
+      "code": "506",
+      "name": "FIJI",
+      "page": 81
+    },
+    {
+      "code": "238",
+      "name": "VATICANO (SANTA SEDE)",
+      "page": 81
+    },
+    {
+      "code": "507",
+      "name": "PAPUA NUEVA GUINEA",
+      "page": 81
+    },
+    {
+      "code": "239",
+      "name": "GIBRALTAR",
+      "page": 81
+    },
+    {
+      "code": "508",
+      "name": "TONGA",
+      "page": 81
+    },
+    {
+      "code": "241",
+      "name": "BELARUS",
+      "page": 81
+    },
+    {
+      "code": "509",
+      "name": "PALAO (BELAU) ISLAS",
+      "page": 81
+    },
+    {
+      "code": "242",
+      "name": "BOSNIA Y HERZEGOVINA",
+      "page": 81
+    },
+    {
+      "code": "510",
+      "name": "KIRIBATI",
+      "page": 81
+    },
+    {
+      "code": "243",
+      "name": "CROACIA",
+      "page": 81
+    },
+    {
+      "code": "511",
+      "name": "MARSHALL ISLAS",
+      "page": 81
+    },
+    {
+      "code": "244",
+      "name": "ESLOVENIA",
+      "page": 81
+    },
+    {
+      "code": "512",
+      "name": "MICRONESIA",
+      "page": 81
+    },
+    {
+      "code": "245",
+      "name": "ESTONIA",
+      "page": 81
+    },
+    {
+      "code": "513",
+      "name": "NAURU",
+      "page": 81
+    },
+    {
+      "code": "246",
+      "name": "GEORGIA",
+      "page": 81
+    },
+    {
+      "code": "514",
+      "name": "SALOMON ISLAS",
+      "page": 81
+    },
+    {
+      "code": "247",
+      "name": "GROENLANDIA",
+      "page": 81
+    },
+    {
+      "code": "515",
+      "name": "TUVALU",
+      "page": 81
+    },
+    {
+      "code": "248",
+      "name": "LETONIA",
+      "page": 81
+    },
+    {
+      "code": "516",
+      "name": "VANUATU",
+      "page": 81
+    },
+    {
+      "code": "249",
+      "name": "LITUANIA",
+      "page": 81
+    },
+    {
+      "code": "517",
+      "name": "GUAM",
+      "page": 81
+    },
+    {
+      "code": "250",
+      "name": "MOLDOVA",
+      "page": 81
+    },
+    {
+      "code": "518",
+      "name": "ISLAS COCOS (KEELING)",
+      "page": 81
+    },
+    {
+      "code": "251",
+      "name": "MACEDONIA",
+      "page": 81
+    },
+    {
+      "code": "519",
+      "name": "ISLAS COOK",
+      "page": 81
+    },
+    {
+      "code": "252",
+      "name": "ESLOVAQUIA",
+      "page": 81
+    },
+    {
+      "code": "520",
+      "name": "ISLAS NAVIDAD",
+      "page": 81
+    },
+    {
+      "code": "253",
+      "name": "ISLAS FAROE",
+      "page": 81
+    },
+    {
+      "code": "521",
+      "name": "MIDWAY ISLAS",
+      "page": 81
+    },
+    {
+      "code": "260",
+      "name": "FRENCH SOUTHERN TERRITORIES",
+      "page": 81
+    },
+    {
+      "code": "522",
+      "name": "NIUE ISLA",
+      "page": 81
+    },
+    {
+      "code": "301",
+      "name": "AFGANISTAN",
+      "page": 81
+    },
+    {
+      "code": "523",
+      "name": "NORFOLK ISLA",
+      "page": 81
+    },
+    {
+      "code": "302",
+      "name": "ARABIA SAUDITA",
+      "page": 81
+    },
+    {
+      "code": "524",
+      "name": "NUEVA CALEDONIA",
+      "page": 81
+    },
+    {
+      "code": "303",
+      "name": "MYANMAR (BURMA)",
+      "page": 81
+    },
+    {
+      "code": "525",
+      "name": "PITCAIRN, ISLA",
+      "page": 81
+    },
+    {
+      "code": "304",
+      "name": "CAMBOYA",
+      "page": 81
+    },
+    {
+      "code": "526",
+      "name": "POLINESIA FRANCESA",
+      "page": 81
+    },
+    {
+      "code": "306",
+      "name": "COREA NORTE",
+      "page": 81
+    },
+    {
+      "code": "529",
+      "name": "TIMOR DEL ESTE",
+      "page": 81
+    },
+    {
+      "code": "307",
+      "name": "TAIWAN (CHINA)",
+      "page": 81
+    },
+    {
+      "code": "530",
+      "name": "TOKELAI",
+      "page": 81
+    },
+    {
+      "code": "308",
+      "name": "FILIPINAS",
+      "page": 81
+    },
+    {
+      "code": "531",
+      "name": "WAKE ISLA",
+      "page": 81
+    },
+    {
+      "code": "309",
+      "name": "INDIA",
+      "page": 81
+    },
+    {
+      "code": "532",
+      "name": "WALLIS Y FUTUNA, ISLAS",
+      "page": 81
+    },
+    {
+      "code": "310",
+      "name": "INDONESIA",
+      "page": 82
+    },
+    {
+      "code": "590",
+      "name": "SAINT BARTHELEMY",
+      "page": 82
+    },
+    {
+      "code": "311",
+      "name": "IRAK",
+      "page": 82
+    },
+    {
+      "code": "593",
+      "name": "ECUADOR",
+      "page": 82
+    },
+    {
+      "code": "312",
+      "name": "IRÁN (REPÚBLICA ISLÁMICA)",
+      "page": 82
+    },
+    {
+      "code": "594",
+      "name": "AGUAS INTERNACIONALES",
+      "page": 82
+    },
+    {
+      "code": "313",
+      "name": "ISRAEL",
+      "page": 82
+    },
+    {
+      "code": "595",
+      "name": "ALTO VOLTA",
+      "page": 82
+    },
+    {
+      "code": "314",
+      "name": "JAPÓN",
+      "page": 82
+    },
+    {
+      "code": "596",
+      "name": "BIELORRUSIA",
+      "page": 82
+    },
+    {
+      "code": "315",
+      "name": "JORDANIA",
+      "page": 82
+    },
+    {
+      "code": "597",
+      "name": "COTE DÍVOIRE",
+      "page": 82
+    },
+    {
+      "code": "316",
+      "name": "KUWAIT",
+      "page": 82
+    },
+    {
+      "code": "598",
+      "name": "CYPRUS",
+      "page": 82
+    },
+    {
+      "code": "317",
+      "name": "LAOS, REP. POP. DEMOC.",
+      "page": 82
+    },
+    {
+      "code": "599",
+      "name": "REPÚBLICA CHECA",
+      "page": 82
+    },
+    {
+      "code": "318",
+      "name": "LIBANO",
+      "page": 82
+    },
+    {
+      "code": "600",
+      "name": "FALKLAND ISLANDS",
+      "page": 82
+    },
+    {
+      "code": "319",
+      "name": "MALASIA",
+      "page": 82
+    },
+    {
+      "code": "601",
+      "name": "LATVIA",
+      "page": 82
+    },
+    {
+      "code": "321",
+      "name": "MONGOLIA (MANCHURIA)",
+      "page": 82
+    },
+    {
+      "code": "602",
+      "name": "LIBIA",
+      "page": 82
+    },
+    {
+      "code": "322",
+      "name": "PAKISTÁN",
+      "page": 82
+    },
+    {
+      "code": "603",
+      "name": "NORTHERN MARIANA ISL",
+      "page": 82
+    },
+    {
+      "code": "323",
+      "name": "SIRIA",
+      "page": 82
+    },
+    {
+      "code": "604",
+      "name": "ST. PIERRE AND MIQUE",
+      "page": 82
+    },
+    {
+      "code": "325",
+      "name": "TAILANDIA",
+      "page": 82
+    },
+    {
+      "code": "605",
+      "name": "SYRIAN ARAB REPUBLIC",
+      "page": 82
+    },
+    {
+      "code": "327",
+      "name": "BAHREIN",
+      "page": 82
+    },
+    {
+      "code": "606",
+      "name": "TERRITORIO ANTÁRTICO BRITÁNICO",
+      "page": 82
+    },
+    {
+      "code": "328",
+      "name": "BANGLADESH",
+      "page": 82
+    },
+    {
+      "code": "607",
+      "name": "TERRITORIO BRITÁNICO OCÉANO IN",
+      "page": 82
+    },
+    {
+      "code": "329",
+      "name": "BUTÁN",
+      "page": 82
+    },
+    {
+      "code": "688",
+      "name": "SERBIA",
+      "page": 82
+    },
+    {
+      "code": "330",
+      "name": "COREA DEL SUR",
+      "page": 82
+    },
+    {
+      "code": "831",
+      "name": "GUERNSEY",
+      "page": 82
+    },
+    {
+      "code": "331",
+      "name": "CHINA POPULAR",
+      "page": 82
+    },
+    {
+      "code": "832",
+      "name": "JERSEY",
+      "page": 82
+    },
+    {
+      "code": "332",
+      "name": "CHIPRE",
+      "page": 82
+    },
+    {
+      "code": "833",
+      "name": "ISLE OF MAN",
+      "page": 82
+    },
+    {
+      "code": "333",
+      "name": "EMIRATOS ARABES UNIDOS",
+      "page": 82
+    }
+  ]
+}

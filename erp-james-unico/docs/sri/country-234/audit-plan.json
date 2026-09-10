@@ -1,0 +1,7176 @@
+{
+  "summary": {
+    "total": 505,
+    "valid": 0,
+    "missing": 505,
+    "invalid": 0,
+    "needsReview": 168,
+    "safelyAdded": 337
+  },
+  "rows": [
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-5uqoi8-mtt9sub4",
+      "name": "ITALIA",
+      "iso2": "IT",
+      "iso3": "ITA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "219",
+          "name": "ITALIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-7mlebo-mtt9qih3",
+      "name": "GEORGIA",
+      "iso2": "GE",
+      "iso3": "GEO",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "246",
+          "name": "GEORGIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AD",
+      "name": "Andorra",
+      "iso2": "AD",
+      "iso3": "AND",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "233",
+          "name": "ANDORRA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AE",
+      "name": "Emiratos Árabes Unidos",
+      "iso2": "AE",
+      "iso3": "ARE",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "333",
+          "name": "EMIRATOS ARABES UNIDOS",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AF",
+      "name": "Afganistán",
+      "iso2": "AF",
+      "iso3": "AFG",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "301",
+          "name": "AFGANISTAN",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AG",
+      "name": "Antigua y Barbuda",
+      "iso2": "AG",
+      "iso3": "ATG",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "134",
+          "name": "ANTIGUA Y BARBUDA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AI",
+      "name": "Anguila",
+      "iso2": "AI",
+      "iso3": "AIA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "109",
+          "name": "ANGUILA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AL",
+      "name": "Albania",
+      "iso2": "AL",
+      "iso3": "ALB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "201",
+          "name": "ALBANIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AM",
+      "name": "Armenia",
+      "iso2": "AM",
+      "iso3": "ARM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "356",
+          "name": "ARMENIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AO",
+      "name": "Angola",
+      "iso2": "AO",
+      "iso3": "AGO",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "454",
+          "name": "ANGOLA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AQ",
+      "name": "Antártida",
+      "iso2": "AQ",
+      "iso3": "ATA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AR",
+      "name": "Argentina",
+      "iso2": "AR",
+      "iso3": "ARG",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "101",
+          "name": "ARGENTINA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AS",
+      "name": "Samoa Americana",
+      "iso2": "AS",
+      "iso3": "ASM",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AT",
+      "name": "Austria",
+      "iso2": "AT",
+      "iso3": "AUT",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "203",
+          "name": "AUSTRIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AU",
+      "name": "Australia",
+      "iso2": "AU",
+      "iso3": "AUS",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "501",
+          "name": "AUSTRALIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AW",
+      "name": "Aruba",
+      "iso2": "AW",
+      "iso3": "ABW",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "141",
+          "name": "ARUBA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AX",
+      "name": "Islas Aland",
+      "iso2": "AX",
+      "iso3": "ALA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-AZ",
+      "name": "Azerbaiyán",
+      "iso2": "AZ",
+      "iso3": "AZE",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BA",
+      "name": "Bosnia y Herzegovina",
+      "iso2": "BA",
+      "iso3": "BIH",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "242",
+          "name": "BOSNIA Y HERZEGOVINA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BB",
+      "name": "Barbados",
+      "iso2": "BB",
+      "iso3": "BRB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "130",
+          "name": "BARBADOS",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BD",
+      "name": "Bangladés",
+      "iso2": "BD",
+      "iso3": "BGD",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BE",
+      "name": "Bélgica",
+      "iso2": "BE",
+      "iso3": "BEL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "204",
+          "name": "BÉLGICA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BF",
+      "name": "Burkina Faso",
+      "iso2": "BF",
+      "iso3": "BFA",
+      "status": "NEEDS_REVIEW",
+      "reason": "OFFICIAL_HISTORICAL_ALTERNATIVES",
+      "official": [
+        {
+          "code": "402",
+          "name": "BURKINA FASO",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BG",
+      "name": "Bulgaria",
+      "iso2": "BG",
+      "iso3": "BGR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "205",
+          "name": "BULGARIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BH",
+      "name": "Baréin",
+      "iso2": "BH",
+      "iso3": "BHR",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BI",
+      "name": "Burundi",
+      "iso2": "BI",
+      "iso3": "BDI",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "404",
+          "name": "BURUNDÍ",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BJ",
+      "name": "Benín",
+      "iso2": "BJ",
+      "iso3": "BEN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "429",
+          "name": "BENIN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BL",
+      "name": "San Bartolomé",
+      "iso2": "BL",
+      "iso3": "BLM",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BM",
+      "name": "Bermudas",
+      "iso2": "BM",
+      "iso3": "BMU",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BN",
+      "name": "Brunéi",
+      "iso2": "BN",
+      "iso3": "BRN",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BO",
+      "name": "Bolivia",
+      "iso2": "BO",
+      "iso3": "BOL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "102",
+          "name": "BOLIVIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BQ",
+      "name": "Caribe neerlandés",
+      "iso2": "BQ",
+      "iso3": "BES",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BR",
+      "name": "Brasil",
+      "iso2": "BR",
+      "iso3": "BRA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "103",
+          "name": "BRASIL",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BS",
+      "name": "Bahamas",
+      "iso2": "BS",
+      "iso3": "BHS",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "129",
+          "name": "BAHAMAS",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BT",
+      "name": "Bután",
+      "iso2": "BT",
+      "iso3": "BTN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "329",
+          "name": "BUTÁN",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BV",
+      "name": "Isla Bouvet",
+      "iso2": "BV",
+      "iso3": "BVT",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BW",
+      "name": "Botsuana",
+      "iso2": "BW",
+      "iso3": "BWA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BY",
+      "name": "Bielorrusia",
+      "iso2": "BY",
+      "iso3": "BLR",
+      "status": "NEEDS_REVIEW",
+      "reason": "OFFICIAL_HISTORICAL_ALTERNATIVES",
+      "official": [
+        {
+          "code": "596",
+          "name": "BIELORRUSIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-BZ",
+      "name": "Belice",
+      "iso2": "BZ",
+      "iso3": "BLZ",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "135",
+          "name": "BELICE",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CA",
+      "name": "Canadá",
+      "iso2": "CA",
+      "iso3": "CAN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "104",
+          "name": "CANADÁ",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CC",
+      "name": "Islas Cocos",
+      "iso2": "CC",
+      "iso3": "CCK",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CD",
+      "name": "República Democrática del Congo",
+      "iso2": "CD",
+      "iso3": "COD",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CF",
+      "name": "República Centroafricana",
+      "iso2": "CF",
+      "iso3": "CAF",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "431",
+          "name": "REPUBLICA CENTROAFRICANA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CG",
+      "name": "Congo",
+      "iso2": "CG",
+      "iso3": "COG",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "406",
+          "name": "CONGO",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CH",
+      "name": "Suiza",
+      "iso2": "CH",
+      "iso3": "CHE",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "227",
+          "name": "SUIZA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CI",
+      "name": "Côte d’Ivoire",
+      "iso2": "CI",
+      "iso3": "CIV",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CK",
+      "name": "Islas Cook",
+      "iso2": "CK",
+      "iso3": "COK",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "519",
+          "name": "ISLAS COOK",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CL",
+      "name": "Chile",
+      "iso2": "CL",
+      "iso3": "CHL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "108",
+          "name": "CHILE",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CM",
+      "name": "Camerún",
+      "iso2": "CM",
+      "iso3": "CMR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "405",
+          "name": "CAMERÚN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CN",
+      "name": "China",
+      "iso2": "CN",
+      "iso3": "CHN",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CO",
+      "name": "Colombia",
+      "iso2": "CO",
+      "iso3": "COL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "105",
+          "name": "COLOMBIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CR",
+      "name": "Costa Rica",
+      "iso2": "CR",
+      "iso3": "CRI",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "106",
+          "name": "COSTA RICA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CU",
+      "name": "Cuba",
+      "iso2": "CU",
+      "iso3": "CUB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "107",
+          "name": "CUBA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CV",
+      "name": "Cabo Verde",
+      "iso2": "CV",
+      "iso3": "CPV",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "456",
+          "name": "CABO VERDE",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CW",
+      "name": "Curazao",
+      "iso2": "CW",
+      "iso3": "CUW",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "127",
+          "name": "CURAZAO",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CX",
+      "name": "Isla de Navidad",
+      "iso2": "CX",
+      "iso3": "CXR",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CY",
+      "name": "Chipre",
+      "iso2": "CY",
+      "iso3": "CYP",
+      "status": "NEEDS_REVIEW",
+      "reason": "OFFICIAL_HISTORICAL_ALTERNATIVES",
+      "official": [
+        {
+          "code": "332",
+          "name": "CHIPRE",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-CZ",
+      "name": "Chequia",
+      "iso2": "CZ",
+      "iso3": "CZE",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-DE",
+      "name": "Alemania",
+      "iso2": "DE",
+      "iso3": "DEU",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "202",
+          "name": "ALEMANIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-DJ",
+      "name": "Yibuti",
+      "iso2": "DJ",
+      "iso3": "DJI",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-DK",
+      "name": "Dinamarca",
+      "iso2": "DK",
+      "iso3": "DNK",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "208",
+          "name": "DINAMARCA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-DM",
+      "name": "Dominica",
+      "iso2": "DM",
+      "iso3": "DMA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "136",
+          "name": "DOMINICA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-DZ",
+      "name": "Argelia",
+      "iso2": "DZ",
+      "iso3": "DZA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "403",
+          "name": "ARGELIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-EE",
+      "name": "Estonia",
+      "iso2": "EE",
+      "iso3": "EST",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "245",
+          "name": "ESTONIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-EG",
+      "name": "Egipto",
+      "iso2": "EG",
+      "iso3": "EGY",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "434",
+          "name": "EGIPTO",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-EH",
+      "name": "Sáhara Occidental",
+      "iso2": "EH",
+      "iso3": "ESH",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "447",
+          "name": "SAHARA OCCIDENTAL",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-ER",
+      "name": "Eritrea",
+      "iso2": "ER",
+      "iso3": "ERI",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "463",
+          "name": "ERITREA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-ES",
+      "name": "España",
+      "iso2": "ES",
+      "iso3": "ESP",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "209",
+          "name": "ESPAÑA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-ET",
+      "name": "Etiopía",
+      "iso2": "ET",
+      "iso3": "ETH",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "407",
+          "name": "ETIOPÍA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-FI",
+      "name": "Finlandia",
+      "iso2": "FI",
+      "iso3": "FIN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "212",
+          "name": "FINLANDIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-FJ",
+      "name": "Fiyi",
+      "iso2": "FJ",
+      "iso3": "FJI",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-FK",
+      "name": "Islas Malvinas",
+      "iso2": "FK",
+      "iso3": "FLK",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-FM",
+      "name": "Micronesia",
+      "iso2": "FM",
+      "iso3": "FSM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "512",
+          "name": "MICRONESIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-FO",
+      "name": "Islas Feroe",
+      "iso2": "FO",
+      "iso3": "FRO",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-FR",
+      "name": "Francia",
+      "iso2": "FR",
+      "iso3": "FRA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "211",
+          "name": "FRANCIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GA",
+      "name": "Gabón",
+      "iso2": "GA",
+      "iso3": "GAB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "435",
+          "name": "GABON",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GB",
+      "name": "Reino Unido",
+      "iso2": "GB",
+      "iso3": "GBR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "213",
+          "name": "REINO UNIDO",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GD",
+      "name": "Granada",
+      "iso2": "GD",
+      "iso3": "GRD",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "131",
+          "name": "GRANADA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GF",
+      "name": "Guayana Francesa",
+      "iso2": "GF",
+      "iso3": "GUF",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GG",
+      "name": "Guernesey",
+      "iso2": "GG",
+      "iso3": "GGY",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GH",
+      "name": "Ghana",
+      "iso2": "GH",
+      "iso3": "GHA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "436",
+          "name": "GHANA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GI",
+      "name": "Gibraltar",
+      "iso2": "GI",
+      "iso3": "GIB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "239",
+          "name": "GIBRALTAR",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GL",
+      "name": "Groenlandia",
+      "iso2": "GL",
+      "iso3": "GRL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "247",
+          "name": "GROENLANDIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GM",
+      "name": "Gambia",
+      "iso2": "GM",
+      "iso3": "GMB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "408",
+          "name": "GAMBIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GN",
+      "name": "Guinea",
+      "iso2": "GN",
+      "iso3": "GIN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "409",
+          "name": "GUINEA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GP",
+      "name": "Guadalupe",
+      "iso2": "GP",
+      "iso3": "GLP",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "143",
+          "name": "GUADALUPE",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GQ",
+      "name": "Guinea Ecuatorial",
+      "iso2": "GQ",
+      "iso3": "GNQ",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "438",
+          "name": "GUINEA ECUATORIAL",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GR",
+      "name": "Grecia",
+      "iso2": "GR",
+      "iso3": "GRC",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "214",
+          "name": "GRECIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GS",
+      "name": "Islas Georgia del Sur y Sandwich del Sur",
+      "iso2": "GS",
+      "iso3": "SGS",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GT",
+      "name": "Guatemala",
+      "iso2": "GT",
+      "iso3": "GTM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "111",
+          "name": "GUATEMALA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GU",
+      "name": "Guam",
+      "iso2": "GU",
+      "iso3": "GUM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "517",
+          "name": "GUAM",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GW",
+      "name": "Guinea-Bisáu",
+      "iso2": "GW",
+      "iso3": "GNB",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-GY",
+      "name": "Guyana",
+      "iso2": "GY",
+      "iso3": "GUY",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "132",
+          "name": "GUYANA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-gyryg1-mtt9snmo",
+      "name": "POLONIA",
+      "iso2": "PL",
+      "iso3": "POL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "223",
+          "name": "POLONIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-HK",
+      "name": "RAE de Hong Kong (China)",
+      "iso2": "HK",
+      "iso3": "HKG",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-HM",
+      "name": "Islas Heard y McDonald",
+      "iso2": "HM",
+      "iso3": "HMD",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "343",
+          "name": "ISLAS HEARD Y MCDONALD",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-HN",
+      "name": "Honduras",
+      "iso2": "HN",
+      "iso3": "HND",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "113",
+          "name": "HONDURAS",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-HR",
+      "name": "Croacia",
+      "iso2": "HR",
+      "iso3": "HRV",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "243",
+          "name": "CROACIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-HT",
+      "name": "Haití",
+      "iso2": "HT",
+      "iso3": "HTI",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "112",
+          "name": "HAITÍ",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-HU",
+      "name": "Hungría",
+      "iso2": "HU",
+      "iso3": "HUN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "216",
+          "name": "HUNGRÍA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-i4jpxw-mtncn3kl",
+      "name": "AFRICA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-ID",
+      "name": "Indonesia",
+      "iso2": "ID",
+      "iso3": "IDN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "310",
+          "name": "INDONESIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-IE",
+      "name": "Irlanda",
+      "iso2": "IE",
+      "iso3": "IRL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "217",
+          "name": "IRLANDA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-IL",
+      "name": "Israel",
+      "iso2": "IL",
+      "iso3": "ISR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "313",
+          "name": "ISRAEL",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-IM",
+      "name": "Isla de Man",
+      "iso2": "IM",
+      "iso3": "IMN",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-IN",
+      "name": "India",
+      "iso2": "IN",
+      "iso3": "IND",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "309",
+          "name": "INDIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-IO",
+      "name": "Territorio Británico del Océano Índico",
+      "iso2": "IO",
+      "iso3": "IOT",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-IQ",
+      "name": "Irak",
+      "iso2": "IQ",
+      "iso3": "IRQ",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "311",
+          "name": "IRAK",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-IR",
+      "name": "Irán",
+      "iso2": "IR",
+      "iso3": "IRN",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-IS",
+      "name": "Islandia",
+      "iso2": "IS",
+      "iso3": "ISL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "218",
+          "name": "ISLANDIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-JE",
+      "name": "Jersey",
+      "iso2": "JE",
+      "iso3": "JEY",
+      "status": "NEEDS_REVIEW",
+      "reason": "OFFICIAL_HISTORICAL_ALTERNATIVES",
+      "official": [
+        {
+          "code": "499",
+          "name": "JERSEY",
+          "page": 81
+        },
+        {
+          "code": "832",
+          "name": "JERSEY",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-JM",
+      "name": "Jamaica",
+      "iso2": "JM",
+      "iso3": "JAM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "114",
+          "name": "JAMAICA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-JO",
+      "name": "Jordania",
+      "iso2": "JO",
+      "iso3": "JOR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "315",
+          "name": "JORDANIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-JP",
+      "name": "Japón",
+      "iso2": "JP",
+      "iso3": "JPN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "314",
+          "name": "JAPÓN",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-jxobdp-mtu8b98d",
+      "name": "UZBEKISTAN",
+      "iso2": "UZ",
+      "iso3": "UZB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "352",
+          "name": "UZBEKISTÁN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-KE",
+      "name": "Kenia",
+      "iso2": "KE",
+      "iso3": "KEN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "439",
+          "name": "KENIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-KH",
+      "name": "Camboya",
+      "iso2": "KH",
+      "iso3": "KHM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "304",
+          "name": "CAMBOYA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-KI",
+      "name": "Kiribati",
+      "iso2": "KI",
+      "iso3": "KIR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "510",
+          "name": "KIRIBATI",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-KM",
+      "name": "Comoras",
+      "iso2": "KM",
+      "iso3": "COM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "458",
+          "name": "COMORAS",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-KN",
+      "name": "San Cristóbal y Nieves",
+      "iso2": "KN",
+      "iso3": "KNA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-KP",
+      "name": "Corea del Norte",
+      "iso2": "KP",
+      "iso3": "PRK",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-KR",
+      "name": "Corea del Sur",
+      "iso2": "KR",
+      "iso3": "KOR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "330",
+          "name": "COREA DEL SUR",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-KW",
+      "name": "Kuwait",
+      "iso2": "KW",
+      "iso3": "KWT",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "316",
+          "name": "KUWAIT",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-KY",
+      "name": "Islas Caimán",
+      "iso2": "KY",
+      "iso3": "CYM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "145",
+          "name": "ISLAS CAIMÁN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-LA",
+      "name": "Laos",
+      "iso2": "LA",
+      "iso3": "LAO",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-LB",
+      "name": "Líbano",
+      "iso2": "LB",
+      "iso3": "LBN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "318",
+          "name": "LIBANO",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-LC",
+      "name": "Santa Lucía",
+      "iso2": "LC",
+      "iso3": "LCA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "138",
+          "name": "SANTA LUCÍA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-LI",
+      "name": "Liechtenstein",
+      "iso2": "LI",
+      "iso3": "LIE",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "234",
+          "name": "LIECHTENSTEIN",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-LK",
+      "name": "Sri Lanka",
+      "iso2": "LK",
+      "iso3": "LKA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-LR",
+      "name": "Liberia",
+      "iso2": "LR",
+      "iso3": "LBR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "410",
+          "name": "LIBERIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-LS",
+      "name": "Lesoto",
+      "iso2": "LS",
+      "iso3": "LSO",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-LT",
+      "name": "Lituania",
+      "iso2": "LT",
+      "iso3": "LTU",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "249",
+          "name": "LITUANIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-LU",
+      "name": "Luxemburgo",
+      "iso2": "LU",
+      "iso3": "LUX",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "220",
+          "name": "LUXEMBURGO",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-LV",
+      "name": "Letonia",
+      "iso2": "LV",
+      "iso3": "LVA",
+      "status": "NEEDS_REVIEW",
+      "reason": "OFFICIAL_HISTORICAL_ALTERNATIVES",
+      "official": [
+        {
+          "code": "248",
+          "name": "LETONIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-LY",
+      "name": "Libia",
+      "iso2": "LY",
+      "iso3": "LBY",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "602",
+          "name": "LIBIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MA",
+      "name": "Marruecos",
+      "iso2": "MA",
+      "iso3": "MAR",
+      "status": "NEEDS_REVIEW",
+      "reason": "OFFICIAL_HISTORICAL_ALTERNATIVES",
+      "official": [
+        {
+          "code": "415",
+          "name": "MARRUECOS",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MC",
+      "name": "Mónaco",
+      "iso2": "MC",
+      "iso3": "MCO",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "235",
+          "name": "MÓNACO",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MD",
+      "name": "Moldavia",
+      "iso2": "MD",
+      "iso3": "MDA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-ME",
+      "name": "Montenegro",
+      "iso2": "ME",
+      "iso3": "MNE",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "382",
+          "name": "MONTENEGRO",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MF",
+      "name": "San Martín",
+      "iso2": "MF",
+      "iso3": "MAF",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MG",
+      "name": "Madagascar",
+      "iso2": "MG",
+      "iso3": "MDG",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "412",
+          "name": "MADAGASCAR",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MH",
+      "name": "Islas Marshall",
+      "iso2": "MH",
+      "iso3": "MHL",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MK",
+      "name": "Macedonia del Norte",
+      "iso2": "MK",
+      "iso3": "MKD",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-ML",
+      "name": "Mali",
+      "iso2": "ML",
+      "iso3": "MLI",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "414",
+          "name": "MALÍ",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MM",
+      "name": "Myanmar (Birmania)",
+      "iso2": "MM",
+      "iso3": "MMR",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MN",
+      "name": "Mongolia",
+      "iso2": "MN",
+      "iso3": "MNG",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MO",
+      "name": "RAE de Macao (China)",
+      "iso2": "MO",
+      "iso3": "MAC",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MP",
+      "name": "Islas Marianas del Norte",
+      "iso2": "MP",
+      "iso3": "MNP",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MQ",
+      "name": "Martinica",
+      "iso2": "MQ",
+      "iso3": "MTQ",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "148",
+          "name": "MARTINICA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MR",
+      "name": "Mauritania",
+      "iso2": "MR",
+      "iso3": "MRT",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "416",
+          "name": "MAURITANIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MS",
+      "name": "Montserrat",
+      "iso2": "MS",
+      "iso3": "MSR",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MT",
+      "name": "Malta",
+      "iso2": "MT",
+      "iso3": "MLT",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "221",
+          "name": "MALTA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MU",
+      "name": "Mauricio",
+      "iso2": "MU",
+      "iso3": "MUS",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "441",
+          "name": "MAURICIO",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MV",
+      "name": "Maldivas",
+      "iso2": "MV",
+      "iso3": "MDV",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "335",
+          "name": "MALDIVAS",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MW",
+      "name": "Malaui",
+      "iso2": "MW",
+      "iso3": "MWI",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MX",
+      "name": "México",
+      "iso2": "MX",
+      "iso3": "MEX",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "116",
+          "name": "MÉXICO",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MY",
+      "name": "Malasia",
+      "iso2": "MY",
+      "iso3": "MYS",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "319",
+          "name": "MALASIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-MZ",
+      "name": "Mozambique",
+      "iso2": "MZ",
+      "iso3": "MOZ",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "442",
+          "name": "MOZAMBIQUE",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-NA",
+      "name": "Namibia",
+      "iso2": "NA",
+      "iso3": "NAM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "460",
+          "name": "NAMIBIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-NC",
+      "name": "Nueva Caledonia",
+      "iso2": "NC",
+      "iso3": "NCL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "524",
+          "name": "NUEVA CALEDONIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-NE",
+      "name": "Níger",
+      "iso2": "NE",
+      "iso3": "NER",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "444",
+          "name": "NIGER",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-NF",
+      "name": "Isla Norfolk",
+      "iso2": "NF",
+      "iso3": "NFK",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-NG",
+      "name": "Nigeria",
+      "iso2": "NG",
+      "iso3": "NGA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "417",
+          "name": "NIGERIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-NI",
+      "name": "Nicaragua",
+      "iso2": "NI",
+      "iso3": "NIC",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "117",
+          "name": "NICARAGUA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-NO",
+      "name": "Noruega",
+      "iso2": "NO",
+      "iso3": "NOR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "222",
+          "name": "NORUEGA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-NP",
+      "name": "Nepal",
+      "iso2": "NP",
+      "iso3": "NPL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "336",
+          "name": "NEPAL",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-NR",
+      "name": "Nauru",
+      "iso2": "NR",
+      "iso3": "NRU",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "513",
+          "name": "NAURU",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-NU",
+      "name": "Niue",
+      "iso2": "NU",
+      "iso3": "NIU",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-NZ",
+      "name": "Nueva Zelanda",
+      "iso2": "NZ",
+      "iso3": "NZL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "503",
+          "name": "NUEVA ZELANDA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-OM",
+      "name": "Omán",
+      "iso2": "OM",
+      "iso3": "OMN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "337",
+          "name": "OMAN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-PA",
+      "name": "Panamá",
+      "iso2": "PA",
+      "iso3": "PAN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "118",
+          "name": "PANAMÁ",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-PE",
+      "name": "Perú",
+      "iso2": "PE",
+      "iso3": "PER",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "120",
+          "name": "PERÚ",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-PF",
+      "name": "Polinesia Francesa",
+      "iso2": "PF",
+      "iso3": "PYF",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "526",
+          "name": "POLINESIA FRANCESA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-PG",
+      "name": "Papúa Nueva Guinea",
+      "iso2": "PG",
+      "iso3": "PNG",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "507",
+          "name": "PAPUA NUEVA GUINEA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-PH",
+      "name": "Filipinas",
+      "iso2": "PH",
+      "iso3": "PHL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "308",
+          "name": "FILIPINAS",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-PK",
+      "name": "Pakistán",
+      "iso2": "PK",
+      "iso3": "PAK",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "322",
+          "name": "PAKISTÁN",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-PM",
+      "name": "San Pedro y Miquelón",
+      "iso2": "PM",
+      "iso3": "SPM",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-PN",
+      "name": "Islas Pitcairn",
+      "iso2": "PN",
+      "iso3": "PCN",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-PR",
+      "name": "Puerto Rico",
+      "iso2": "PR",
+      "iso3": "PRI",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "121",
+          "name": "PUERTO RICO",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-PS",
+      "name": "Territorios Palestinos",
+      "iso2": "PS",
+      "iso3": "PSE",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-PT",
+      "name": "Portugal",
+      "iso2": "PT",
+      "iso3": "PRT",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "224",
+          "name": "PORTUGAL",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-PW",
+      "name": "Palaos",
+      "iso2": "PW",
+      "iso3": "PLW",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-PY",
+      "name": "Paraguay",
+      "iso2": "PY",
+      "iso3": "PRY",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "119",
+          "name": "PARAGUAY",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-QA",
+      "name": "Catar",
+      "iso2": "QA",
+      "iso3": "QAT",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-RE",
+      "name": "Reunión",
+      "iso2": "RE",
+      "iso3": "REU",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "465",
+          "name": "REUNION",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-RO",
+      "name": "Rumanía",
+      "iso2": "RO",
+      "iso3": "ROU",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "225",
+          "name": "RUMANIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-RS",
+      "name": "Serbia",
+      "iso2": "RS",
+      "iso3": "SRB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "688",
+          "name": "SERBIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-RW",
+      "name": "Ruanda",
+      "iso2": "RW",
+      "iso3": "RWA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SA",
+      "name": "Arabia Saudí",
+      "iso2": "SA",
+      "iso3": "SAU",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SB",
+      "name": "Islas Salomón",
+      "iso2": "SB",
+      "iso3": "SLB",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SC",
+      "name": "Seychelles",
+      "iso2": "SC",
+      "iso3": "SYC",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "446",
+          "name": "SEYCHELLES",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SD",
+      "name": "Sudán",
+      "iso2": "SD",
+      "iso3": "SDN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "421",
+          "name": "SUDÁN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SE",
+      "name": "Suecia",
+      "iso2": "SE",
+      "iso3": "SWE",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "226",
+          "name": "SUECIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SG",
+      "name": "Singapur",
+      "iso2": "SG",
+      "iso3": "SGP",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "338",
+          "name": "SINGAPUR",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SH",
+      "name": "Santa Elena",
+      "iso2": "SH",
+      "iso3": "SHN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "466",
+          "name": "SANTA ELENA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SI",
+      "name": "Eslovenia",
+      "iso2": "SI",
+      "iso3": "SVN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "244",
+          "name": "ESLOVENIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SJ",
+      "name": "Svalbard y Jan Mayen",
+      "iso2": "SJ",
+      "iso3": "SJM",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SK",
+      "name": "Eslovaquia",
+      "iso2": "SK",
+      "iso3": "SVK",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "252",
+          "name": "ESLOVAQUIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SL",
+      "name": "Sierra Leona",
+      "iso2": "SL",
+      "iso3": "SLE",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "423",
+          "name": "SIERRA LEONA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SM",
+      "name": "San Marino",
+      "iso2": "SM",
+      "iso3": "SMR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "237",
+          "name": "SAN MARINO",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SN",
+      "name": "Senegal",
+      "iso2": "SN",
+      "iso3": "SEN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "420",
+          "name": "SENEGAL",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SO",
+      "name": "Somalia",
+      "iso2": "SO",
+      "iso3": "SOM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "448",
+          "name": "SOMALIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SR",
+      "name": "Surinam",
+      "iso2": "SR",
+      "iso3": "SUR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "133",
+          "name": "SURINAM",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SS",
+      "name": "Sudán del Sur",
+      "iso2": "SS",
+      "iso3": "SSD",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-ST",
+      "name": "Santo Tomé y Príncipe",
+      "iso2": "ST",
+      "iso3": "STP",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "449",
+          "name": "SANTO TOME Y PRINCIPE",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SV",
+      "name": "El Salvador",
+      "iso2": "SV",
+      "iso3": "SLV",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "123",
+          "name": "EL SALVADOR",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SX",
+      "name": "Sint Maarten",
+      "iso2": "SX",
+      "iso3": "SXM",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SY",
+      "name": "Siria",
+      "iso2": "SY",
+      "iso3": "SYR",
+      "status": "NEEDS_REVIEW",
+      "reason": "OFFICIAL_HISTORICAL_ALTERNATIVES",
+      "official": [
+        {
+          "code": "323",
+          "name": "SIRIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-SZ",
+      "name": "Esuatini",
+      "iso2": "SZ",
+      "iso3": "SWZ",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TC",
+      "name": "Islas Turcas y Caicos",
+      "iso2": "TC",
+      "iso3": "TCA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TD",
+      "name": "Chad",
+      "iso2": "TD",
+      "iso3": "TCD",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "433",
+          "name": "CHAD",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TF",
+      "name": "Territorios Australes Franceses",
+      "iso2": "TF",
+      "iso3": "ATF",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TG",
+      "name": "Togo",
+      "iso2": "TG",
+      "iso3": "TGO",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "451",
+          "name": "TOGO",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TH",
+      "name": "Tailandia",
+      "iso2": "TH",
+      "iso3": "THA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "325",
+          "name": "TAILANDIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TJ",
+      "name": "Tayikistán",
+      "iso2": "TJ",
+      "iso3": "TJK",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TK",
+      "name": "Tokelau",
+      "iso2": "TK",
+      "iso3": "TKL",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TL",
+      "name": "Timor-Leste",
+      "iso2": "TL",
+      "iso3": "TLS",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TM",
+      "name": "Turkmenistán",
+      "iso2": "TM",
+      "iso3": "TKM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "351",
+          "name": "TURKMENISTÁN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TN",
+      "name": "Túnez",
+      "iso2": "TN",
+      "iso3": "TUN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "452",
+          "name": "TUNEZ",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TO",
+      "name": "Tonga",
+      "iso2": "TO",
+      "iso3": "TON",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "508",
+          "name": "TONGA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TT",
+      "name": "Trinidad y Tobago",
+      "iso2": "TT",
+      "iso3": "TTO",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "124",
+          "name": "TRINIDAD Y TOBAGO",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TV",
+      "name": "Tuvalu",
+      "iso2": "TV",
+      "iso3": "TUV",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "515",
+          "name": "TUVALU",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TW",
+      "name": "Taiwán",
+      "iso2": "TW",
+      "iso3": "TWN",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-TZ",
+      "name": "Tanzania",
+      "iso2": "TZ",
+      "iso3": "TZA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "425",
+          "name": "TANZANIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-UA",
+      "name": "Ucrania",
+      "iso2": "UA",
+      "iso3": "UKR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "229",
+          "name": "UCRANIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-UG",
+      "name": "Uganda",
+      "iso2": "UG",
+      "iso3": "UGA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "426",
+          "name": "UGANDA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-UM",
+      "name": "Islas menores alejadas de EE. UU.",
+      "iso2": "UM",
+      "iso3": "UMI",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-UY",
+      "name": "Uruguay",
+      "iso2": "UY",
+      "iso3": "URY",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "125",
+          "name": "URUGUAY",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-VA",
+      "name": "Ciudad del Vaticano",
+      "iso2": "VA",
+      "iso3": "VAT",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-VC",
+      "name": "San Vicente y las Granadinas",
+      "iso2": "VC",
+      "iso3": "VCT",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-VE",
+      "name": "Venezuela",
+      "iso2": "VE",
+      "iso3": "VEN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "126",
+          "name": "VENEZUELA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-VG",
+      "name": "Islas Vírgenes Británicas",
+      "iso2": "VG",
+      "iso3": "VGB",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-VI",
+      "name": "Islas Vírgenes de EE. UU.",
+      "iso2": "VI",
+      "iso3": "VIR",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-VN",
+      "name": "Vietnam",
+      "iso2": "VN",
+      "iso3": "VNM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "341",
+          "name": "VIETNAM",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-VU",
+      "name": "Vanuatu",
+      "iso2": "VU",
+      "iso3": "VUT",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "516",
+          "name": "VANUATU",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-WF",
+      "name": "Wallis y Futuna",
+      "iso2": "WF",
+      "iso3": "WLF",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-WS",
+      "name": "Samoa",
+      "iso2": "WS",
+      "iso3": "WSM",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-xbeul1-mtt9t2oq",
+      "name": "KYRGYSTAN",
+      "iso2": "KG",
+      "iso3": "KGZ",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-YE",
+      "name": "Yemen",
+      "iso2": "YE",
+      "iso3": "YEM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "342",
+          "name": "YEMEN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-YT",
+      "name": "Mayotte",
+      "iso2": "YT",
+      "iso3": "MYT",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "443",
+          "name": "MAYOTTE",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-z5x0y1-mtt9qoj9",
+      "name": "TURQUIA",
+      "iso2": "TR",
+      "iso3": "TUR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "346",
+          "name": "TURQUÍA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-ZA",
+      "name": "Sudáfrica",
+      "iso2": "ZA",
+      "iso3": "ZAF",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-ZM",
+      "name": "Zambia",
+      "iso2": "ZM",
+      "iso3": "ZMB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "427",
+          "name": "ZAMBIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "COM-PAIS-ZW",
+      "name": "Zimbabue",
+      "iso2": "ZW",
+      "iso3": "ZWE",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "country-do",
+      "name": "REPUBLICA DOMINICANA",
+      "iso2": "DO",
+      "iso3": "DOM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "122",
+          "name": "REPÚBLICA DOMINICANA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "country-ec",
+      "name": "ECUADOR",
+      "iso2": "EC",
+      "iso3": "ECU",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "593",
+          "name": "ECUADOR",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "country-kz",
+      "name": "KAZAJSTAN",
+      "iso2": "KZ",
+      "iso3": "KAZ",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "348",
+          "name": "KAZAJSTÁN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "country-nl",
+      "name": "NETHERLANDS",
+      "iso2": "NL",
+      "iso3": "NLD",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "country-ru",
+      "name": "RUSIA",
+      "iso2": "RU",
+      "iso3": "RUS",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "230",
+          "name": "RUSIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "ab60abdc-fe53-4289-9ae2-8f749ee21cff",
+      "id": "country-us",
+      "name": "USA",
+      "iso2": "US",
+      "iso3": "USA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "110",
+          "name": "ESTADOS UNIDOS",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AD",
+      "name": "Andorra",
+      "iso2": "AD",
+      "iso3": "AND",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "233",
+          "name": "ANDORRA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AE",
+      "name": "EMIRATOS ÁRABES UNIDOS",
+      "iso2": "AE",
+      "iso3": "ARE",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "333",
+          "name": "EMIRATOS ARABES UNIDOS",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AF",
+      "name": "Afganistán",
+      "iso2": "AF",
+      "iso3": "AFG",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "301",
+          "name": "AFGANISTAN",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AG",
+      "name": "Antigua y Barbuda",
+      "iso2": "AG",
+      "iso3": "ATG",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "134",
+          "name": "ANTIGUA Y BARBUDA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AI",
+      "name": "Anguila",
+      "iso2": "AI",
+      "iso3": "AIA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "109",
+          "name": "ANGUILA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AL",
+      "name": "Albania",
+      "iso2": "AL",
+      "iso3": "ALB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "201",
+          "name": "ALBANIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AM",
+      "name": "Armenia",
+      "iso2": "AM",
+      "iso3": "ARM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "356",
+          "name": "ARMENIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AO",
+      "name": "Angola",
+      "iso2": "AO",
+      "iso3": "AGO",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "454",
+          "name": "ANGOLA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AQ",
+      "name": "Antártida",
+      "iso2": "AQ",
+      "iso3": "ATA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AR",
+      "name": "Argentina",
+      "iso2": "AR",
+      "iso3": "ARG",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "101",
+          "name": "ARGENTINA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AS",
+      "name": "Samoa Americana",
+      "iso2": "AS",
+      "iso3": "ASM",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AT",
+      "name": "Austria",
+      "iso2": "AT",
+      "iso3": "AUT",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "203",
+          "name": "AUSTRIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AU",
+      "name": "Australia",
+      "iso2": "AU",
+      "iso3": "AUS",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "501",
+          "name": "AUSTRALIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AW",
+      "name": "Aruba",
+      "iso2": "AW",
+      "iso3": "ABW",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "141",
+          "name": "ARUBA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AX",
+      "name": "Islas Aland",
+      "iso2": "AX",
+      "iso3": "ALA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-AZ",
+      "name": "Azerbaiyán",
+      "iso2": "AZ",
+      "iso3": "AZE",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BA",
+      "name": "Bosnia y Herzegovina",
+      "iso2": "BA",
+      "iso3": "BIH",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "242",
+          "name": "BOSNIA Y HERZEGOVINA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BB",
+      "name": "Barbados",
+      "iso2": "BB",
+      "iso3": "BRB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "130",
+          "name": "BARBADOS",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BD",
+      "name": "Bangladés",
+      "iso2": "BD",
+      "iso3": "BGD",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BE",
+      "name": "Bélgica",
+      "iso2": "BE",
+      "iso3": "BEL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "204",
+          "name": "BÉLGICA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BF",
+      "name": "Burkina Faso",
+      "iso2": "BF",
+      "iso3": "BFA",
+      "status": "NEEDS_REVIEW",
+      "reason": "OFFICIAL_HISTORICAL_ALTERNATIVES",
+      "official": [
+        {
+          "code": "402",
+          "name": "BURKINA FASO",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BG",
+      "name": "Bulgaria",
+      "iso2": "BG",
+      "iso3": "BGR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "205",
+          "name": "BULGARIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BH",
+      "name": "Baréin",
+      "iso2": "BH",
+      "iso3": "BHR",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BI",
+      "name": "Burundi",
+      "iso2": "BI",
+      "iso3": "BDI",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "404",
+          "name": "BURUNDÍ",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BJ",
+      "name": "Benín",
+      "iso2": "BJ",
+      "iso3": "BEN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "429",
+          "name": "BENIN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BL",
+      "name": "San Bartolomé",
+      "iso2": "BL",
+      "iso3": "BLM",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BM",
+      "name": "Bermudas",
+      "iso2": "BM",
+      "iso3": "BMU",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BN",
+      "name": "Brunéi",
+      "iso2": "BN",
+      "iso3": "BRN",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BO",
+      "name": "Bolivia",
+      "iso2": "BO",
+      "iso3": "BOL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "102",
+          "name": "BOLIVIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BQ",
+      "name": "Caribe neerlandés",
+      "iso2": "BQ",
+      "iso3": "BES",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BR",
+      "name": "Brasil",
+      "iso2": "BR",
+      "iso3": "BRA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "103",
+          "name": "BRASIL",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BS",
+      "name": "Bahamas",
+      "iso2": "BS",
+      "iso3": "BHS",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "129",
+          "name": "BAHAMAS",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BT",
+      "name": "Bután",
+      "iso2": "BT",
+      "iso3": "BTN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "329",
+          "name": "BUTÁN",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BV",
+      "name": "Isla Bouvet",
+      "iso2": "BV",
+      "iso3": "BVT",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BW",
+      "name": "Botsuana",
+      "iso2": "BW",
+      "iso3": "BWA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BY",
+      "name": "Bielorrusia",
+      "iso2": "BY",
+      "iso3": "BLR",
+      "status": "NEEDS_REVIEW",
+      "reason": "OFFICIAL_HISTORICAL_ALTERNATIVES",
+      "official": [
+        {
+          "code": "596",
+          "name": "BIELORRUSIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-BZ",
+      "name": "Belice",
+      "iso2": "BZ",
+      "iso3": "BLZ",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "135",
+          "name": "BELICE",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CA",
+      "name": "Canadá",
+      "iso2": "CA",
+      "iso3": "CAN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "104",
+          "name": "CANADÁ",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CC",
+      "name": "Islas Cocos",
+      "iso2": "CC",
+      "iso3": "CCK",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CD",
+      "name": "República Democrática del Congo",
+      "iso2": "CD",
+      "iso3": "COD",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CF",
+      "name": "República Centroafricana",
+      "iso2": "CF",
+      "iso3": "CAF",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "431",
+          "name": "REPUBLICA CENTROAFRICANA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CG",
+      "name": "Congo",
+      "iso2": "CG",
+      "iso3": "COG",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "406",
+          "name": "CONGO",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CH",
+      "name": "Suiza",
+      "iso2": "CH",
+      "iso3": "CHE",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "227",
+          "name": "SUIZA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CI",
+      "name": "Côte d’Ivoire",
+      "iso2": "CI",
+      "iso3": "CIV",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CK",
+      "name": "Islas Cook",
+      "iso2": "CK",
+      "iso3": "COK",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "519",
+          "name": "ISLAS COOK",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CL",
+      "name": "CHILE",
+      "iso2": "CL",
+      "iso3": "CHL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "108",
+          "name": "CHILE",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CM",
+      "name": "Camerún",
+      "iso2": "CM",
+      "iso3": "CMR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "405",
+          "name": "CAMERÚN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CN",
+      "name": "China",
+      "iso2": "CN",
+      "iso3": "CHN",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CO",
+      "name": "Colombia",
+      "iso2": "CO",
+      "iso3": "COL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "105",
+          "name": "COLOMBIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CR",
+      "name": "Costa Rica",
+      "iso2": "CR",
+      "iso3": "CRI",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "106",
+          "name": "COSTA RICA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CU",
+      "name": "Cuba",
+      "iso2": "CU",
+      "iso3": "CUB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "107",
+          "name": "CUBA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CV",
+      "name": "Cabo Verde",
+      "iso2": "CV",
+      "iso3": "CPV",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "456",
+          "name": "CABO VERDE",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CW",
+      "name": "Curazao",
+      "iso2": "CW",
+      "iso3": "CUW",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "127",
+          "name": "CURAZAO",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CX",
+      "name": "Isla de Navidad",
+      "iso2": "CX",
+      "iso3": "CXR",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CY",
+      "name": "CHIPRE",
+      "iso2": "CY",
+      "iso3": "CYP",
+      "status": "NEEDS_REVIEW",
+      "reason": "OFFICIAL_HISTORICAL_ALTERNATIVES",
+      "official": [
+        {
+          "code": "332",
+          "name": "CHIPRE",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-CZ",
+      "name": "Chequia",
+      "iso2": "CZ",
+      "iso3": "CZE",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-DE",
+      "name": "Alemania",
+      "iso2": "DE",
+      "iso3": "DEU",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "202",
+          "name": "ALEMANIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-DJ",
+      "name": "Yibuti",
+      "iso2": "DJ",
+      "iso3": "DJI",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-DK",
+      "name": "Dinamarca",
+      "iso2": "DK",
+      "iso3": "DNK",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "208",
+          "name": "DINAMARCA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-DM",
+      "name": "Dominica",
+      "iso2": "DM",
+      "iso3": "DMA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "136",
+          "name": "DOMINICA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-DO",
+      "name": "REPÚBLICA DOMINICANA",
+      "iso2": "DO",
+      "iso3": "DOM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "122",
+          "name": "REPÚBLICA DOMINICANA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-DZ",
+      "name": "Argelia",
+      "iso2": "DZ",
+      "iso3": "DZA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "403",
+          "name": "ARGELIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-EC",
+      "name": "ECUADOR",
+      "iso2": "EC",
+      "iso3": "ECU",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "593",
+          "name": "ECUADOR",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-EE",
+      "name": "Estonia",
+      "iso2": "EE",
+      "iso3": "EST",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "245",
+          "name": "ESTONIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-EG",
+      "name": "Egipto",
+      "iso2": "EG",
+      "iso3": "EGY",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "434",
+          "name": "EGIPTO",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-EH",
+      "name": "Sáhara Occidental",
+      "iso2": "EH",
+      "iso3": "ESH",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "447",
+          "name": "SAHARA OCCIDENTAL",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-ER",
+      "name": "Eritrea",
+      "iso2": "ER",
+      "iso3": "ERI",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "463",
+          "name": "ERITREA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-ES",
+      "name": "ESPAÑA",
+      "iso2": "ES",
+      "iso3": "ESP",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "209",
+          "name": "ESPAÑA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-ET",
+      "name": "Etiopía",
+      "iso2": "ET",
+      "iso3": "ETH",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "407",
+          "name": "ETIOPÍA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-FI",
+      "name": "Finlandia",
+      "iso2": "FI",
+      "iso3": "FIN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "212",
+          "name": "FINLANDIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-FJ",
+      "name": "Fiyi",
+      "iso2": "FJ",
+      "iso3": "FJI",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-FK",
+      "name": "Islas Malvinas",
+      "iso2": "FK",
+      "iso3": "FLK",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-FM",
+      "name": "Micronesia",
+      "iso2": "FM",
+      "iso3": "FSM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "512",
+          "name": "MICRONESIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-FO",
+      "name": "Islas Feroe",
+      "iso2": "FO",
+      "iso3": "FRO",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-FR",
+      "name": "Francia",
+      "iso2": "FR",
+      "iso3": "FRA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "211",
+          "name": "FRANCIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GA",
+      "name": "Gabón",
+      "iso2": "GA",
+      "iso3": "GAB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "435",
+          "name": "GABON",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GB",
+      "name": "REINO UNIDO",
+      "iso2": "GB",
+      "iso3": "GBR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "213",
+          "name": "REINO UNIDO",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GD",
+      "name": "Granada",
+      "iso2": "GD",
+      "iso3": "GRD",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "131",
+          "name": "GRANADA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GE",
+      "name": "GEORGIA",
+      "iso2": "GE",
+      "iso3": "GEO",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "246",
+          "name": "GEORGIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GF",
+      "name": "Guayana Francesa",
+      "iso2": "GF",
+      "iso3": "GUF",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GG",
+      "name": "Guernesey",
+      "iso2": "GG",
+      "iso3": "GGY",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GH",
+      "name": "Ghana",
+      "iso2": "GH",
+      "iso3": "GHA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "436",
+          "name": "GHANA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GI",
+      "name": "Gibraltar",
+      "iso2": "GI",
+      "iso3": "GIB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "239",
+          "name": "GIBRALTAR",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GL",
+      "name": "Groenlandia",
+      "iso2": "GL",
+      "iso3": "GRL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "247",
+          "name": "GROENLANDIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GM",
+      "name": "Gambia",
+      "iso2": "GM",
+      "iso3": "GMB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "408",
+          "name": "GAMBIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GN",
+      "name": "Guinea",
+      "iso2": "GN",
+      "iso3": "GIN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "409",
+          "name": "GUINEA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GP",
+      "name": "Guadalupe",
+      "iso2": "GP",
+      "iso3": "GLP",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "143",
+          "name": "GUADALUPE",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GQ",
+      "name": "Guinea Ecuatorial",
+      "iso2": "GQ",
+      "iso3": "GNQ",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "438",
+          "name": "GUINEA ECUATORIAL",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GR",
+      "name": "Grecia",
+      "iso2": "GR",
+      "iso3": "GRC",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "214",
+          "name": "GRECIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GS",
+      "name": "Islas Georgia del Sur y Sandwich del Sur",
+      "iso2": "GS",
+      "iso3": "SGS",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GT",
+      "name": "Guatemala",
+      "iso2": "GT",
+      "iso3": "GTM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "111",
+          "name": "GUATEMALA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GU",
+      "name": "Guam",
+      "iso2": "GU",
+      "iso3": "GUM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "517",
+          "name": "GUAM",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GW",
+      "name": "Guinea-Bisáu",
+      "iso2": "GW",
+      "iso3": "GNB",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-GY",
+      "name": "Guyana",
+      "iso2": "GY",
+      "iso3": "GUY",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "132",
+          "name": "GUYANA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-HK",
+      "name": "RAE de Hong Kong (China)",
+      "iso2": "HK",
+      "iso3": "HKG",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-HM",
+      "name": "Islas Heard y McDonald",
+      "iso2": "HM",
+      "iso3": "HMD",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "343",
+          "name": "ISLAS HEARD Y MCDONALD",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-HN",
+      "name": "Honduras",
+      "iso2": "HN",
+      "iso3": "HND",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "113",
+          "name": "HONDURAS",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-HR",
+      "name": "CROACIA",
+      "iso2": "HR",
+      "iso3": "HRV",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "243",
+          "name": "CROACIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-HT",
+      "name": "Haití",
+      "iso2": "HT",
+      "iso3": "HTI",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "112",
+          "name": "HAITÍ",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-HU",
+      "name": "Hungría",
+      "iso2": "HU",
+      "iso3": "HUN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "216",
+          "name": "HUNGRÍA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-ID",
+      "name": "Indonesia",
+      "iso2": "ID",
+      "iso3": "IDN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "310",
+          "name": "INDONESIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-IE",
+      "name": "Irlanda",
+      "iso2": "IE",
+      "iso3": "IRL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "217",
+          "name": "IRLANDA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-IL",
+      "name": "Israel",
+      "iso2": "IL",
+      "iso3": "ISR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "313",
+          "name": "ISRAEL",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-IM",
+      "name": "Isla de Man",
+      "iso2": "IM",
+      "iso3": "IMN",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-IN",
+      "name": "India",
+      "iso2": "IN",
+      "iso3": "IND",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "309",
+          "name": "INDIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-IO",
+      "name": "Territorio Británico del Océano Índico",
+      "iso2": "IO",
+      "iso3": "IOT",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-IQ",
+      "name": "Irak",
+      "iso2": "IQ",
+      "iso3": "IRQ",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "311",
+          "name": "IRAK",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-IR",
+      "name": "Irán",
+      "iso2": "IR",
+      "iso3": "IRN",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-IS",
+      "name": "Islandia",
+      "iso2": "IS",
+      "iso3": "ISL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "218",
+          "name": "ISLANDIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-IT",
+      "name": "ITALIA",
+      "iso2": "IT",
+      "iso3": "ITA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "219",
+          "name": "ITALIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-JE",
+      "name": "Jersey",
+      "iso2": "JE",
+      "iso3": "JEY",
+      "status": "NEEDS_REVIEW",
+      "reason": "OFFICIAL_HISTORICAL_ALTERNATIVES",
+      "official": [
+        {
+          "code": "499",
+          "name": "JERSEY",
+          "page": 81
+        },
+        {
+          "code": "832",
+          "name": "JERSEY",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-JM",
+      "name": "Jamaica",
+      "iso2": "JM",
+      "iso3": "JAM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "114",
+          "name": "JAMAICA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-JO",
+      "name": "Jordania",
+      "iso2": "JO",
+      "iso3": "JOR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "315",
+          "name": "JORDANIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-JP",
+      "name": "Japón",
+      "iso2": "JP",
+      "iso3": "JPN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "314",
+          "name": "JAPÓN",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-KE",
+      "name": "Kenia",
+      "iso2": "KE",
+      "iso3": "KEN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "439",
+          "name": "KENIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-KG",
+      "name": "KIRGUISTÁN",
+      "iso2": "KG",
+      "iso3": "KGZ",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-KH",
+      "name": "Camboya",
+      "iso2": "KH",
+      "iso3": "KHM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "304",
+          "name": "CAMBOYA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-KI",
+      "name": "Kiribati",
+      "iso2": "KI",
+      "iso3": "KIR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "510",
+          "name": "KIRIBATI",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-KM",
+      "name": "Comoras",
+      "iso2": "KM",
+      "iso3": "COM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "458",
+          "name": "COMORAS",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-KN",
+      "name": "San Cristóbal y Nieves",
+      "iso2": "KN",
+      "iso3": "KNA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-KP",
+      "name": "Corea del Norte",
+      "iso2": "KP",
+      "iso3": "PRK",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-KR",
+      "name": "Corea del Sur",
+      "iso2": "KR",
+      "iso3": "KOR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "330",
+          "name": "COREA DEL SUR",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-KW",
+      "name": "Kuwait",
+      "iso2": "KW",
+      "iso3": "KWT",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "316",
+          "name": "KUWAIT",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-KY",
+      "name": "Islas Caimán",
+      "iso2": "KY",
+      "iso3": "CYM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "145",
+          "name": "ISLAS CAIMÁN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-KZ",
+      "name": "KAZAJSTÁN",
+      "iso2": "KZ",
+      "iso3": "KAZ",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "348",
+          "name": "KAZAJSTÁN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-LA",
+      "name": "Laos",
+      "iso2": "LA",
+      "iso3": "LAO",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-LB",
+      "name": "Líbano",
+      "iso2": "LB",
+      "iso3": "LBN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "318",
+          "name": "LIBANO",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-LC",
+      "name": "Santa Lucía",
+      "iso2": "LC",
+      "iso3": "LCA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "138",
+          "name": "SANTA LUCÍA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-LI",
+      "name": "Liechtenstein",
+      "iso2": "LI",
+      "iso3": "LIE",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "234",
+          "name": "LIECHTENSTEIN",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-LK",
+      "name": "Sri Lanka",
+      "iso2": "LK",
+      "iso3": "LKA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-LR",
+      "name": "Liberia",
+      "iso2": "LR",
+      "iso3": "LBR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "410",
+          "name": "LIBERIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-LS",
+      "name": "Lesoto",
+      "iso2": "LS",
+      "iso3": "LSO",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-LT",
+      "name": "Lituania",
+      "iso2": "LT",
+      "iso3": "LTU",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "249",
+          "name": "LITUANIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-LU",
+      "name": "Luxemburgo",
+      "iso2": "LU",
+      "iso3": "LUX",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "220",
+          "name": "LUXEMBURGO",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-LV",
+      "name": "Letonia",
+      "iso2": "LV",
+      "iso3": "LVA",
+      "status": "NEEDS_REVIEW",
+      "reason": "OFFICIAL_HISTORICAL_ALTERNATIVES",
+      "official": [
+        {
+          "code": "248",
+          "name": "LETONIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-LY",
+      "name": "Libia",
+      "iso2": "LY",
+      "iso3": "LBY",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "602",
+          "name": "LIBIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MA",
+      "name": "Marruecos",
+      "iso2": "MA",
+      "iso3": "MAR",
+      "status": "NEEDS_REVIEW",
+      "reason": "OFFICIAL_HISTORICAL_ALTERNATIVES",
+      "official": [
+        {
+          "code": "415",
+          "name": "MARRUECOS",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MC",
+      "name": "Mónaco",
+      "iso2": "MC",
+      "iso3": "MCO",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "235",
+          "name": "MÓNACO",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MD",
+      "name": "Moldavia",
+      "iso2": "MD",
+      "iso3": "MDA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-ME",
+      "name": "Montenegro",
+      "iso2": "ME",
+      "iso3": "MNE",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "382",
+          "name": "MONTENEGRO",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MF",
+      "name": "San Martín",
+      "iso2": "MF",
+      "iso3": "MAF",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MG",
+      "name": "Madagascar",
+      "iso2": "MG",
+      "iso3": "MDG",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "412",
+          "name": "MADAGASCAR",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MH",
+      "name": "Islas Marshall",
+      "iso2": "MH",
+      "iso3": "MHL",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MK",
+      "name": "Macedonia del Norte",
+      "iso2": "MK",
+      "iso3": "MKD",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-ML",
+      "name": "Mali",
+      "iso2": "ML",
+      "iso3": "MLI",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "414",
+          "name": "MALÍ",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MM",
+      "name": "Myanmar (Birmania)",
+      "iso2": "MM",
+      "iso3": "MMR",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MN",
+      "name": "Mongolia",
+      "iso2": "MN",
+      "iso3": "MNG",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MO",
+      "name": "RAE de Macao (China)",
+      "iso2": "MO",
+      "iso3": "MAC",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MP",
+      "name": "Islas Marianas del Norte",
+      "iso2": "MP",
+      "iso3": "MNP",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MQ",
+      "name": "Martinica",
+      "iso2": "MQ",
+      "iso3": "MTQ",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "148",
+          "name": "MARTINICA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MR",
+      "name": "Mauritania",
+      "iso2": "MR",
+      "iso3": "MRT",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "416",
+          "name": "MAURITANIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MS",
+      "name": "Montserrat",
+      "iso2": "MS",
+      "iso3": "MSR",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MT",
+      "name": "Malta",
+      "iso2": "MT",
+      "iso3": "MLT",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "221",
+          "name": "MALTA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MU",
+      "name": "Mauricio",
+      "iso2": "MU",
+      "iso3": "MUS",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "441",
+          "name": "MAURICIO",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MV",
+      "name": "Maldivas",
+      "iso2": "MV",
+      "iso3": "MDV",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "335",
+          "name": "MALDIVAS",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MW",
+      "name": "Malaui",
+      "iso2": "MW",
+      "iso3": "MWI",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MX",
+      "name": "México",
+      "iso2": "MX",
+      "iso3": "MEX",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "116",
+          "name": "MÉXICO",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MY",
+      "name": "Malasia",
+      "iso2": "MY",
+      "iso3": "MYS",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "319",
+          "name": "MALASIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-MZ",
+      "name": "Mozambique",
+      "iso2": "MZ",
+      "iso3": "MOZ",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "442",
+          "name": "MOZAMBIQUE",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-NA",
+      "name": "Namibia",
+      "iso2": "NA",
+      "iso3": "NAM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "460",
+          "name": "NAMIBIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-NC",
+      "name": "Nueva Caledonia",
+      "iso2": "NC",
+      "iso3": "NCL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "524",
+          "name": "NUEVA CALEDONIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-NE",
+      "name": "Níger",
+      "iso2": "NE",
+      "iso3": "NER",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "444",
+          "name": "NIGER",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-NF",
+      "name": "Isla Norfolk",
+      "iso2": "NF",
+      "iso3": "NFK",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-NG",
+      "name": "Nigeria",
+      "iso2": "NG",
+      "iso3": "NGA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "417",
+          "name": "NIGERIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-NI",
+      "name": "Nicaragua",
+      "iso2": "NI",
+      "iso3": "NIC",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "117",
+          "name": "NICARAGUA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-NL",
+      "name": "PAÍSES BAJOS",
+      "iso2": "NL",
+      "iso3": "NLD",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-NO",
+      "name": "Noruega",
+      "iso2": "NO",
+      "iso3": "NOR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "222",
+          "name": "NORUEGA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-NP",
+      "name": "Nepal",
+      "iso2": "NP",
+      "iso3": "NPL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "336",
+          "name": "NEPAL",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-NR",
+      "name": "Nauru",
+      "iso2": "NR",
+      "iso3": "NRU",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "513",
+          "name": "NAURU",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-NU",
+      "name": "Niue",
+      "iso2": "NU",
+      "iso3": "NIU",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-NZ",
+      "name": "Nueva Zelanda",
+      "iso2": "NZ",
+      "iso3": "NZL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "503",
+          "name": "NUEVA ZELANDA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-OM",
+      "name": "Omán",
+      "iso2": "OM",
+      "iso3": "OMN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "337",
+          "name": "OMAN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-PA",
+      "name": "Panamá",
+      "iso2": "PA",
+      "iso3": "PAN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "118",
+          "name": "PANAMÁ",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-PE",
+      "name": "Perú",
+      "iso2": "PE",
+      "iso3": "PER",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "120",
+          "name": "PERÚ",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-PF",
+      "name": "Polinesia Francesa",
+      "iso2": "PF",
+      "iso3": "PYF",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "526",
+          "name": "POLINESIA FRANCESA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-PG",
+      "name": "Papúa Nueva Guinea",
+      "iso2": "PG",
+      "iso3": "PNG",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "507",
+          "name": "PAPUA NUEVA GUINEA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-PH",
+      "name": "Filipinas",
+      "iso2": "PH",
+      "iso3": "PHL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "308",
+          "name": "FILIPINAS",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-PK",
+      "name": "Pakistán",
+      "iso2": "PK",
+      "iso3": "PAK",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "322",
+          "name": "PAKISTÁN",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-PL",
+      "name": "POLONIA",
+      "iso2": "PL",
+      "iso3": "POL",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "223",
+          "name": "POLONIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-PM",
+      "name": "San Pedro y Miquelón",
+      "iso2": "PM",
+      "iso3": "SPM",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-PN",
+      "name": "Islas Pitcairn",
+      "iso2": "PN",
+      "iso3": "PCN",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-PR",
+      "name": "Puerto Rico",
+      "iso2": "PR",
+      "iso3": "PRI",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "121",
+          "name": "PUERTO RICO",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-PS",
+      "name": "Territorios Palestinos",
+      "iso2": "PS",
+      "iso3": "PSE",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-PT",
+      "name": "PORTUGAL",
+      "iso2": "PT",
+      "iso3": "PRT",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "224",
+          "name": "PORTUGAL",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-PW",
+      "name": "Palaos",
+      "iso2": "PW",
+      "iso3": "PLW",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-PY",
+      "name": "Paraguay",
+      "iso2": "PY",
+      "iso3": "PRY",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "119",
+          "name": "PARAGUAY",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-QA",
+      "name": "Catar",
+      "iso2": "QA",
+      "iso3": "QAT",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-RE",
+      "name": "Reunión",
+      "iso2": "RE",
+      "iso3": "REU",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "465",
+          "name": "REUNION",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-RO",
+      "name": "Rumanía",
+      "iso2": "RO",
+      "iso3": "ROU",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "225",
+          "name": "RUMANIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-RS",
+      "name": "Serbia",
+      "iso2": "RS",
+      "iso3": "SRB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "688",
+          "name": "SERBIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-RU",
+      "name": "RUSIA",
+      "iso2": "RU",
+      "iso3": "RUS",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "230",
+          "name": "RUSIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-RW",
+      "name": "Ruanda",
+      "iso2": "RW",
+      "iso3": "RWA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SA",
+      "name": "Arabia Saudí",
+      "iso2": "SA",
+      "iso3": "SAU",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SB",
+      "name": "Islas Salomón",
+      "iso2": "SB",
+      "iso3": "SLB",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SC",
+      "name": "Seychelles",
+      "iso2": "SC",
+      "iso3": "SYC",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "446",
+          "name": "SEYCHELLES",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SD",
+      "name": "Sudán",
+      "iso2": "SD",
+      "iso3": "SDN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "421",
+          "name": "SUDÁN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SE",
+      "name": "Suecia",
+      "iso2": "SE",
+      "iso3": "SWE",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "226",
+          "name": "SUECIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SG",
+      "name": "Singapur",
+      "iso2": "SG",
+      "iso3": "SGP",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "338",
+          "name": "SINGAPUR",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SH",
+      "name": "Santa Elena",
+      "iso2": "SH",
+      "iso3": "SHN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "466",
+          "name": "SANTA ELENA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SI",
+      "name": "Eslovenia",
+      "iso2": "SI",
+      "iso3": "SVN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "244",
+          "name": "ESLOVENIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SJ",
+      "name": "Svalbard y Jan Mayen",
+      "iso2": "SJ",
+      "iso3": "SJM",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SK",
+      "name": "Eslovaquia",
+      "iso2": "SK",
+      "iso3": "SVK",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "252",
+          "name": "ESLOVAQUIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SL",
+      "name": "Sierra Leona",
+      "iso2": "SL",
+      "iso3": "SLE",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "423",
+          "name": "SIERRA LEONA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SM",
+      "name": "San Marino",
+      "iso2": "SM",
+      "iso3": "SMR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "237",
+          "name": "SAN MARINO",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SN",
+      "name": "Senegal",
+      "iso2": "SN",
+      "iso3": "SEN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "420",
+          "name": "SENEGAL",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SO",
+      "name": "Somalia",
+      "iso2": "SO",
+      "iso3": "SOM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "448",
+          "name": "SOMALIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SR",
+      "name": "Surinam",
+      "iso2": "SR",
+      "iso3": "SUR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "133",
+          "name": "SURINAM",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SS",
+      "name": "Sudán del Sur",
+      "iso2": "SS",
+      "iso3": "SSD",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-ST",
+      "name": "Santo Tomé y Príncipe",
+      "iso2": "ST",
+      "iso3": "STP",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "449",
+          "name": "SANTO TOME Y PRINCIPE",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SV",
+      "name": "El Salvador",
+      "iso2": "SV",
+      "iso3": "SLV",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "123",
+          "name": "EL SALVADOR",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SX",
+      "name": "Sint Maarten",
+      "iso2": "SX",
+      "iso3": "SXM",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SY",
+      "name": "Siria",
+      "iso2": "SY",
+      "iso3": "SYR",
+      "status": "NEEDS_REVIEW",
+      "reason": "OFFICIAL_HISTORICAL_ALTERNATIVES",
+      "official": [
+        {
+          "code": "323",
+          "name": "SIRIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-SZ",
+      "name": "Esuatini",
+      "iso2": "SZ",
+      "iso3": "SWZ",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TC",
+      "name": "Islas Turcas y Caicos",
+      "iso2": "TC",
+      "iso3": "TCA",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TD",
+      "name": "Chad",
+      "iso2": "TD",
+      "iso3": "TCD",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "433",
+          "name": "CHAD",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TF",
+      "name": "Territorios Australes Franceses",
+      "iso2": "TF",
+      "iso3": "ATF",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TG",
+      "name": "Togo",
+      "iso2": "TG",
+      "iso3": "TGO",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "451",
+          "name": "TOGO",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TH",
+      "name": "Tailandia",
+      "iso2": "TH",
+      "iso3": "THA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "325",
+          "name": "TAILANDIA",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TJ",
+      "name": "TAYIKISTÁN",
+      "iso2": "TJ",
+      "iso3": "TJK",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TK",
+      "name": "Tokelau",
+      "iso2": "TK",
+      "iso3": "TKL",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TL",
+      "name": "Timor-Leste",
+      "iso2": "TL",
+      "iso3": "TLS",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TM",
+      "name": "Turkmenistán",
+      "iso2": "TM",
+      "iso3": "TKM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "351",
+          "name": "TURKMENISTÁN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TN",
+      "name": "Túnez",
+      "iso2": "TN",
+      "iso3": "TUN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "452",
+          "name": "TUNEZ",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TO",
+      "name": "Tonga",
+      "iso2": "TO",
+      "iso3": "TON",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "508",
+          "name": "TONGA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TR",
+      "name": "TURQUÍA",
+      "iso2": "TR",
+      "iso3": "TUR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "346",
+          "name": "TURQUÍA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TT",
+      "name": "Trinidad y Tobago",
+      "iso2": "TT",
+      "iso3": "TTO",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "124",
+          "name": "TRINIDAD Y TOBAGO",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TV",
+      "name": "Tuvalu",
+      "iso2": "TV",
+      "iso3": "TUV",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "515",
+          "name": "TUVALU",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TW",
+      "name": "Taiwán",
+      "iso2": "TW",
+      "iso3": "TWN",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-TZ",
+      "name": "Tanzania",
+      "iso2": "TZ",
+      "iso3": "TZA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "425",
+          "name": "TANZANIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-UA",
+      "name": "UCRANIA",
+      "iso2": "UA",
+      "iso3": "UKR",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "229",
+          "name": "UCRANIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-UG",
+      "name": "Uganda",
+      "iso2": "UG",
+      "iso3": "UGA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "426",
+          "name": "UGANDA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-UM",
+      "name": "Islas menores alejadas de EE. UU.",
+      "iso2": "UM",
+      "iso3": "UMI",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-US",
+      "name": "ESTADOS UNIDOS",
+      "iso2": "US",
+      "iso3": "USA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "110",
+          "name": "ESTADOS UNIDOS",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-UY",
+      "name": "Uruguay",
+      "iso2": "UY",
+      "iso3": "URY",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "125",
+          "name": "URUGUAY",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-UZ",
+      "name": "UZBEKISTÁN",
+      "iso2": "UZ",
+      "iso3": "UZB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "352",
+          "name": "UZBEKISTÁN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-VA",
+      "name": "Ciudad del Vaticano",
+      "iso2": "VA",
+      "iso3": "VAT",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-VC",
+      "name": "San Vicente y las Granadinas",
+      "iso2": "VC",
+      "iso3": "VCT",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-VE",
+      "name": "Venezuela",
+      "iso2": "VE",
+      "iso3": "VEN",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "126",
+          "name": "VENEZUELA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-VG",
+      "name": "Islas Vírgenes Británicas",
+      "iso2": "VG",
+      "iso3": "VGB",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-VI",
+      "name": "Islas Vírgenes de EE. UU.",
+      "iso2": "VI",
+      "iso3": "VIR",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-VN",
+      "name": "Vietnam",
+      "iso2": "VN",
+      "iso3": "VNM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "341",
+          "name": "VIETNAM",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-VU",
+      "name": "Vanuatu",
+      "iso2": "VU",
+      "iso3": "VUT",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "516",
+          "name": "VANUATU",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-WF",
+      "name": "Wallis y Futuna",
+      "iso2": "WF",
+      "iso3": "WLF",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-WS",
+      "name": "Samoa",
+      "iso2": "WS",
+      "iso3": "WSM",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-YE",
+      "name": "Yemen",
+      "iso2": "YE",
+      "iso3": "YEM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "342",
+          "name": "YEMEN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-YT",
+      "name": "Mayotte",
+      "iso2": "YT",
+      "iso3": "MYT",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "443",
+          "name": "MAYOTTE",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-ZA",
+      "name": "Sudáfrica",
+      "iso2": "ZA",
+      "iso3": "ZAF",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-ZM",
+      "name": "Zambia",
+      "iso2": "ZM",
+      "iso3": "ZMB",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "427",
+          "name": "ZAMBIA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "COM-PAIS-ZW",
+      "name": "Zimbabue",
+      "iso2": "ZW",
+      "iso3": "ZWE",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "country-do",
+      "name": "REPUBLICA DOMINICANA",
+      "iso2": "DO",
+      "iso3": "DOM",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "122",
+          "name": "REPÚBLICA DOMINICANA",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "country-ec",
+      "name": "ECUADOR",
+      "iso2": "EC",
+      "iso3": "ECU",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "593",
+          "name": "ECUADOR",
+          "page": 82
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "country-kz",
+      "name": "KAZAJSTAN",
+      "iso2": "KZ",
+      "iso3": "KAZ",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "348",
+          "name": "KAZAJSTÁN",
+          "page": 80
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "country-nl",
+      "name": "NETHERLANDS",
+      "iso2": "NL",
+      "iso3": "NLD",
+      "status": "NEEDS_REVIEW",
+      "reason": "NO_UNIQUE_EXACT_NAME",
+      "official": []
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "country-ru",
+      "name": "RUSIA",
+      "iso2": "RU",
+      "iso3": "RUS",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "230",
+          "name": "RUSIA",
+          "page": 81
+        }
+      ]
+    },
+    {
+      "companyId": "cf331b82-7ac3-4065-9e38-d0bbcde96cd5",
+      "id": "country-us",
+      "name": "USA",
+      "iso2": "US",
+      "iso3": "USA",
+      "status": "ADD",
+      "reason": "",
+      "official": [
+        {
+          "code": "110",
+          "name": "ESTADOS UNIDOS",
+          "page": 80
+        }
+      ]
+    }
+  ]
+}
