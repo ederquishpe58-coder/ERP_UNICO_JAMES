@@ -31,7 +31,7 @@ const ADMIN_ROLES = ["ADMIN"];
 function requiredCapability(action, method, body = {}) {
   if (action.startsWith("manager-")) {
     if (method === "GET") return manager.CAPS.view;
-    return ({"manager-validate":manager.CAPS.validate,"manager-recover":manager.CAPS.recover,"manager-retry":manager.CAPS.retry,
+    return ({"manager-validate":manager.CAPS.validate,"manager-recover":manager.CAPS.recover,"manager-retry":manager.CAPS.retry,"manager-break-glass-retry":manager.CAPS.breakGlassRetry,
       "manager-pause":manager.CAPS.pause,"manager-resume":manager.CAPS.resume,"manager-evidence":manager.CAPS.evidence,
       "manager-correct":manager.CAPS.correct,"manager-cancel":manager.CAPS.view})[action] || "";
   }
@@ -326,6 +326,7 @@ module.exports = async function handler(request, response) {
 
     if (action.startsWith("manager-")) {
       if (capabilityId !== manager.CAPS.view) await assertUserCapability(auth.accessToken, auth.companyId, manager.CAPS.view);
+      if (action === "manager-break-glass-retry") await assertUserCapability(auth.accessToken, auth.companyId, manager.CAPS.retry);
       const userClient=getSupabaseUserContext(auth.accessToken);
       const documentId=body.documentId||queryValue(request,"documentId");
       let data;
@@ -341,6 +342,8 @@ module.exports = async function handler(request, response) {
       }
       else if(request.method==="POST"&&action==="manager-retry") {
         data=await require('./sri/_lib/manual-retry-service.cjs').retrySameDocument(client,userClient,auth.companyId,documentId,auth.user.id,body);
+      } else if(request.method==="POST"&&action==="manager-break-glass-retry") {
+        data=await manager.breakGlassRetry(client,userClient,auth.companyId,documentId,auth.user.id,body);
       } else if(request.method==="POST"&&["manager-pause","manager-resume"].includes(action)) {
         const result=await userClient.rpc("erp_sri_manager_control",{p_company_id:auth.companyId,p_document_id:documentId,p_action:action==="manager-pause"?"PAUSE":"RESUME",p_operation_id:body.operationId,p_expected_version:body.version,p_reason:body.reason});
         if(result.error)throw new SriValidationError(result.error.message);

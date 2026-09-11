@@ -9,6 +9,7 @@ const { sha256 }=require('./artifact-store.cjs');
 const { assertDocumentXmlIdentity }=require('./xml-identity.cjs');
 const { verifyXadesBes }=require('./xades-signer.cjs');
 const { evaluateManualSameDocumentRetry }=require('./manual-retry-policy.cjs');
+const { COMPATIBLE_NORMAL_BLOCKS,evaluateBreakGlassRetry }=require('./break-glass-retry-policy.cjs');
 function assertId(id){if(!uuidOrNull(id))throw new SriValidationError('Seleccione un comprobante canónico.');return id;}
 async function detail(client,userClient,companyId,documentId){
  const data=await getDocumentDetail(client,companyId,assertId(documentId));
@@ -34,7 +35,13 @@ async function detail(client,userClient,companyId,documentId){
    actions:capabilities.includes(CAPS.cancellation)?[event?'SUBMIT_PORTAL_REFERENCE':'REQUEST']:[],trackingOnly:true,
    unavailableReason:'Seguimiento interno de anulación. El comprobante sigue vigente. La anulación final está bloqueada hasta disponer del workflow canónico completo de este tipo documental.'};
  }
- if(capabilities.includes(CAPS.retry)&&evaluateManualSameDocumentRetry(data).allowed) data.manualRetryValidation=await validateDocument(client,data);
+ const normalStructural=evaluateManualSameDocumentRetry(data);
+ if(capabilities.includes(CAPS.retry)&&normalStructural.allowed) data.manualRetryValidation=await validateDocument(client,data);
+ const breakGlassStructural=evaluateBreakGlassRetry(data,{normal:normalStructural});
+ if(capabilities.includes(CAPS.breakGlassRetry)
+     && (COMPATIBLE_NORMAL_BLOCKS.has(normalStructural.reasonCode)||breakGlassStructural.reasonCode==='VALIDATION_REQUIRED')) {
+  data.breakGlassValidation=await validateDocument(client,data);
+ }
  data.managerPolicy=managerPolicy(data,capabilities);
  return data;
 }
@@ -68,5 +75,8 @@ async function evidence(client,userClient,companyId,documentId,actorUserId,input
  await recover(client,userClient,companyId,documentId,actorUserId);
  const args={p_company_id:companyId,p_document_id:documentId,p_operation_id:input.operationId,p_reason:input.reason,p_access_key:input.accessKey,p_authorization_number:input.authorizationNumber,p_evidence_sha256:evidenceHash};
  dbError(await userClient.rpc('erp_sri_manager_record_evidence',args),'Evidencia externa');return detail(client,userClient,companyId,documentId);
-}
-module.exports={CAPS,detail,list,recover,evidence,validateDocument};
+ }
+ async function breakGlassRetry(client,userClient,companyId,documentId,actorUserId,input={},deps={}){
+  return require('./break-glass-retry-service.cjs').breakGlassRetry(client,userClient,companyId,documentId,actorUserId,input,deps);
+ }
+ module.exports={CAPS,detail,list,recover,evidence,breakGlassRetry,validateDocument};

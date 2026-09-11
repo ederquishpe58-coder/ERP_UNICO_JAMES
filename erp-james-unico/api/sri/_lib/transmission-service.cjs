@@ -612,7 +612,7 @@ async function processAuthorization(client, settings, document, actorUserId, opt
       await settleAuthorizationJob(client, job, attempt, actorUserId, persisted.hash);
       manualSettled = manualRecovery;
       const authorizedDetail = await getDocumentDetail(client, current.company_id, current.id);
-      await generateAccountingForDocument(client, current.id, actorUserId);
+      if (options.skipAccounting !== true) await generateAccountingForDocument(client, current.id, actorUserId);
       return ensureRide(client, authorizedDetail, actorUserId);
     }
     if (["NO AUTORIZADO", "NO_AUTORIZADO"].includes(result.state)) {
@@ -703,10 +703,13 @@ async function processReception(client, settings, document, actorUserId, options
   const manualClaim = options.manualReceptionClaim;
   const assertManual = async () => {
     if (!manualClaim) return;
-    const ok = dbError(await client.rpc('assert_sri_manual_reception_claim', {
+    const claimRpc = manualClaim.break_glass_same_document === true
+      ? 'assert_sri_break_glass_reception_claim'
+      : 'assert_sri_manual_reception_claim';
+    const ok = dbError(await client.rpc(claimRpc, {
       p_transmission_id: manualClaim.id, p_worker_id: manualClaim.worker_id,
       p_attempt_id: manualClaim.claim_attempt.id, p_actor_user_id: actorUserId
-    }), 'Vigencia del reintento manual');
+    }), manualClaim.break_glass_same_document === true ? 'Vigencia del reintento extraordinario' : 'Vigencia del reintento manual');
     if (ok !== true) throw new SriError('Otro proceso está trabajando este comprobante.', {code:'SRI_MANUAL_RECEPTION_CLAIM_LOST',httpStatus:409});
   };
   let job = manualClaim || await ensureJob(client, current, settings, "RECEPTION", signed.file.id);
@@ -728,7 +731,8 @@ async function processReception(client, settings, document, actorUserId, options
   assertJobIdentity(job, current, "RECEPTION", signed.file.id);
   const attempt = manualClaim?.claim_attempt || await beginAttempt(client, job, sha256(signedXml));
   // Remove the one-shot hooks before any follow-up authorization; never recurse into reception.
-  const followup = manualClaim ? {timeoutMs:options.timeoutMs,fetchImpl:options.fetchImpl,managerRecovery:true,recoveryQuery:true} : options;
+  const followup = manualClaim ? {timeoutMs:options.timeoutMs,fetchImpl:options.fetchImpl,managerRecovery:true,recoveryQuery:true,
+    skipAccounting: manualClaim.break_glass_same_document === true} : options;
   try {
     await assertManual();
     const result = await sendForReception(signedXml, {

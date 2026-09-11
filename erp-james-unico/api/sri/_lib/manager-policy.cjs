@@ -1,6 +1,7 @@
 const { recoveryPolicy } = require('./recovery-policy.cjs');
 const { evaluateManualSameDocumentRetry } = require('./manual-retry-policy.cjs');
-const CAPS = Object.freeze({ view:'commercial.electronic_documents.view', validate:'commercial.electronic_documents.validate', recover:'commercial.electronic_documents.authorize', retry:'commercial.electronic_documents.authorize', pause:'commercial.electronic_documents.authorize', resume:'commercial.electronic_documents.authorize', correct:'commercial.electronic_documents.correct', evidence:'commercial.electronic_documents.reconcile', cancellation:'commercial.electronic_documents.annul' });
+const { COMPATIBLE_NORMAL_BLOCKS, evaluateBreakGlassRetry } = require('./break-glass-retry-policy.cjs');
+const CAPS = Object.freeze({ view:'commercial.electronic_documents.view', validate:'commercial.electronic_documents.validate', recover:'commercial.electronic_documents.authorize', retry:'commercial.electronic_documents.authorize', pause:'commercial.electronic_documents.authorize', resume:'commercial.electronic_documents.authorize', correct:'commercial.electronic_documents.correct', evidence:'commercial.electronic_documents.reconcile', breakGlassRetry:'commercial.electronic_documents.break_glass_retry', cancellation:'commercial.electronic_documents.annul' });
 const DRAFT = new Set(['BORRADOR','VALIDADO','XML_GENERADO','FIRMADO']);
 const RECOVERABLE = new Set(['ENVIADO_SRI','RECIBIDO_SRI','PENDIENTE_REINTENTO','ERROR_ENVIO','DEVUELTO','NO_AUTORIZADO']);
 function managerPolicy(detail, capabilities=[], now=Date.now()) {
@@ -17,12 +18,16 @@ function managerPolicy(detail, capabilities=[], now=Date.now()) {
  function action(name,eligible,reason=''){actions[name]={allowed:allowed.has(CAPS[name])&&eligible,reason:!allowed.has(CAPS[name])?'Requiere permiso: '+CAPS[name]:reason};}
  action('validate',true);action('recover',recoverable&&!busy&&!waiting,busy?'Otro proceso está trabajando este comprobante.':waiting?'Espere hasta la próxima consulta programada.':!recoverable?'El estado fiscal no permite recuperación.':'');
  const manualRetry=evaluateManualSameDocumentRetry(detail,{now,requireValidation:true,validation:detail.manualRetryValidation});
+ const breakGlassNormal=evaluateManualSameDocumentRetry(detail,{now,requireValidation:true,validation:detail.breakGlassValidation});
+ const breakGlassRetry={...evaluateBreakGlassRetry(detail,{now,normal:breakGlassNormal,validation:detail.breakGlassValidation}),offered:COMPATIBLE_NORMAL_BLOCKS.has(breakGlassNormal.reasonCode)};
  action('retry',manualRetry.allowed,manualRetry.humanReason);
+ actions.breakGlassRetry={allowed:allowed.has(CAPS.breakGlassRetry)&&allowed.has(CAPS.retry)&&breakGlassRetry.allowed,
+  reason:!allowed.has(CAPS.breakGlassRetry)?'Requiere permiso: '+CAPS.breakGlassRetry:!allowed.has(CAPS.retry)?'Requiere permiso: '+CAPS.retry:breakGlassRetry.humanReason};
  action('pause',!immutable&&!busy,immutable?'El documento ya tiene estado final.':busy?'Espere a que termine el proceso activo.':'');
  action('resume',management.automatic_paused===true&&!immutable&&!busy);
  action('correct',draft&&!busy,'Solo se corrigen campos fuente permitidos antes de cualquier transmisión.');
  action('evidence',recoverable&&!busy&&!waiting,'La evidencia se verificará con la misma clave mediante consulta oficial.');
- return {actions,manualSameDocumentRetry:manualRetry,automaticBudgetExhausted:exhausted,automaticPaused:management.automatic_paused===true,claimExpired,activeClaim:busy,waitUntil:waiting?new Date(waitUntil).toISOString():null,
+ return {actions,manualSameDocumentRetry:manualRetry,breakGlassRetry,automaticBudgetExhausted:exhausted,automaticPaused:management.automatic_paused===true,claimExpired,activeClaim:busy,waitUntil:waiting?new Date(waitUntil).toISOString():null,
   transmissionState:policy.transportResultState||jobs[0]?.status||'SIN_ENVIO',retryState:management.automatic_paused?'MANUAL_REVIEW_REQUIRED':waiting?'WAIT_SCHEDULED':exhausted?'RETRY_BUDGET_EXHAUSTED':'DISPONIBLE',
   recoveryState:immutable?d.status:recoverable?'AUTHORIZATION_LOOKUP_FIRST':policy.action,reason:policy.reason,
   message:policy.transportResultState==='TRANSPORT_RESULT_UNCERTAIN'?'El resultado del envío anterior es incierto. Primero se consultará el SRI antes de reenviar.':policy.reason};
