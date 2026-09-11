@@ -10,6 +10,7 @@ const I = 'ab60abdc-fe53-4289-9ae2-8f749ee21cff';
 const A = '11000000-0000-4000-8000-000000000001';
 const O = '22000000-0000-4000-8000-000000000002';
 const migrationPath = 'supabase/migrations/202609110001_sri_break_glass_same_document_retry.sql';
+const repairMigrationPath = 'supabase/migrations/202609110003_sri_break_glass_accept_valid_manual_lookup.sql';
 const manualMigrationPath = 'supabase/migrations/202609090005_sri_manual_same_document_retry.sql';
 const results = [];
 const literal = value => "'" + String(value).replaceAll("'", "''") + "'";
@@ -87,6 +88,7 @@ async function main() {
     const beforeMigration = await snapshot();
     const breakGlassMigration = fs.readFileSync(migrationPath, 'utf8');
     await run(breakGlassMigration);
+    await run(fs.readFileSync(repairMigrationPath, 'utf8'));
 
     await test('migration registers capability without granting a user', async () => {
       const capability = await one("select capability_id,module,resource,action,risk_level,active from erp_security_capabilities where capability_id='commercial.electronic_documents.break_glass_retry'");
@@ -124,7 +126,7 @@ async function main() {
       const response = randomUUID();
       await query(`insert into sri_responses(id,company_id,document_id,transmission_id,response_type,sri_status,content_sha256,raw_xml,payload)
         values($1,'${B}',$2,$3,'AUTHORIZATION','NO_ENCONTRADO',$4,$5,$6)`, [response, id, queryJob, responseHash, raw, { state: 'NO_ENCONTRADO', accessKey: doc, documentCount: 0, authorized: false, messages: [], authorizations: [] }]);
-      await query(`update sri_transmission_attempts set status='SUCCEEDED',response_sha256=$1 where transmission_id=$2 and attempt_number=12`, [responseHash, queryJob]);
+      await query(`update sri_transmission_attempts set status='FAILED',error_class='SRI_TRANSPORT_RESULT_UNCERTAIN',response_sha256=$1 where transmission_id=$2 and attempt_number=12`, [responseHash, queryJob]);
       const document = (await one('select to_jsonb(d) d from electronic_documents d where id=$1', [id])).d;
       const accountingLinks = (await query('select * from accounting_document_links where company_id=$1 and document_id=$2 order by id', [B, id])).rows;
       await login();
@@ -199,6 +201,8 @@ async function main() {
     await test('migration can be applied again without data delta', async () => {
       const before = await snapshot();
       await run(fs.readFileSync(migrationPath, 'utf8'));
+      await run(fs.readFileSync(repairMigrationPath, 'utf8'));
+      await run(fs.readFileSync(repairMigrationPath, 'utf8'));
       assert.deepEqual(await snapshot(), before);
       assert.equal((await one("select count(*)::int n from erp_security_capabilities where capability_id='commercial.electronic_documents.break_glass_retry'")).n, 1);
     });
