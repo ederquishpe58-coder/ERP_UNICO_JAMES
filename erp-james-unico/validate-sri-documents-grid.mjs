@@ -41,7 +41,7 @@ requiredHeaders.forEach(header => assert.ok(source.includes(`<th>${header}</th>`
 assert.ok(source.includes('data-sri-list-sales-scope'), "Debe existir el filtro de ventas/comprobantes.");
 assert.ok(source.includes('data-sri-issue-year'), "Debe existir el selector de año por fecha de emisión.");
 assert.ok(source.includes('data-sri-issue-month'), "Deben existir los doce meses como filtro previo.");
-assert.match(source, /if \(selectedIssueMonthRange\(\) && !ui\.loaded && !ui\.loading\) refresh/, "No se debe consultar SRI antes de seleccionar un mes.");
+assert.match(source, /if \(selectedIssueMonthRange\(\) && !ui\.loaded && !ui\.loading && !ui\.error\) refresh/, "La carga inicial requiere mes y no debe reintentar un error al renderizar.");
 assert.match(source, /listCommercialSriDocuments\(issueRange \? \{ from: issueRange\.from, to: issueRange\.to, limit: 200 \}/, "La consulta comercial remota debe limitarse al mes de emisión elegido.");
 assert.match(source, /const sourceRows = issueRange \? allRows\(appState\) : \[\]/, "Sin mes seleccionado tampoco se deben preparar filas locales.");
 assert.ok(source.includes('data-sri-download-selected="AUTHORIZED_XML"'), "Debe existir descarga XML por selección.");

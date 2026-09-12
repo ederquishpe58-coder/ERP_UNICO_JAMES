@@ -2121,6 +2121,7 @@
 
   async function refresh(container, appState, viewMode = "documents") {
     const api = BlessERP.sriApi;
+    const generation = ++ui.readGeneration;
     const issueRange = viewMode === "documents" ? selectedIssueMonthRange() : null;
     if (viewMode === "documents" && !issueRange) {
       ui.remoteDocuments = [];
@@ -2132,6 +2133,7 @@
       return;
     }
     if (!api?.status?.().ready) {
+      ui.loading = false;
       ui.loaded = true;
       ui.error = "La bandeja muestra los pedidos locales. Active Supabase, autenticacion y SRI para consultar documentos emitidos.";
       rerenderFor(container, appState, viewMode);
@@ -2140,7 +2142,6 @@
     ui.loading = true;
     ui.error = "";
     const companyKey = ui.companyKey;
-    const generation = ++ui.readGeneration;
     const period = JSON.stringify(issueRange);
     const stillCurrent = () => ui.readGeneration === generation && ui.companyKey === companyKey && workspaceCompanyKey(appState) === companyKey
       && (viewMode !== "documents" || JSON.stringify(selectedIssueMonthRange()) === period);
@@ -2468,15 +2469,22 @@
       const year = Math.max(2000, Math.min(2100, Number(event.currentTarget.value || new Date().getFullYear())));
       ui.issueYear = String(year);
       ui.issueMonth = "";
+      ui.readGeneration += 1;
+      ui.loading = false;
       ui.remoteDocuments = [];
+      ui.remoteReservations = [];
       ui.selectedIds.clear();
       ui.loaded = false;
+      ui.error = "";
       BlessERP.performance?.resetPage?.("commercial-sri-documents");
       rerender(container, appState);
     });
     container.querySelectorAll("[data-sri-issue-month]").forEach(button => button.addEventListener("click", () => {
       ui.issueMonth = String(button.dataset.sriIssueMonth || "");
+      ui.readGeneration += 1;
+      ui.loading = false;
       ui.remoteDocuments = [];
+      ui.remoteReservations = [];
       ui.selectedIds.clear();
       ui.loaded = false;
       ui.error = "";
@@ -2611,7 +2619,8 @@
       rerender(container, appState);
     });
     container.querySelector("[data-sri-credit-note-save]")?.addEventListener("click", () => createCreditNoteDraft(container, appState));
-    if (selectedIssueMonthRange() && !ui.loaded && !ui.loading) refresh(container, appState);
+    // A failed read waits for explicit refresh; rendering must not retry it.
+    if (selectedIssueMonthRange() && !ui.loaded && !ui.loading && !ui.error) refresh(container, appState);
   }
 
   BlessERP.comercialSriAuthorization = {

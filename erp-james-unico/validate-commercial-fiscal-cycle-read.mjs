@@ -17,7 +17,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const C = '11111111-1111-4111-8111-111111111111', OTHER = '22222222-2222-4222-8222-222222222222';
 const checks = [];
 async function test(name, run) { await run(); checks.push({name, result:'PASS'}); }
-function fixture({previous = false} = {}) {
+function fixture({previous = false, sriSource: suppliedSriSource} = {}) {
   const reservations = [], entities = [], fiscalDocuments = [], queries = [], writes = [];
   let activeCompany = C, fail = false, leak = false;
   const appState = {db:{activeCompanyId:'COMP-BLESS-FLOWER',authAccess:{activeCompanyUuid:C}, commercial:{orders:[]}}};
@@ -65,7 +65,7 @@ function fixture({previous = false} = {}) {
     vm.runInContext(read(file),context,{filename:file});
   }
   // Expose closures only in the harness; shipped public API stays unchanged.
-  const sriSource=(previous?old(sriPath):read(sriPath)).replace('  BlessERP.comercialSriAuthorization = {',
+  const sriSource=(suppliedSriSource ?? (previous?old(sriPath):read(sriPath))).replace('  BlessERP.comercialSriAuthorization = {',
     '  BlessERP.__trace = {ui, remoteRows, allRows, renderDocumentInlineActions};\n  BlessERP.comercialSriAuthorization = {');
   vm.runInContext(sriSource,context,{filename:sriPath});
   vm.runInContext(previous?old(historyPath):read(historyPath),context,{filename:historyPath});
