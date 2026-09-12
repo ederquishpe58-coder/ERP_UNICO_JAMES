@@ -51,7 +51,7 @@
         <td>${esc(row.fiscalState)}</td><td>${esc(row.accountingState)}<small>${esc(row.legacyStatus ? `Legacy: ${row.legacyStatus}` : "")}</small></td>
         <td>${row.document ? money(row.document.grand_total) : ""}</td><td>${action.ok
           ? `<button type="button" class="secondary-button compact-button" data-inbox-post="${esc(row.document.id)}" ${inbox.posting ? "disabled" : ""}>Contabilizar${row.document.document_type === "04" ? " NC" : ""}</button>`
-          : esc(action.message)}</td></tr>`;
+          : esc(action.message)}${row.accountingEvidence?.issue ? `<details><summary>Vinculos para revision</summary>${(row.accountingEvidence.links || []).map(link => `<div>${esc(link.authority)}: ${esc(link.id)} / ${esc(link.status || link.kind)}</div>`).join("")}</details>` : ""}</td></tr>`;
       }).join("") || `<tr><td colspan="8">Sin documentos para esta busqueda.</td></tr>`}</tbody></table></div>
       <div class="compact-toolbar"><button type="button" class="secondary-button" data-inbox-prev ${inbox.offset === 0 ? "disabled" : ""}>Anterior</button>
       <span>${Number(inbox.data?.total || 0)} ciclos</span><button type="button" class="secondary-button" data-inbox-next ${inbox.offset + 50 >= Number(inbox.data?.total || 0) ? "disabled" : ""}>Siguiente</button></div>`}</section>`;

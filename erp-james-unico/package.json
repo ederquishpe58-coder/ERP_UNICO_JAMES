@@ -10,6 +10,7 @@
     "build:standalone": "node build-standalone.mjs",
     "validate:aud02:phase-a": "node validate-aud02-phase-a.cjs",
     "validate:aud02:inbox": "node validate-aud02-sales-inbox.mjs",
+    "validate:aud02:acceptance": "node validate-aud02-acceptance.mjs",
     "validate:sri:dual-transport": "node validate-sri-dual-transport.cjs",
     "validate:sri:dual-documents": "node validate-sri-dual-documents.cjs",
     "validate:sri:dual-configuration": "node validate-sri-dual-configuration.cjs",

@@ -53,6 +53,12 @@ set test.company='${B}';set test.allowed='yes';set test.post_allowed='yes';
 await db.exec(finance.slice(0,finance.indexOf('do $$ declare v_table'))+'commit;');
 await db.exec(await read('tests/fixtures/aud02-installed-financial-helpers.sql'));
 await db.exec(await read('tests/fixtures/aud02-installed-financial-functions.sql'));
+// Match installed execution ACL before testing replacement of the public guards.
+await db.exec(`
+revoke all on function erp_financial_v2_post_invoice(uuid,uuid,text,jsonb,timestamptz),erp_financial_v2_post_credit_note(uuid,uuid,text,jsonb,timestamptz),
+ erp_financial_v2_post_invoice_u2c3_internal(uuid,uuid,text,jsonb,timestamptz),erp_financial_v2_post_credit_note_u2c3_internal(uuid,uuid,text,jsonb,timestamptz) from public,anon,authenticated,service_role;
+grant execute on function erp_financial_v2_post_invoice(uuid,uuid,text,jsonb,timestamptz),erp_financial_v2_post_credit_note(uuid,uuid,text,jsonb,timestamptz) to authenticated;
+`);
 await db.exec(`
 create function erp_is_company_member(company uuid, actor uuid) returns boolean language sql stable as $$
  select company::text=current_setting('test.company') and current_setting('test.allowed')='yes' and actor=auth.uid()$$;
@@ -228,6 +234,7 @@ await test('Unfixed due date, ambiguous customer, contradictory series and scope
   const snapshot=await inbox.list({documentId:id(10)}), row=snapshot.rows[0];
   assert.equal(inbox.prepare(row,snapshot).payload.dueDate,'2026-09-12');
   const missing=structuredClone(row);delete missing.orderDueDate;
+  delete missing.accountingEvidence.dueDate;
   assert.match(inbox.prepare(missing,snapshot).message,/Vencimiento no fijado/);
   const duplicate=structuredClone(row);duplicate.customers.push({...duplicate.customers[0],id:'other'});
   assert.match(inbox.prepare(duplicate,snapshot).message,/ambiguo/);

@@ -4,7 +4,7 @@
 
 - PROD verified 2026-09-12 through authenticated Vercel control plane: `dd38a445f3ad20be85088fd4949c10ff0cb9c6f7`, deployment `dpl_C6SueFXt3nTpcEBEmGZ6gGyTSSHH`.
 - Canonical project: `prj_o2JzhrK0BZ85k9F91mIwgwSQxBN8`; canonical domain: `bless-flower-jaeder-prod-indol.vercel.app`.
-- Isolated branch: `fix/aud-02-phase-a-20260912`. Existing shared worktree was not modified or cleaned.
+- Corrected isolated branch: `fix/aud-02-phase-a-guards-20260912`. Original candidate `e36a45fab689b959ab96bf9f8c172a4635655203` and its worktree/evidence are preserved.
 - Three served JS files matched this base after EOL normalization: sales-accounting UI, commercial-state, financial-v2-repository. All returned JavaScript, not HTML.
 - Installed RPC definitions were read through Supabase Management API `read_only:true`, project `bniamjfkjhekfvcyuvio`. No CLI login-role path, server mutations or SRI calls.
 - Source evidence: original `AUD-02-2026-09-10` report/handoff/findings and consolidated decisions. Prior audits remain partial.
@@ -24,7 +24,7 @@ New additive RPC: `erp_financial_v2_sales_inbox(uuid,text,integer,integer,uuid,t
 - STABLE, SECURITY DEFINER, fixed search_path, company membership/capability through existing `erp_security_assert_capability(...,'accounting.sales.view')`.
 - Only authenticated execution; no PUBLIC/anon/service_role execution. No new capability or user grant.
 - Fixed PRODUCTION and types 01/04. No inventory-pool resolver: sales/customers remain in the operating company.
-- Sources: `commercial_invoice_reservations`, `electronic_documents`, `accounting_document_links`, `erp_financial_receivables`, `erp_financial_credit_notes`, `erp_financial_journal_entries`, and scoped order/customer/settings records in `erp_entity_records`.
+- Sources: `commercial_invoice_reservations`, `electronic_documents`, `accounting_document_links`, `erp_financial_receivables`, `erp_financial_credit_notes`, `erp_financial_journal_entries`, and scoped order/customer/settings/legacy CxC/journal records in `erp_entity_records`.
 - Reservation/document consolidation uses consumed document ID or complete company/environment/type/full-number identity. Contradictory links are diagnosed, not repaired. No last-digits or customer-name join.
 - Aggregated financial links avoid multiplying rows. Legacy entries, reversals, conflicting parents and ambiguous links are not silently declared pending/postable.
 - Server-side search, fiscal/accounting filters and paging. Request generations and company checks discard stale reads. Errors are not presented as an empty inbox.
@@ -43,28 +43,42 @@ Vencimiento is reused from an exact existing CxC link or saved order `expireDate
 
 At the read time, IMPERIO had no configured CxC/sales/VAT defaults. BLESS also returned empty defaults for these fields. This is a configuration observation, not authority to create accounts. Business account approval remains separate.
 
-The existing generic posting RPCs and their payload trust model were not redesigned. This candidate does not certify every other legacy/direct calling route or close coexistence issues. Full journal/CxC/portfolio/statement reconciliation and NC balance policy remain phase B. No historical cleanup, backfill or reversal is included.
+The corrected candidate adds a private guard to the existing public manual invoice/NC wrappers, after their unchanged capability assertion and before their unchanged V2 engines. Signatures, owners and ACL remain unchanged. Canonical fiscal-document resolution, document-scoped transaction locking, persisted prior-effect/ambiguity checks, raw due-date provenance, parent/company/environment and account-source checks now also run inside the server write boundary. Replaying an unambiguously posted economic act returns its existing IDs without creating another operation, journal, CxC or application. Non-fiscal imported contracts retain their engine, but a mandatory missing due date is no longer silently supplied.
+
+This does not certify every legacy writer or close coexistence reconciliation. Full journal/CxC/portfolio/statement reconciliation, collections and credit-balance policy remain phase B. No historical cleanup, backfill or reversal is included.
+
+## Acceptance corrections R1-R4
+
+- R1: persisted legacy CxC/journal and alternate V2 source references are inspected without browser-cache dependence. Unambiguous V2 posting is acknowledged; legacy/contradictory evidence blocks another economic effect.
+- R2: same fiscal NC resolved through its actual UUID/access key/proven legacy alias and canonical parent cannot be applied again under another technical source ID. The original fixture stays at 80 rather than decreasing again to 60. Two distinct legitimate partial NC documents remain possible; this is not a new partial-application policy.
+- R3: receivable defaults/normalization and payload formation preserve missing due dates. The server consumes a raw persisted CxC dueDate or saved order expireDate and validates provenance; today/issueDate is not invented as fallback.
+- R4: all raw links are evaluated before presentation grouping; identical links may collapse, distinct or contradictory links remain reviewable. Reversing raw row order does not change eligibility. The same check runs in SQL after the document lock.
 
 ## Tests
 
 - `npm run validate:aud02:phase-a`: baseline auto-post reproduced for 01/04; candidate TEST/PRODUCTION authorization and repeated-recovery protection; unchanged 07 accounting; actual frontend fiscal-sync functions with accounting metadata retained.
 - `npm run validate:aud02:inbox`: PGlite in-memory database, real read RPC and installed posting SQL snapshots, actual JS service/repository/UI. Installed order-save chain and explicit reservation reuse, dedup, paging/filters, wrong company/TEST, valid manual invoice and NC, double confirmation/idempotency, missing/non-postable accounts, prior posted/legacy/cancelled documents, read-only transactions, read failures and stale company responses.
 - The auth session/capability data source, generic sync publication, health and browser DOM are fixture boundaries. This is not live James/Alex/RLS verification. Permission errors, rejected ACKs and real SQL validation failures are exercised; not all-success mocks.
+- `npm run validate:aud02:acceptance` runs the original commit as a negative control (five scenarios reproducing R1-R4), then the corrected real JS/repository/SQL paths (14 acceptance groups plus the original 11 groups). The eight fiscal groups are separate. Repeated runs are not additional distinct coverage.
+- PGlite migration twice, SQL manual posting/replay, stale confirmations, denied access, company/TEST isolation, source identity and missing configuration checks pass. Fiscal records are compared intact before/after fixture calls. Negative-control assertion PASS means the original defect was reproduced, not that its behavior was acceptable.
+- **Remaining publication gate:** no local PostgreSQL server or Docker was available. PGlite serial execution and browser duplicate-submit checks do not prove simultaneous independent PostgreSQL transactions. Before publication, test two sessions with the same document through different valid source representations and operation IDs, including a stale view after a committed posting. Expect one economic effect, with later confirmation reused or blocked. Also test two distinct partial NCs against the same parent balance and rollback after a pre-write rejection.
 - PGlite dependency: install/provide `@electric-sql/pglite` in an isolated test toolchain, or set `PGLITE_MODULE` to its local entry file. No URLs or credentials are accepted by the test.
 - Existing safe-retry, manual authorization recovery, break-glass policy/service/browser, dual transport and dual document/XSD/signature suites pass with synthetic IO. No actual provider request or certificate is used.
 - Build remains `npm run build`; dist is generated, not edited by hand. No supplier-report/Zebra/normal retry policy files changed.
 
 ## Migration and future publication
 
-Candidate migration: `202609120002_sales_accounting_pending_inbox.sql`. Version free and RPC absent in a fresh read at `2026-09-12T16:53:20.991963Z`. Revalidate immediately before any future approved apply; concurrent work may occupy the version. Existing migrations are untouched. Migration applied twice only in ephemeral PGlite.
+Candidate migration: `202609120002_sales_accounting_pending_inbox.sql`. Version free and RPC absent at `2026-09-12T18:08:43.619405Z`; wrapper definitions read again and version still free at `2026-09-12T18:09:25.662869Z`. Existing internal engines and validator match review evidence; current public wrappers retain their installed authorization and signature. Revalidate immediately before any future approved apply; concurrent work may occupy the version. Existing migrations are untouched. Migration applied twice only in ephemeral PGlite.
 
 Future gates, NOT executed:
 1. Revalidate PROD SHA/configuration, installed definitions, migration version and permissions. Integrate only this change if PROD advances; preserve Zebra/supplier/SRI releases.
-2. Obtain separate apply/deployment authorization. Apply only the additive inbox migration, verify ACL and read-only scope.
+2. Complete real multi-session PostgreSQL concurrency tests and obtain separate apply/deployment authorization. Apply only this candidate migration: additive private helpers/inbox plus guarded public manual wrappers. Verify owners, preserved wrapper ACL, private helper ACL and read-only inbox scope.
 3. Release frontend/backend together after focal tests/build and asset checks. No fiscal/business action in postcheck.
 4. Human review of pending rows, accounts and explicit confirmation; no automatic historical posting.
 
-Rollback planning: leave fiscal histories, accounting entries, CxC and sequences untouched. If the UI must be reverted, preserve the 01/04 auto-post disconnection; a wholesale return to the base would reintroduce the original defect. The additive read RPC can remain unused or be removed by a separately approved forward migration after callers are removed. Do not delete migration history or restore automatic accounting silently.
+Compatibility: old callers retain the same public RPC signatures but can now receive specific missing-provenance/review errors instead of an unsafe posting. New UI requires the new inbox/evidence contract. DB first, then a compatible frontend/backend release, with old browser sessions controlled before resuming manual accounting. Do not publish a new UI against the old DB.
+
+Rollback planning: Vercel rollback does not revert PostgreSQL. Leave fiscal histories, accounting entries, CxC and sequences untouched. Preserve the 01/04 auto-post disconnection in any rollback build; a wholesale return to the base would reintroduce the original defect. Keep the server guards in place with the old UI (which may need a read-only operational pause). Restoring pre-guard wrappers would reopen R1/R2 and requires a separately reviewed forward-only DB change, not an automatic rollback. Private helpers cannot be removed while guarded wrappers reference them. Do not delete migration history or restore automatic accounting silently.
 
 ## Authorization boundary
 

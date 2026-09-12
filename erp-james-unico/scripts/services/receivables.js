@@ -293,7 +293,7 @@
       documentType: "saldo inicial",
       documentNumber: nextReceivableNumber(),
       issueDate: today(),
-      dueDate: today(),
+      dueDate: "",
       concept: "",
       marketType: "",
       subtotal: 0,
@@ -360,7 +360,7 @@
       documentType: receivableDocumentTypes.includes(String(current.documentType || "").toLowerCase()) ? String(current.documentType || "").toLowerCase() : "saldo inicial",
       documentNumber: String(current.documentNumber || nextReceivableNumber()).trim(),
       issueDate: String(current.issueDate || today()).trim(),
-      dueDate: String(current.dueDate || current.issueDate || today()).trim(),
+      dueDate: String(receivable.dueDate ?? "").trim(),
       concept: String(current.concept || "").trim(),
       marketType: inferredMarket === "LOCAL" ? "LOCAL" : "EXPORTACION",
       subtotal,
@@ -440,6 +440,11 @@
       }));
     });
     return Array.from(byBusinessKey.values());
+  }
+
+  // Safety checks must see raw links before customer/document display grouping.
+  function rawReceivableDocuments() {
+    return cloneList("customerReceivables");
   }
 
   function normalizedCollectionApplications(rows = [], kind) {
@@ -1613,6 +1618,7 @@
     pendingReceivablesByCustomer,
     emptyReceivable,
     normalizeReceivable,
+    rawReceivableDocuments,
     validateReceivable,
     saveReceivable,
     syncAuthorizedSale,

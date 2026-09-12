@@ -46,16 +46,20 @@
     if (customers.length !== 1) return fail("Cliente contable ausente o ambiguo. Revisar vinculacion antes de contabilizar.");
     const customer = customers[0];
     if (customer.status !== "activo") return fail("Cliente contable inactivo. Revisar configuracion.");
-    const existing = service.receivableDocuments().filter(item => item.sourceDocumentId === d.id);
+    const raw = (service.rawReceivableDocuments?.() || []).filter(item => item.sourceDocumentId === d.id);
+    const fields = ["id", "sourceDocumentId", "sourceOrderId", "documentNumber", "customerId", "journalEntryId", "postingStatus", "dueDate", "status"];
+    const existing = [...new Map(raw.map((item, index) => [item.id
+      ? JSON.stringify(fields.map(field => item[field] ?? null)) : `unresolved:${index}`, item])).values()];
     if (existing.length > 1) return fail("Vinculo local de CxC ambiguo. Requiere revision.");
     if (existing[0]?.journalEntryId) return fail("Existe un asiento local no conciliado con la autoridad V2. Requiere revision.");
     // Phase A must not choose when changing customer terms become frozen (AUD-01).
-    const dueDate = existing[0]?.dueDate || row.orderDueDate;
+    const dueDate = row.accountingEvidence?.dueDate;
+    if (row.accountingEvidence?.dueDateIssue === "SALES_DUE_DATE_INVALID") return fail("Vencimiento persistido invalido. Requiere revision.");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dueDate || "")) || !Number.isFinite(Date.parse(dueDate))) {
       return fail("Vencimiento no fijado en pedido/CxC existente. Revisar condiciones antes de contabilizar.");
     }
     return { ok: true, kind: "INVOICE", payload: {
-      ...accounts, id: existing[0]?.id || d.id, customerId: customer.id,
+      ...accounts, id: d.id, customerId: customer.id,
       customerName: d.buyer_snapshot?.legalName, customerTaxId: d.buyer_snapshot?.identification,
       documentType: "factura sri", documentNumber: d.full_number, issueDate: d.issue_date,
       dueDate,

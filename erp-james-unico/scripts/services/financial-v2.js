@@ -119,7 +119,7 @@
       documentType: String(candidate.documentType || "INVOICE").toUpperCase(),
       documentNumber: String(candidate.documentNumber || ""),
       issueDate: String(candidate.issueDate || "").slice(0, 10),
-      dueDate: String(candidate.dueDate || candidate.issueDate || "").slice(0, 10),
+      dueDate: String(candidate.dueDate ?? "").slice(0, 10),
       currencyCode: String(candidate.currencyCode || "USD").toUpperCase(),
       exchangeRate: Number(candidate.exchangeRate || 1),
       subtotal: Number(candidate.subtotal || 0),
