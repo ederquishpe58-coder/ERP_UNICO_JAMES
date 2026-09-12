@@ -7,12 +7,13 @@ const keys={[BLESS]:'COMP-BLESS-FLOWER',[IMPERIO]:'COMP-IMPERIO-FLOWERS'};
 let active=BLESS, route='commercial-order-history', rerenders=0, queryFailure='', wrongRecord=false, waitQuery=null, waitRpc=null, rpcCalls=[];
 const clone=structuredClone;
 const orders=[BLESS,IMPERIO].flatMap(company=>['LOCAL','EXPORTACION'].map((saleType,i)=>({id:`${company}-${i}`,number:`PED-COM-2026-000${i+1}`,company_id:company,companyId:keys[company],sellingCompanyId:keys[company],customerId:'COM-CLI-CE0005',brandId:'MAR0061',saleType,issuedAt:'2026-09-07',createdAt:'2026-09-07',status:'GUARDADO',discountPercentage:10,lines:[{boxNumber:1,boxType:'HB',bunches:1,stemsPerBunch:25,unitPrice:4}]})));
+const reservationRecords=[];
 const records=[BLESS,IMPERIO].flatMap(company=>[
  {company_id:company,entity:'commercial_customers',record_id:'COM-CLI-CE0005',payload:{companyId:keys[company],legalName:company===BLESS?'QUALITY FLOWERS':'IMPERIO CUSTOMER'},deleted_at:null},
  {company_id:company,entity:'commercial_brands',record_id:'MAR0061',payload:{companyId:keys[company],customerId:'COM-CLI-CE0005',finalClientName:company===BLESS?'BOULEVARD FLORIST':'IMPERIO FINAL',name:'NAME ALIAS',printedConsignee:'',printedMark:'',status:'ACTIVO'},deleted_at:null},
  ...orders.filter(o=>o.company_id===company).map(o=>({company_id:company,entity:'commercial_orders',record_id:o.id,payload:o,version:2,deleted_at:null}))]);
 class Query {
- constructor(){this.filters=[];this.start=0;this.end=Infinity;this.single=false;}
+ constructor(source=records){this.source=source;this.filters=[];this.start=0;this.end=Infinity;this.single=false;}
  select(){return this;} order(){return this;} abortSignal(){return this;}
  eq(k,v){this.filters.push(r=>r[k]===v);return this;}
  in(k,v){this.filters.push(r=>v.includes(r[k]));return this;}
@@ -20,14 +21,14 @@ class Query {
  range(a,b){this.start=a;this.end=b;return this;}
  maybeSingle(){this.single=true;return this;}
  async then(resolve,reject){try{
-   let data=clone(records.filter(r=>this.filters.every(f=>f(r))).slice(this.start,this.end+1));
+   let data=clone(this.source.filter(r=>this.filters.every(f=>f(r))).slice(this.start,this.end+1));
    const failure=queryFailure;
    if(wrongRecord&&data.length)data[0].company_id=IMPERIO;
    if(waitQuery){const wait=waitQuery;waitQuery=null;await wait;}
    return resolve({data:this.single?data[0]||null:data,error:failure?{message:failure}:null});
  }catch(e){return reject(e);}}
 }
-const client={from(table){assert.equal(table,'erp_entity_records');return new Query();},async rpc(name,p){
+const client={from(table){assert.ok(['erp_entity_records','commercial_invoice_reservations'].includes(table));return new Query(table==='commercial_invoice_reservations'?reservationRecords:records);},async rpc(name,p){
  assert.equal(name,'erp_list_commercial_order_history','No writing/fiscal RPC allowed in tests');rpcCalls.push(clone(p));
  let rows=orders.filter(o=>o.company_id===p.p_company_id);
  if(p.p_date_from)rows=rows.filter(o=>o.issuedAt>=p.p_date_from&&o.issuedAt<=p.p_date_to);
@@ -41,7 +42,7 @@ const events=new EventTarget();
 const win={BlessERP:E,location:{protocol:'https:',hostname:'fixture.invalid'},AbortController,setTimeout:()=>0,addEventListener:events.addEventListener.bind(events),dispatchEvent:events.dispatchEvent.bind(events)};
 const ctx=vm.createContext({window:win,console,Intl,Date,URL,URLSearchParams,AbortController,CustomEvent,setTimeout,clearTimeout,performance});
 const load=f=>vm.runInContext(read(f),ctx,{filename:f});
-for(const f of ['scripts/modules/comercial/comercial-data.js','scripts/modules/comercial/comercial-utils.js','scripts/modules/comercial/flow-v2/commercial-flow-core.js','scripts/repositories/comercial/commercial-order-repository.js','scripts/repositories/comercial/commercial-history-read.js','scripts/modules/comercial/flow-v2/commercial-flow-ui.js','scripts/modules/comercial/flow-v2/history-controller.js'])load(f);
+for(const f of ['scripts/modules/comercial/comercial-data.js','scripts/modules/comercial/comercial-utils.js','scripts/modules/comercial/flow-v2/commercial-flow-core.js','scripts/repositories/comercial/commercial-order-repository.js','scripts/repositories/comercial/commercial-fiscal-reservation-read.js','scripts/repositories/comercial/commercial-history-read.js','scripts/modules/comercial/flow-v2/commercial-flow-ui.js','scripts/modules/comercial/flow-v2/history-controller.js'])load(f);
 const app={db:{activeCompanyId:keys[active],commercial:{orders:[],customerCatalog:[],brandCatalog:[]}}}; E.state.state=app;
 const R=E.commercialHistoryRead,F=E.commercialFlowV2;
 const filters=()=>({date:'',search:'',market:'TODOS',page:1,pageSize:20});
@@ -63,6 +64,13 @@ active=BLESS;app.db.activeCompanyId=keys[active];
 await check('Search response ordering drops obsolete page',async()=>{await R.references(app);let release;waitRpc=new Promise(r=>release=r);const old=R.load(app,filters());await new Promise(r=>setImmediate(r));await R.load(app,{...filters(),search:'NO MATCH'});release();await old;assert.equal(R.state(app).rows.length,0);});
 await check('Late catalog event rerenders without duplicate listeners',async()=>{const container=new EventTarget();container.isConnected=true;Object.assign(F.sessionFor(app).history,filters());R.invalidate();await R.load(app,filters());E.comercialHistory.bind(container,app);E.comercialHistory.bind(container,app);const before=rerenders;const brand=records.find(r=>r.company_id===BLESS&&r.entity==='commercial_brands');brand.payload.finalClientName='BOULEVARD UPDATED';events.dispatchEvent(new CustomEvent('erp:domain-loaded',{detail:{domain:'commercial-catalog'}}));assert.equal(rerenders,before+1);await R.load(app,filters());assert.equal(R.name(app,'brands','MAR0061'),'BOULEVARD UPDATED');brand.payload.finalClientName='BOULEVARD FLORIST';R.invalidate();await R.load(app,filters());});
 await check('Hoja de Ruta uses canonical final customer despite empty printed fields and stale mirrors',async()=>{load('scripts/modules/comercial/route-sheet-model.js');E.comercialPrintUtils={buildContext:(o,a,options={})=>({order:o,appState:a,options,company:{commercialName:keys[active]},brand:{finalClientName:'STALE MIRROR',printedConsignee:'DO NOT USE'},customer:{legalName:'QUALITY FLOWERS'},metrics:{byBoxType:{HB:1},totalBoxes:1,totalFulls:.5},boxGroups:[{boxNumber:1}]}),renderCompanyBrand:c=>c.commercialName};load('scripts/modules/comercial/print/hoja-ruta-print.js');for(const company of [BLESS,IMPERIO])for(const market of ['LOCAL','EXPORTACION']){active=company;app.db.activeCompanyId=keys[company];await R.references(app);app.db.commercial.agencyCatalog=[{id:'CARGO',name:'CARGO'}];const o={...orders.find(o=>o.company_id===company&&o.saleType===market),agencyId:market==='LOCAL'?'':'CARGO',sriInvoiceNumber:'001-002-000000123'};const html=E.comercialPrintDocs.HR.render(E.comercialPrintUtils.buildContext(o,app,{routeOrders:[o]}));assert(html.includes(company===BLESS?'BOULEVARD FLORIST':'IMPERIO FINAL'));assert(!html.includes('STALE MIRROR'));assert(!html.includes('DO NOT USE'));}});
+await check('History renders canonical reserved number without hydrating order or altering print sources',async()=>{
+ active=BLESS;app.db.activeCompanyId=keys[active];
+ reservationRecords.push({id:'fixture-reservation',company_id:BLESS,record_id:orders[0].id,environment:'PRODUCTION',document_type:'01',status:'ACTIVE',full_number:'001-002-000000781'});
+ R.invalidate();await R.load(app,filters());Object.assign(F.sessionFor(app).history,filters());
+ const html=E.comercialHistory.render(app);assert(html.includes('001-002-000000781 (PRODUCTION; RESERVADO)'));assert.equal(orders[0].sriInvoiceNumber,undefined);
+ reservationRecords.length=0;
+});
 await check('Printed fields and business records unchanged by readers',()=>{assert(records.filter(r=>r.entity==='commercial_brands').every(r=>r.payload.printedConsignee===''&&r.payload.printedMark===''));assert(rpcCalls.every(p=>p.p_company_id===BLESS||p.p_company_id===IMPERIO));});
 await check('History-only controller and existing route byte budgets',()=>{
  const tags=[...read('index.html').matchAll(/<script\b([^>]*)\bsrc=["']([^"']+)["'][^>]*><\/script>/gi)].map(m=>({attrs:m[1],src:m[2].split('?')[0]}));

@@ -18,6 +18,8 @@
     issueYear: String(new Date().getFullYear()),
     issueMonth: "",
     remoteDocuments: [],
+    remoteReservations: [],
+    readGeneration: 0,
     configuration: null,
     loading: false,
     loaded: false,
@@ -67,6 +69,9 @@
       senaeRealtimeStarted = false;
     }
     ui.remoteDocuments = [];
+    ui.remoteReservations = [];
+    ui.readGeneration += 1;
+    ui.loading = false;
     ui.configuration = null;
     ui.selectedIds.clear();
     ui.issueMonth = "";
@@ -110,9 +115,11 @@
   }
 
   function resetDocumentsEntry() {
+    ui.readGeneration += 1;
     resetDocumentListFilters();
     ui.issueMonth = "";
     ui.remoteDocuments = [];
+    ui.remoteReservations = [];
     ui.configuration = null;
     ui.selectedIds.clear();
     ui.loading = false;
@@ -380,7 +387,7 @@
   }
 
   function remoteRows(appState) {
-    const orders = stateApi.getOrders(appState);
+    const orders = stateApi.getOrders(appState).filter(order => (BlessERP.sriApi?.orderCompanyKey?.(order) || "BLESS_FLOWER") === ui.companyKey);
     const indexes = catalogIndexes(appState);
     const orderByRemoteDocumentId = new Map();
     const orderById = new Map();
@@ -425,7 +432,7 @@
         documentLabel: sriDocumentLabel(documentType),
         remoteDocumentId: document.id,
         parentDocumentId: document.parent_document_id || "",
-        orderId: linkedOrder?.id || "",
+        orderId: linkedOrder?.id || document.source_order_id || explicitOrderId || "",
         orderNumber: sourceOrderNumber || linkedOrder?.number || "",
         customer: principalCustomer?.legalName
           || principalCustomer?.commercialName
@@ -433,7 +440,7 @@
           || buyer.razonSocial
           || buyer.name
           || "Sin cliente",
-        brand: additional["Marca cliente"] || additional.Marca || source.brand?.name || source.brandName || "-",
+        brand: additional.MARCACION || source.additionalInformation?.MARCACION || additional["Marca cliente"] || additional.Marca || source.brand?.name || source.brandName || "-",
         transportType: isExport ? transport : "LOCAL",
         isExport,
         dae: isExport ? (additional.DAE || additional.DAES || source.sriDaeNumber || (transport === "AEREO" ? source.daeNumber : "") || "") : "",
@@ -461,15 +468,44 @@
 
   function allRows(appState) {
     const remote = remoteRows(appState);
+    const reservations = reservationRows();
     const remoteOrderIds = new Set(remote.map(item => String(item.orderId || "")).filter(Boolean));
     const remoteOrderNumbers = new Set(remote.map(item => String(item.orderNumber || "")).filter(Boolean));
     const remoteDocumentIds = new Set(remote.map(item => String(item.remoteDocumentId || "")).filter(Boolean));
     const local = [...localRows(appState), ...intercompanyRows(appState)];
-    return [...remote, ...local.filter(item => (
-      !remoteOrderIds.has(String(item.orderId || ""))
+    const reservedOrderIds = new Set(reservations.map(row => row.orderId));
+    return [...remote, ...reservations, ...local.filter(item => (
+      !reservedOrderIds.has(String(item.orderId || ""))
+      && !remoteOrderIds.has(String(item.orderId || ""))
       && !remoteOrderNumbers.has(String(item.orderNumber || ""))
       && !remoteDocumentIds.has(String(item.remoteDocumentId || ""))
     ))];
+  }
+
+  function reservationRows() {
+    return ui.remoteReservations.filter(reservation => !ui.remoteDocuments.some(document =>
+      document.company_id === reservation.company_id && document.environment === reservation.environment
+      && document.document_type === reservation.document_type
+      && (document.id === reservation.consumed_document_id || String(document.source_order_id || document.source_snapshot?.erpEmission?.sourceOrderId || "") === reservation.record_id)
+    )).map(reservation => {
+      const order = reservation.order || {}, brand = reservation.brand || {}, customer = reservation.customer || {};
+      const isExport = queueCore.isExportOrder(order, brand);
+      return {
+        id: `reservation:${reservation.id}`, sourceType: "reservation", companyKey: ui.companyKey,
+        companyId: reservation.company_id, environment: reservation.environment,
+        documentType: "01", documentLabel: "RESERVA 01", remoteDocumentId: "",
+        reservationId: reservation.id, orderId: reservation.record_id, orderNumber: order.number || "",
+        documentNumber: reservation.full_number, accessKey: "", issueDate: "",
+        reservationDate: ecuadorToday(new Date(reservation.created_at)),
+        orderDate: order.issuedAt || "", flightDate: order.flightDate || "",
+        customer: customer.legalName || customer.commercialName || "Sin cliente",
+        brand: brand.finalClientName || brand.name || "-", total: null,
+        isExport, transportType: isExport ? order.transportType || "AEREO" : "LOCAL",
+        dae: order.sriDaeNumber || order.daeNumber || "", motherGuide: order.awb || "", childGuide: order.hawb || "",
+        authorizationStatus: reservation.requiresReview ? "REQUIERE_REVISION" : "RESERVADO / SIN DOCUMENTO",
+        authorizedAt: "", authorizationNumber: "", processable: false, selectable: false, editableLogistics: false
+      };
+    });
   }
 
   function normalizedTransport(value) {
@@ -487,7 +523,7 @@
   }
 
   function rowIssueDate(row) {
-    return String(row?.issueDate || "").slice(0, 10);
+    return String(row?.issueDate || row?.reservationDate || "").slice(0, 10);
   }
 
   function rowSortDate(row) {
@@ -1143,7 +1179,7 @@
     const selectedAuthorized = selectedRows.filter(row => row.authorizationStatus === "AUTORIZADO").length;
     const connection = BlessERP.sriApi?.status?.() || { ready: false };
     const activeCompany = BlessERP.sriApi?.activeCompany?.() || {};
-    const statuses = ["TODOS", "PENDIENTE", "PENDIENTE_CONFIGURACION", "BORRADOR_LOCAL", "BORRADOR", "VALIDADO", "XML_GENERADO", "FIRMADO", "ENVIADO_SRI", "RECIBIDO_SRI", "AUTORIZADO", "DEVUELTO", "NO_AUTORIZADO", "ERROR_ENVIO", "PENDIENTE_REINTENTO", "ANULADO"];
+    const statuses = ["TODOS", "RESERVADO / SIN DOCUMENTO", "REQUIERE_REVISION", "PENDIENTE", "PENDIENTE_CONFIGURACION", "BORRADOR_LOCAL", "BORRADOR", "VALIDADO", "XML_GENERADO", "FIRMADO", "ENVIADO_SRI", "RECIBIDO_SRI", "AUTORIZADO", "DEVUELTO", "NO_AUTORIZADO", "ERROR_ENVIO", "PENDIENTE_REINTENTO", "ANULADO"];
     return `
       <section class="page-header compact-page-header">
         <div><p class="section-kicker">COMERCIAL / EXPORTACIONES</p><h1>Documentos electronicos SRI</h1><p>Facturacion separada de ${utils.esc(activeCompany.commercialName || "la empresa")} en ambiente ${utils.esc(selectedEnvironmentLabel())}.</p></div>
@@ -1187,10 +1223,10 @@
             <tbody>${visibleRows.map(row => `
               <tr>
                 <td class="sri-select-column"><input type="checkbox" aria-label="Seleccionar ${utils.esc(row.documentNumber || row.orderNumber || row.customer)}" data-sri-row-select="${utils.esc(row.id)}" data-processable="${row.processable ? "1" : "0"}" data-authorized="${row.authorizationStatus === "AUTORIZADO" ? "1" : "0"}" ${ui.selectedIds.has(row.id) ? "checked" : ""} ${!row.selectable || ui.processing ? "disabled" : ""}></td>
-                <td><strong>${utils.esc(row.issueDate ? utils.dateLabel(row.issueDate) : "Pendiente")}</strong></td>
+                <td><strong>${utils.esc(row.issueDate ? utils.dateLabel(row.issueDate) : row.reservationDate ? utils.dateLabel(row.reservationDate) : "Pendiente")}</strong>${row.reservationDate ? "<small>Reserva; sin fecha de emision</small>" : ""}</td>
                 <td>${utils.esc(row.flightDate ? utils.dateLabel(row.flightDate) : "-")}</td>
-                <td class="sri-document-identity"><strong class="sri-document-number ${documentNumberStatusClass(row.authorizationStatus)}">${utils.esc(invoiceLastNine(row.documentNumber, row.accessKey))}</strong><small>${utils.esc(row.documentLabel || "FACTURA")} · ${utils.esc(row.transportType || "LOCAL")}</small></td>
-                <td class="numeric"><strong>${utils.esc(utils.money(row.total))}</strong></td>
+                <td class="sri-document-identity"><strong class="sri-document-number ${documentNumberStatusClass(row.authorizationStatus)}">${utils.esc(/^\d{3}-\d{3}-\d{9}$/.test(row.documentNumber || "") ? row.documentNumber : invoiceLastNine(row.documentNumber, row.accessKey))}</strong><small>${utils.esc(row.documentLabel || "FACTURA")} · ${utils.esc(row.transportType || "LOCAL")}</small></td>
+                <td class="numeric"><strong>${utils.esc(row.sourceType === "reservation" ? "-" : utils.money(row.total))}</strong></td>
                 <td><strong>${utils.esc(row.customer || "-")}</strong></td>
                 <td>${utils.esc(row.brand || "-")}</td>
                 <td>${renderLogisticsField(row, "sriDaeNumber", row.dae)}</td>
@@ -2088,6 +2124,7 @@
     const issueRange = viewMode === "documents" ? selectedIssueMonthRange() : null;
     if (viewMode === "documents" && !issueRange) {
       ui.remoteDocuments = [];
+      ui.remoteReservations = [];
       ui.selectedIds.clear();
       ui.loaded = false;
       ui.loading = false;
@@ -2102,21 +2139,35 @@
     }
     ui.loading = true;
     ui.error = "";
+    const companyKey = ui.companyKey;
+    const generation = ++ui.readGeneration;
+    const period = JSON.stringify(issueRange);
+    const stillCurrent = () => ui.readGeneration === generation && ui.companyKey === companyKey && workspaceCompanyKey(appState) === companyKey
+      && (viewMode !== "documents" || JSON.stringify(selectedIssueMonthRange()) === period);
     rerenderFor(container, appState, viewMode);
     try {
       const [documents, configuration] = await Promise.all([
         listCommercialSriDocuments(issueRange ? { from: issueRange.from, to: issueRange.to, limit: 200 } : { limit: 200 }),
         ui.configuration ? Promise.resolve(ui.configuration) : api.configuration()
       ]);
+      if (!stillCurrent()) return;
+      const reservations = viewMode === "documents" ? await BlessERP.commercialFiscalReservationRead.pending({
+        companyId: api.activeCompany().companyId, environment: configuration?.settings?.environment,
+        from: issueRange.from, to: issueRange.to
+      }) : [];
+      if (!stillCurrent()) return;
       ui.remoteDocuments = Array.isArray(documents) ? documents : [];
+      ui.remoteReservations = reservations;
       ui.configuration = configuration || null;
-      await syncAuthorizedRemoteDocuments(appState);
+      // Listing is read-only. Explicit fiscal operations keep their own ACK sync.
       ui.loaded = true;
     } catch (error) {
-      ui.error = error.message || "No fue posible actualizar la bandeja SRI.";
+      if (stillCurrent()) ui.error = error.message || "No fue posible actualizar la bandeja SRI.";
     } finally {
-      ui.loading = false;
-      rerenderFor(container, appState, viewMode);
+      if (stillCurrent()) {
+        ui.loading = false;
+        rerenderFor(container, appState, viewMode);
+      }
     }
   }
 

@@ -100,7 +100,13 @@
         });
         captured.total = market ? rows.length : result.total;
         captured.totalPages = market ? Math.max(1, Math.ceil(rows.length / input.pageSize)) : result.totalPages;
-        captured.rows = market ? rows.slice((input.page - 1) * input.pageSize, input.page * input.pageSize) : rows;
+        const visible = market ? rows.slice((input.page - 1) * input.pageSize, input.page * input.pageSize) : rows;
+        const reservations = await B.commercialFiscalReservationRead.list({ companyId: captured.uuid, orderIds: visible.map(order => order.id) });
+        if (!valid()) return;
+        // Display-only DTO: never hydrate/persist fiscal numbers into the order.
+        const byOrder = new Map();
+        reservations.forEach(row => { const list = byOrder.get(row.record_id) || []; list.push(row); byOrder.set(row.record_id, list); });
+        captured.rows = visible.map(order => ({ ...order, _fiscalReservations: byOrder.get(order.id) || [] }));
       } catch (error) {
         if (valid()) captured.error = error.message || "No se pudo consultar el historial.";
       } finally { if (valid()) captured.loading = false; }
