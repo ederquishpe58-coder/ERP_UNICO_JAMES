@@ -250,6 +250,75 @@ await test('Unfixed due date, ambiguous customer, contradictory series and scope
   await assert.rejects(held,/empresa activa cambio/);activeCompany=B;ERP.getSupabaseClient=oldClient;
   assert.equal(await counts(),before);
 });
+await test('Canonical pending counter: states, dedup, complete filtered set and read-only refresh',async()=>{
+  await db.exec('begin');
+  try {
+    await entity(B,'accounting_chart_accounts','AR',{code:'AR',name:'AR',status:'Activa',isMovement:true});
+    const mark=async n=>sql("update erp_entity_records set payload=jsonb_set(payload,'{number}',$1::jsonb) where company_id=$2 and entity='commercial_orders' and record_id=$3",
+      [JSON.stringify('COUNTER-'+n),B,'order-'+n]);
+    const list=()=>inbox.list({search:'COUNTER-'});
+    const only=async n=>inbox.list({search:'COUNTER-'+n});
+    await entity(B,'commercial_orders','order-900',{number:'COUNTER-900',status:'GUARDADO'});
+    await reservation(900);
+    await doc(901);await mark(901);
+    await doc(902,{type:'04',parent:id(901)});await mark(902);
+    assert.equal((await list()).pendingCount,3,'Three canonical pending cycles, not local cache');
+    await reservation(901,id(901),'CONSUMED');
+    assert.equal((await only(901)).total,1);assert.equal((await list()).pendingCount,3);
+    await doc(900);await mark(900);
+    assert.equal((await only(900)).total,1);assert.equal((await list()).pendingCount,3);
+    assert.equal((await inbox.post(B,id(901),true)).ok,true);
+    assert.equal((await only(901)).pendingCount,0,'V2 posted invoice excluded');
+    assert.equal((await inbox.post(B,id(902),true)).ok,true);
+    assert.equal((await only(902)).pendingCount,0,'Applied NC excluded');
+    await doc(903);await mark(903);
+    await sql("insert into accounting_document_links values($1,$2,$3,'POSTED',$4,null)",[id(9903),B,id(903),id(19903)]);
+    assert.equal((await only(903)).pendingCount,0,'Legacy posted excluded');
+    await doc(904);await mark(904);
+    for(const ref of ['counter-link-a','counter-link-b']) await entity(B,'customer_receivables',ref,
+      {sourceDocumentId:id(904),journalEntryId:ref,postingStatus:'CONTABILIZADO'});
+    const review=await only(904);
+    assert.equal(review.pendingCount,1);assert.equal(inbox.prepare(review.rows[0],review).ok,false);
+    await doc(905);await mark(905);
+    await sql("update erp_entity_records set payload=payload-'expireDate' where company_id=$1 and entity='commercial_orders' and record_id='order-905'",[B]);
+    const missingDue=await only(905);
+    assert.equal(missingDue.pendingCount,1);assert.match(inbox.prepare(missingDue.rows[0],missingDue).message,/Vencimiento/);
+    await entity(B,'company_settings','settings',{defaultAccounts:{}});
+    const missingAccounts=await only(900);
+    assert.equal(missingAccounts.pendingCount,1);assert.match(inbox.prepare(missingAccounts.rows[0],missingAccounts).message,/incompleta/);
+    await entity(B,'company_settings','settings',{defaultAccounts:defaults});
+    await doc(906);await mark(906);
+    await sql("update erp_entity_records set payload=jsonb_set(payload,'{status}','\"ANULADO\"') where company_id=$1 and entity='commercial_orders' and record_id='order-906'",[B]);
+    await doc(907,{status:'ANULADO'});await mark(907);
+    await entity(B,'commercial_orders','order-908',{number:'COUNTER-908',status:'GUARDADO'});
+    await reservation(908,null,'CANCELLED');
+    for(const n of [906,907,908]) assert.equal((await only(n)).pendingCount,0,'Cancelled without review excluded');
+    assert.equal((await list()).pendingCount,3);
+    for(let n=1000;n<1057;n++){await doc(n);await mark(n);}
+    const before=await counts();
+    const page1=await inbox.list({search:'COUNTER-10'}),page2=await inbox.list({search:'COUNTER-10',offset:50});
+    assert.equal(page1.total,57);assert.equal(page1.rows.length,50);assert.equal(page2.rows.length,7);
+    assert.equal(page1.pendingCount,57);assert.equal(page2.pendingCount,57);
+    assert.equal((await inbox.list({search:'COUNTER-10',offset:100})).pendingCount,57);
+    const posted=await inbox.list({search:'COUNTER-',accountingState:'POSTED'});
+    assert.equal(posted.total,2);assert.equal(posted.pendingCount,0);
+    const fiscal=await inbox.list({search:'COUNTER-',fiscalState:'ANULADO'});
+    assert.equal(fiscal.total,1);assert.equal(fiscal.pendingCount,0);
+    const requiresReview=await inbox.list({search:'COUNTER-',accountingState:'REVIEW_LINKS'});
+    assert.equal(requiresReview.total,1);assert.equal(requiresReview.pendingCount,1);
+    await db.exec('set transaction read only');
+    for(let n=0;n<3;n++)assert.equal((await inbox.list({search:'COUNTER-10'})).pendingCount,57);
+    assert.equal(await counts(),before);
+  } finally { await db.exec('rollback'); }
+  const snapshot=await inbox.list({});
+  const savedClient=ERP.getSupabaseClient;
+  try {
+    for(const value of [undefined,null,'3',-1,snapshot.total+1]) {
+      ERP.getSupabaseClient=()=>({rpc:async()=>({data:{...snapshot,pendingCount:value}})});
+      await assert.rejects(inbox.list({}),/respuesta no valido/);
+    }
+  } finally { ERP.getSupabaseClient=savedClient; }
+});
 await test('Real UI: canonical states/filter, read error distinct from empty, refresh is read-only',async()=>{
   const before=await counts();
   const elements=new Map();
@@ -268,16 +337,40 @@ await test('Real UI: canonical states/filter, read error distinct from empty, re
     throw Error('UI_READ_DID_NOT_SETTLE');
   };
   ERP.layout.renderPage();await settle();
+  const pendingText=()=>container.innerHTML.match(/<span>Pendientes contables<\/span><strong>([^<]*)<\/strong>/)?.[1];
+  assert.equal(Number(pendingText()),(await inbox.list({})).pendingCount);
   assert.match(container.innerHTML,/Bandeja fiscal y contable/);assert.match(container.innerHTML,/POSTED_LEGACY/);
   assert.match(container.innerHTML,/NO_DOCUMENT/);
   const readCount=calls.length;ERP.layout.renderPage();await settle();assert.equal(calls.length,readCount);
   node('[data-inbox-fiscal]').handlers.change({target:{value:'BORRADOR'}});await settle();
+  assert.equal(Number(pendingText()),(await inbox.list({fiscalState:'BORRADOR'})).pendingCount);
   assert.match(container.innerHTML,/000000003/);assert.ok(!container.innerHTML.includes('000000008'));
   readFailure=true;node('[data-inbox-refresh]').handlers.click();await settle();
   assert.match(container.innerHTML,/fixture read unavailable/);assert.ok(!container.innerHTML.includes('Sin documentos para esta busqueda.'));
+  assert.equal(pendingText(),'Error de lectura');
   readFailure=false;node('[data-inbox-refresh]').handlers.click();await settle();
+  assert.equal(Number(pendingText()),1);
   assert.equal(await counts(),before);
   assert.ok(calls.slice(readCount).every(call=>call.name==='erp_financial_v2_sales_inbox'));
+  await db.exec('begin');
+  try {
+    for(let n=2000;n<2003;n++) {
+      await doc(n,{status:'BORRADOR'});
+      await sql("update erp_entity_records set payload=jsonb_set(payload,'{number}',$1::jsonb) where company_id=$2 and entity='commercial_orders' and record_id=$3",
+        [JSON.stringify('COUNTER-UI-'+n),B,'order-'+n]);
+    }
+    const noEffects=await counts();
+    node('#accounting-sales-search').handlers.input({target:{value:'COUNTER-UI-'}});
+    assert.equal(pendingText(),'Consultando...');
+    await settle();
+    assert.equal((await inbox.list({search:'COUNTER-UI-',fiscalState:'BORRADOR'})).pendingCount,3);
+    assert.equal(pendingText(),'3','Three canonical pending cycles must display three');
+    for(let n=0;n<2;n++){node('[data-inbox-refresh]').handlers.click();await settle();assert.equal(pendingText(),'3');}
+    readFailure=true;node('[data-inbox-refresh]').handlers.click();await settle();
+    assert.equal(pendingText(),'Error de lectura');
+    readFailure=false;node('[data-inbox-refresh]').handlers.click();await settle();assert.equal(pendingText(),'3');
+    assert.equal(await counts(),noEffects);
+  } finally {readFailure=false;await db.exec('rollback');}
 });
 console.log(JSON.stringify({result:'PASS',checks,boundaries:{engine:'PGlite in-memory',actualRoutes:'sales-inbox -> receivables -> financialV2 repository -> installed SQL',mocked:'auth session/capability source, sync publication, health/catalog IO',liveHumanSession:'NOT_VERIFIED'},prodWrites:0,realSriRequests:0},null,2));
 await db.close();

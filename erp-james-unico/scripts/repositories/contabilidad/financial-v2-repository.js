@@ -381,6 +381,7 @@
       if (activeCompanyUuid() !== companyId) throw new Error("La empresa activa cambio durante la lectura.");
       if (!result || result.companyId !== companyId || result.environment !== "PRODUCTION"
         || !Array.isArray(result.rows) || !Number.isSafeInteger(Number(result.total))
+        || !Number.isSafeInteger(result.pendingCount) || result.pendingCount < 0 || result.pendingCount > Number(result.total)
         || result.rows.some(row => row.companyId !== companyId || row.environment !== "PRODUCTION")) {
         throw new Error("La bandeja devolvio un ambito o respuesta no valido.");
       }

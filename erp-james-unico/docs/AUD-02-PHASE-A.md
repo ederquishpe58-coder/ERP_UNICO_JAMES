@@ -31,6 +31,44 @@ New additive RPC: `erp_financial_v2_sales_inbox(uuid,text,integer,integer,uuid,t
 - Native fiscal cycles are shown once in this inbox; existing local/imported documents and received-withholding view remain separate. The legacy import path is not certified as canonical by this change.
 - Reads never reserve, create documents, post, create CxC, contact SRI or activate legacy synchronization.
 
+## Final P2: canonical pending summary
+
+The visible "Pendientes contables" summary now consumes only
+`erp_financial_v2_sales_inbox.pendingCount`. This is an additive, read-only
+metadata field computed from the SAME filtered CTE as the list, before paging.
+Search, fiscal and accounting filters apply; page offset/size do not reduce it.
+It is not a count of documents eligible for immediate posting.
+
+- Includes ACTIVE reservations without a document, PENDING invoices/NC and
+  REVIEW_LINKS/REVIEW_LEGACY or unresolved link issues requiring review.
+- Missing accounts/due dates do not remove a pending cycle from this count.
+- Excludes POSTED/POSTED_LEGACY, REVERSED/CANCELLED, applied V2 NC, and canceled
+  fiscal/order cycles or deleted orders with no outstanding link review.
+- A canceled cycle with an unresolved link remains a review task, not an
+  eligible posting. A proven POSTED state is not counted again.
+- Reservation plus subsequent document counts once through existing cycle joins.
+- Frontend validates numeric metadata; missing/null/invalid counts are errors,
+  not zero. Loading/error have explicit non-numeric summary states.
+- Only inbox metadata, its repository validation, the summary, two asset tags
+  and tests/docs changed from ea2aa080. Fiscal/accounting guards are untouched.
+
+Permanent counter coverage is in `validate-aud02-sales-inbox.mjs`: exact3 in
+SQL and real UI render,57 across pages50/7, filters, reservation consumption,
+posted invoice/legacy/NC, review/configuration/due-date blockers, canceled cycles,
+missing metadata, repeated read-only refresh and RPC errors.
+The12 inbox/service/UI groups (11 prior plus1 new),14 adversarial groups and8
+fiscal groups passed against the isolated toolchain. SQL ran on PostgreSQL17.11;
+browser/auth/provider boundaries remain fixtures, not live session proof.
+The previously completed multisession gate is preserved, not claimed as rerun.
+
+PROD still dd38a445f3ad20be85088fd4949c10ff0cb9c6f7.
+Version202609120002 is free and inbox absent at2026-09-12T19:08:34.33548Z,
+verified with existing Management API read-only authority, no CLI login role.
+No migration or application was published. Future apply must use the updated
+unapplied migration and precede this UI/repository; an old DB response without
+pendingCount fails closed. Prior controlled publication/rollback restrictions
+remain in force. Original candidates and review evidence remain unchanged.
+
 ## Explicit posting and limits
 
 `sales-inbox.js::post` requires human confirmation, locks duplicate browser submissions, rereads the requested canonical cycle, and delegates to existing V2 commands. Invoice uses `receivables.postReceivableV2 -> financialV2.postInvoice -> erp_financial_v2_post_invoice`; NC uses the same existing repository/`erp_financial_v2_post_credit_note` with the canonical parent receivable.

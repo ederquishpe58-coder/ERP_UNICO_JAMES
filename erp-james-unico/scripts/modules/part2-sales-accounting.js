@@ -235,7 +235,7 @@
       ${inboxHtml()}
       <section class="summary-grid">
         <article class="summary-card"><span>Facturas</span><strong>${rows.length}</strong><small>Autorizadas o saldos iniciales XML</small></article>
-        <article class="summary-card"><span>Pendientes contables</span><strong>${rows.filter(row => row.source === "SRI_AUTORIZADO" && row.postingStatus !== "CONTABILIZADO").length}</strong><small>Con error o pendientes de reintento</small></article>
+        <article class="summary-card"><span>Pendientes contables</span><strong>${inbox.loading ? "Consultando..." : inbox.error ? "Error de lectura" : inbox.data ? inbox.data.pendingCount : "Sin lectura"}</strong><small>Total filtrado de bandeja; incluye reservas y revision</small></article>
         <article class="summary-card"><span>Valor facturado</span><strong>${money(rows.reduce((sum,row)=>sum+Number(row.total||0),0))}</strong></article>
         <article class="summary-card"><span>Notas de crédito</span><strong>${money(rows.reduce((sum,row)=>sum+Number(row.credited||0),0))}</strong></article>
         <article class="summary-card"><span>Retenciones</span><strong>${money(rows.reduce((sum,row)=>sum+Number(row.withheld||0),0))}</strong></article>

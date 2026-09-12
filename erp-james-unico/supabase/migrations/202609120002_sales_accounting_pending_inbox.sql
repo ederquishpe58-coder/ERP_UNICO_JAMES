@@ -273,8 +273,22 @@ begin
       and (coalesce(p_search,'')='' or position(lower(p_search) in lower(concat_ws(' ',number,customer,row->>'orderNumber',row->>'orderId')))>0)
       and (coalesce(p_fiscal_state,'')='' or row->>'fiscalState'=p_fiscal_state)
       and (coalesce(p_accounting_state,'')='' or row->>'accountingState'=p_accounting_state)
-  ), page as (select * from filtered order by sort_at desc,cycle_id limit p_limit offset p_offset)
+  ), counted as (
+    select *, case
+      when row->>'accountingState' in ('POSTED','POSTED_LEGACY','REVERSED','CANCELLED') then false
+      when row->>'linkIssue' is not null or row->>'accountingState' in ('REVIEW_LINKS','REVIEW_LEGACY') then true
+      when upper(coalesce(row->>'fiscalState','')) in ('ANULADO','ANULADA','CANCELLED','CANCELADO','CANCELADA','VOIDED')
+        or upper(coalesce(row->>'orderState','')) in ('ANULADO','ANULADA','CANCELLED','CANCELADO','CANCELADA','VOIDED')
+        or coalesce((row->>'orderDeleted')::boolean,false) then false
+      when row->>'accountingState'='NO_DOCUMENT' then row->>'reservationState'='ACTIVE'
+      else row->>'accountingState'='PENDING'
+    end as pending_action
+    from filtered
+  ), page as (select * from counted order by sort_at desc,cycle_id limit p_limit offset p_offset)
   select jsonb_build_object('companyId',p_company_id,'environment','PRODUCTION','readAt',statement_timestamp(),
+    -- Pending action includes blocked/review cycles, not just eligible postings.
+    -- Count the same filtered set before pagination; never count a page locally.
+    'pendingCount',(select count(*) from counted where pending_action),
     'total',(select count(*) from filtered),'rows',coalesce((select jsonb_agg(row order by sort_at desc,cycle_id) from page),'[]'::jsonb),
     'settingsCount',(select count(*) from public.erp_entity_records where company_id=p_company_id and entity='company_settings' and deleted_at is null),
     'defaultAccounts',(select payload->'defaultAccounts' from public.erp_entity_records where company_id=p_company_id and entity='company_settings' and deleted_at is null order by record_id limit 1))
