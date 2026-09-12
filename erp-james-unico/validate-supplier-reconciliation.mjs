@@ -10,6 +10,8 @@ const { PGlite } = await import(process.env.PGLITE_MODULE
 const db = new PGlite();
 const company = '00000000-0000-0000-0000-000000000001';
 const other = '00000000-0000-0000-0000-000000000002';
+const unrelated = '00000000-0000-0000-0000-000000000003';
+const unmapped = '00000000-0000-0000-0000-000000000004';
 const date = '2026-09-10';
 const file = 'scripts/modules/operaciones/inventario-proveedores-report-xlsx.js';
 const sql = (await fs.readFile('supabase/migrations/202609120001_supplier_inventory_report_reconciliation.sql', 'utf8')).replaceAll('\r\n','\n');
@@ -26,16 +28,23 @@ create table companies(id uuid primary key,company_key text,metadata jsonb,is_ac
 create function erp_security_assert_capability(uuid,text) returns void language plpgsql as $$begin
   if not erp_is_company_member($1,auth.uid()) or $2 <> 'operations.inventory.view' then raise exception 'CAPABILITY_DENIED'; end if;
 end;$$;`);
+await db.query('insert into companies values($1,$2,$3,true),($4,$5,$6,true),($7,$8,$9,true),($10,$11,$12,true)',[
+  company,'BLESS',JSON.stringify({inventory_owner:true}),
+  other,'IMPERIO',JSON.stringify({inventory_owner:false,availability_source_company_key:'BLESS'}),
+  unrelated,'INDEPENDENT',JSON.stringify({inventory_owner:true}),
+  unmapped,'NO_POOL',JSON.stringify({inventory_owner:false})]);
 for (const fn of installed.functions) await db.exec(fn.definition);
 const wrapperSignature=signature.replace('_u2c3_internal','');
 await db.exec(`revoke all on function ${signature} from public;
 revoke all on function ${wrapperSignature} from public; grant execute on function ${wrapperSignature} to authenticated;
 revoke all on function erp_inventory_pool_company(uuid) from public; grant execute on function erp_inventory_pool_company(uuid) to service_role;`);
-const acl=async()=>JSON.stringify((await db.query('select proacl,proowner from pg_proc where oid=$1::regprocedure',[signature])).rows);
+const acl=async()=>JSON.stringify((await db.query('select oid,proacl,proowner from pg_proc where oid in ($1::regprocedure,$2::regprocedure,$3::regprocedure) order by oid',[signature,wrapperSignature,'erp_inventory_pool_company(uuid)'])).rows);
 const aclBefore=await acl();
 const appliedSql=process.env.SUPPLIER_NEGATIVE_CONTROL === '1'
   ? sql.replace('delivered_stems - (inventory_stems + national_stems) as mismatch', 'inventory_stems + national_stems - delivered_stems as mismatch')
-  : sql;
+  : process.env.SUPPLIER_POOL_NEGATIVE_CONTROL === '1'
+    ? sql.replace('v_source_company_id := public.erp_inventory_pool_company(p_company_id);','v_source_company_id := p_company_id;')
+    : sql;
 await db.exec(appliedSql);
 await db.exec(appliedSql);
 assert.equal(await acl(),aclBefore);
@@ -238,12 +247,139 @@ await put('operations_rose_inventory','foreign',{supplierId:catalog.id,block:'B4
 assert.equal((await report()).totals.exportedStems,result.totals.exportedStems);
 await assert.rejects(report(other),/OPERATIONS_SUPPLIER_REPORT_FORBIDDEN/);
 await assert.rejects(db.query(`select ${wrapperSignature.split('(')[0]}($1,$2::date,$2::date)`,[other,date]),/CAPABILITY_DENIED/);
-// The installed pool resolver maps the owner, but the report does not call it.
-await db.query('insert into companies values($1,$2,$3,true),($4,$5,$6,true)',[
-  company,'OWNER',JSON.stringify({inventory_owner:true}),other,'OPERATOR',JSON.stringify({availability_source_company_key:'OWNER'})]);
-assert.equal((await db.query('select erp_inventory_pool_company($1) owner',[other])).rows[0].owner,company);
-await db.exec('create or replace function erp_is_company_member(uuid,uuid) returns boolean language sql as $$select true$$');
-const poolResult=(await db.query(`select ${wrapperSignature.split('(')[0]}($1,$2::date,$2::date) r`,[other,date])).rows[0].r;
-assert.notEqual(poolResult.totals.exportedStems,(await report()).totals.exportedStems,'Known report/owner disconnection must not be called PASS');
+// Replay the installed wrapper/resolver under the actual local authenticated role.
+// Actor membership/capability are test doubles; there is no PROD session or network.
+// IMPERIO-only actor has no membership in BLESS: the metadata pool is the authority.
+await db.exec(`create table test_report_access(actor uuid,company_id uuid,inventory_view boolean);
+create or replace function auth.uid() returns uuid language sql as $$select nullif(current_setting('test.actor',true),'')::uuid$$;
+create or replace function erp_is_company_member(uuid,uuid) returns boolean language sql as $$
+  select exists(select 1 from test_report_access where company_id=$1 and actor=$2)$$;
+create or replace function erp_security_assert_capability(uuid,text) returns void language plpgsql as $$begin
+  if $2 <> 'operations.inventory.view' or not exists(select 1 from test_report_access where company_id=$1 and actor=auth.uid() and inventory_view)
+  then raise exception 'CAPABILITY_DENIED'; end if;
+end;$$;`);
+for(const scope of [company,other,unrelated,unmapped]) {
+  await db.query('insert into test_report_access values($1,$1,true)',[scope]);
+}
+await db.query("select set_config('test.actor',$1,false)",[company]);
+await fixture(240,10);
+// Additional type, canonical source links, untyped closure, annulled scanner.
+await put('operations_receptions','r-b',{supplierId:catalog.id,block:'B4',items:[{id:'line',variety:'ROSE',quality:'TIPO_B'}]});
+await put('operations_classifier_assignments','a-b',{receptionId:'r-b',receptionItemId:'line',totalStems:100,dateTime:date,status:'COMPLETADO'});
+await put('operations_classification_results','c-b',{assignmentId:'a-b',nationalStems:5});
+await put('operations_rose_inventory','i-b',{sourceType:'ESCANEO_ETIQUETA',supplier:'P004',block:'B4',variety:'ROSE',quality:'TIPO_B',length:60,stems:95,date});
+await put('operations_rose_inventory','cancelled-pool',{sourceType:'ESCANEO_ETIQUETA',supplierId:catalog.id,block:'B4',stems:900,state:'ANULADO',date});
+// Same IDs/block/names in other scopes must never replace the source owner's data.
+for(const scope of [other,unrelated]) {
+  await put('operations_suppliers',catalog.id,{...catalog,name:'NOT THE POOL'},scope);
+  await put('operations_receptions','r0',{supplierId:catalog.id,block:'B4',items:[{id:'line',variety:'ROSE',quality:'PREMIUM'}]},scope);
+  await put('operations_classifier_assignments','a0',{receptionId:'r0',receptionItemId:'line',totalStems:9999,dateTime:date},scope);
+  await put('operations_classification_results','c0',{assignmentId:'a0',nationalStems:7777},scope);
+  await put('operations_rose_inventory','i0',{sourceType:'ESCANEO_ETIQUETA',supplierId:catalog.id,block:'B4',variety:'ROSE',quality:'PREMIUM',stems:5555,date},scope);
+}
+// Plausible fields in unrelated BLESS entities cannot become report contributions.
+for(const entity of ['commercial_customers','commercial_orders','accounting_journal_entries','user_profiles']) {
+  await put(entity,`excluded-${entity}`,{supplierId:catalog.id,block:'B4',variety:'ROSE',quality:'PREMIUM',sourceType:'ESCANEO_ETIQUETA',stems:88888,totalStems:88888,nationalStems:88888,date,dateTime:date,privateMarker:'NOT_OPERATIONAL_POOL'});
+}
+const poolBefore=await snapshot();
+const companiesBefore=JSON.stringify((await db.query('select * from companies order by id')).rows);
+const ownerReport=await report();
+assert.deepEqual([ownerReport.totals.classifiedStems,ownerReport.totals.exportedStems,ownerReport.totals.nationalStems,ownerReport.totals.mismatch],[350,335,15,0]);
+const internalBefore=await acl();
+await db.exec('set role authenticated');
+const publicReport=async(scope)=> (await db.query(`select ${wrapperSignature.split('(')[0]}($1,$2::date,$2::date) r`,[scope,date])).rows[0].r;
+assert.deepEqual((await publicReport(company)).items,ownerReport.items);
+await db.query("select set_config('test.actor',$1,false)",[other]);
+await assert.rejects(publicReport(company),/CAPABILITY_DENIED/);
+await assert.rejects(report(other),/permission denied/); // No direct internal bypass.
+await assert.rejects(db.query('select erp_inventory_pool_company($1)',[other]),/permission denied/);
+await assert.rejects(db.query("select * from erp_entity_records where company_id=$1 and entity='commercial_customers'",[company]),/permission denied/);
+const poolResult=await publicReport(other);
+assert.deepEqual(poolResult.totals,ownerReport.totals,'IMPERIO must use owner sources, not its own same-ID records');
+assert.deepEqual(poolResult.items,ownerReport.items);
+assert.equal(poolResult.operatingCompanyId,other);
+assert.equal(poolResult.inventoryOwnerCompanyId,company);
+assert.ok(poolResult.items.every(r=>r.supplierScope===company && r.supplierId===catalog.id && r.supplier==='Finca'));
+assert.equal(poolResult.items.find(r=>r.quality==='PREMIUM').length60,80);
+assert.equal(poolResult.items.find(r=>r.quality==='TIPO_B').length60,95);
+assert.ok(!JSON.stringify(poolResult).includes('NOT_OPERATIONAL_POOL'));
+await db.query("select set_config('test.actor',$1,false)",[unrelated]);
+await assert.rejects(publicReport(other),/CAPABILITY_DENIED/);
+await assert.rejects(publicReport(company),/CAPABILITY_DENIED/);
+const ownUnrelated=await publicReport(unrelated);
+assert.equal(ownUnrelated.inventoryOwnerCompanyId,unrelated);
+assert.equal(ownUnrelated.totals.exportedStems,5555);
+await db.query("select set_config('test.actor',$1,false)",[unmapped]);
+await assert.rejects(publicReport(unmapped),/INVENTORY_POOL_MAPPING_REQUIRED/);
+await db.query("select set_config('test.actor','',false)");
+await assert.rejects(publicReport(other),/CAPABILITY_DENIED/);
+await db.exec('reset role');
+await db.query('update test_report_access set inventory_view=false where actor=$1',[other]);
+await db.query("select set_config('test.actor',$1,false)",[other]);
+await db.exec('set role authenticated');
+await assert.rejects(publicReport(other),/CAPABILITY_DENIED/);
+await db.exec('reset role');
+await db.query('update test_report_access set inventory_view=true where actor=$1',[other]);
+await db.exec('set role authenticated');
+
+// Real JS repository -> actual PGlite public wrapper -> renderer and XLSX.
+// No canned success response: all RPC parameters pass through to PostgreSQL.
+let operatingScope=other;
+const rpcRequests=[];
+window.BlessERP.authAccess={activeAccess:()=>({activeCompany:{id:operatingScope}})};
+window.BlessERP.getSupabaseClient=()=>({rpc:async(name,args)=>{
+  assert.equal(name,'erp_operations_v2_supplier_inventory_report');
+  rpcRequests.push({...args});
+  const values=['p_company_id','p_date_from','p_date_to','p_supplier','p_block','p_variety','p_length','p_classification_type','p_search','p_sort_field','p_sort_direction','p_page','p_page_size'].map(k=>args[k]);
+  try { return {data:(await db.query(`select ${name}(${values.map((_,i)=>`$${i+1}`).join(',')}) r`,values)).rows[0].r,error:null}; }
+  catch(error) { return {data:null,error}; }
+}});
+vm.runInNewContext(await fs.readFile('scripts/repositories/operaciones/supplier-inventory-report-query-repository.js','utf8'),context);
+const repository=window.BlessERP.getSupplierInventoryReportQueryRepository();
+// Existing block text filter is retained: B matches B04 and B4 source spellings.
+const filters={from:date,to:date,block:'B',variety:'ROSE'};
+const page=await repository.queryPage(filters);
+const exported=await repository.exportReport(filters);
+assert.deepEqual(Array.from(exported.items),Array.from(page.items)); assert.deepEqual(exported.totals,page.totals);
+assert.deepEqual(page.totals,ownerReport.totals);
+assert.equal(exported.operatingCompanyId,other); assert.equal(exported.inventoryOwnerCompanyId,company);
+assert.ok(rpcRequests.every(r=>r.p_company_id===other));
+for(const [key,value] of Object.entries(filters)) api.setSupplierReportFilter(key,value);
+assert.equal((await api.querySupplierReportPage(1)).ok,true);
+// Empty local operations proves the rendered rows came from the remote owner.
+const emptyOperatorState={db:{operations:{companyId:other,masterData:{suppliers:[]},roseInventory:[],classifierAssignments:[],classificationResults:[],ui:{}}}};
+const poolHtml=api.renderSupplierClassificationReport(emptyOperatorState);
+assert.ok(poolHtml.includes('<td>PREMIUM</td>') && poolHtml.includes('<td>TIPO B</td>'));
+assert.ok(poolHtml.includes('>350</th>') && poolHtml.includes('>335</th>'));
+assert.ok(poolHtml.includes('Finca') && !poolHtml.includes('NOT THE POOL'));
+const downloaded=await api.exportSupplierClassificationXlsx(emptyOperatorState,{download:false,logoBytes:new Uint8Array()});
+assert.equal(downloaded.ok,true,downloaded.message);
+assert.deepEqual(Array.from(downloaded.report.rows),Array.from(page.items));
+for(const key of ['classifiedStems','exportedStems','nationalStems','mismatch']) assert.equal(downloaded.report.totals[key],page.totals[key]);
+assert.ok(rpcRequests.every(r=>r.p_company_id===other));
+const poolSheets=downloaded.sheets;
+const poolArchive=downloaded.archive;
+const poolXml=workbookEntries(poolArchive).get('xl/worksheets/sheet1.xml');
+for(const row of page.items) {
+  const label=api.supplierQualityTypeLabel(row.quality);
+  const cells=Array.from(poolSheets[0].rows.find(r=>r[4]===label));
+  assert.deepEqual(cells.slice(-4),[row.nationalStems,row.exportedStems,row.classifiedStems,row.mismatch]);
+  // Inspect each worksheet data row together, not values anywhere in the file.
+  const xmlRow=Array.from(poolXml.matchAll(/<row\b[^>]*>[\s\S]*?<\/row>/g),m=>m[0]).find(r=>r.includes(`>${label}</t>`));
+  assert.ok(xmlRow,label);
+  for(const [col,value] of [['P',row.nationalStems],['Q',row.exportedStems],['R',row.classifiedStems],['S',row.mismatch]]) {
+    assert.match(xmlRow,new RegExp(`<c r="${col}[0-9]+"[^>]*><v>${value}</v></c>`));
+  }
+}
+await fs.writeFile(path.join(typeOutput,'imperio-bless-pool.xlsx'),poolArchive);
+// Company switching must change both actor authorization and report source.
+operatingScope=unrelated;
+await assert.rejects(repository.queryPage(filters),/CAPABILITY_DENIED/);
+await db.query("select set_config('test.actor',$1,false)",[unrelated]);
+assert.equal((await repository.queryPage(filters)).inventoryOwnerCompanyId,unrelated);
+await db.exec('reset role');
+assert.equal(await snapshot(),poolBefore);
+assert.equal(JSON.stringify((await db.query('select * from companies order by id')).rows),companiesBefore);
+assert.equal(await acl(),internalBefore);
 await db.close();
-console.log(JSON.stringify({ok:true,cases,typeCases:'A-H PASS',independentStages:true,identityGuards:true,blockGrain:true,idempotentMigration:true,installedDefinitionsReplayed:true,aclPreserved:true,scopeGuard:true,physicalComparedWithReference:Boolean(referenceApi),sharedPoolReport:'FAIL: report scopes operator, not resolved owner'},null,2));
+console.log(JSON.stringify({ok:true,cases,typeCases:'A-H PASS',independentStages:true,identityGuards:true,blockGrain:true,idempotentMigration:true,installedDefinitionsReplayed:true,aclPreserved:true,scopeGuard:true,physicalComparedWithReference:Boolean(referenceApi),sharedPoolReport:'PASS',poolSources:[350,335,15,0],poolActorRole:'authenticated (isolated)',operatorContextPreserved:true,unrelatedEntitiesExcluded:true,realRepositoryUiXlsx:true,sourceRecordsUnchanged:true},null,2));

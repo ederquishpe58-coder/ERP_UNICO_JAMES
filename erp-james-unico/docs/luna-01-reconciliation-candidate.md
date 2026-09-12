@@ -100,7 +100,7 @@ Fixture anterior: 1015 = 10+2+999+4 tallos sinteticos; se excluyen 999 ANULADO,
 quedan 16. Entregas 20 y nacional 0 se conservan: desfase definitivo 20-16=4.
 No son existencias leidas de PROD ni una reparacion de stock.
 
-## Base, limites y publicacion NO autorizada
+## Base y limites iniciales (superados por el cierre de pool abajo)
 
 Base Zebra: 374c03bef27219db07edc0c9b2ef070a2cdc8ec0, deployment reportado/verificado
 dpl_5ZfpP4RM4eTuqLNXYBCbJnN5j5f1. Se integro sin commit previo el diff 929f579,
@@ -124,3 +124,101 @@ Antes de publicar: revalidar PROD y resolver estos bloqueos. Aplicar solo la
 migracion revisada, no todas las pendientes; probar permisos y pool con lecturas
 autorizadas. Reversion futura: restaurar solo el read-model capturado y el JS del
 reporte mediante una nueva migracion/release, nunca retroceder Zebra/SRI ni datos.
+
+## Cierre focal del pool - 2026-09-12
+
+Continuacion de 2d1009f08df43304d9d6ee82dc67e1bb4f354b8a en el mismo worktree
+aislado, limpio antes de editar. PROD canonico confirmado por inspect/API Vercel:
+374c03bef27219db07edc0c9b2ef070a2cdc8ec0,
+dpl_5ZfpP4RM4eTuqLNXYBCbJnN5j5f1. Ningun archivo Zebra cambia.
+
+### Operadora y propietaria
+
+La migracion conserva p_company_id como empresa operadora para la autorizacion.
+El wrapper instalado exige operations.inventory.view; el internal comprueba
+membership de esa misma operadora. Despues llama al resolver instalado
+erp_inventory_pool_company(p_company_id), sin reemplazarlo ni cambiar sus ACL.
+
+Solo las fuentes operations_suppliers, operations_receptions,
+operations_classifier_assignments, operations_classification_results y
+operations_rose_inventory usan v_source_company_id. Tambien lo usan supplierScope
+y las claves de identidad. La respuesta agrega operatingCompanyId e
+inventoryOwnerCompanyId, sin cambiar campos existentes ni pedir al frontend que
+suplante company_id. El repository conserva la operadora en consulta/exportacion.
+No se cambia branding, cabecera ni plantilla de Excel en este cierre.
+
+Lectura Management API directa, read_only=true, 2026-09-12T11:29:21.524183Z:
+BLESS activa, inventory_owner=true; IMPERIO activa, inventory_owner=false,
+availability_source_company_key=COMP-BLESS-FLOWER. Las definiciones y ACL de
+resolver/wrapper/internal coinciden exactamente con el fixture instalado.
+202609120001 no esta ocupada; permanece pendiente, NO aplicada. La aplicacion
+futura debe revalidar que siga libre y que las definiciones no hayan cambiado.
+Segunda lectura final a las 11:40:29.143922Z: version aun libre, ultimo registro
+instalado 202609110002; mismo mapping de empresas y atributos observados del rol.
+
+### Verificacion aislada y limites
+
+validate-supplier-reconciliation.mjs reinstala las definiciones capturadas en
+PGlite en memoria, aplica la migracion dos veces y preserva ACL/owner de las tres
+funciones. La prueba usa SET ROLE authenticated; auth.uid/membership/capability
+son doubles locales controlados, NO una sesion James/IMPERIO ni RLS real.
+
+- BLESS y actor solo IMPERIO obtienen las mismas fuentes BLESS.
+- Fixture: dos entregas PREMIUM, cuatro cierres incrementales, tres medidas;
+  entrega/cierre/escaneo TIPO_B; ANULADO separado. Totales: entregado 350,
+  fisico 335, nacional 15, desfase 0. PREMIUM/TIPO_B conservan sus medidas.
+- Registros con igual ID/B4 en IMPERIO y tercera empresa no contaminan el pool.
+  Clientes, pedidos, asientos y perfiles BLESS con payloads senuelo son ignorados.
+- Actor sin capability, empresa ajena, mapping ausente, actor nulo y llamada
+  directa al internal/resolver privado permanecen bloqueados. La tercera empresa
+  propietaria lee solo sus propias fuentes. No se agregan grants ni se cambia RLS.
+- Repository real -> wrapper SQL real en PGlite -> UI -> exportador real con
+  download:false. Celdas XLSX por TIPO y totales inspeccionados, filtros identicos.
+- Datos operativos y metadata de empresas identicos antes/despues de las lecturas.
+- Control negativo SUPPLIER_POOL_NEGATIVE_CONTROL=1 vuelve al filtro operadora
+  solo en memoria: falla con entregado 9999/fisico 5555/nacional 7777 en vez de
+  350/335/15. Demuestra que el test no pasa renombrando una empresa del fixture.
+- Se conservan regresiones de identidad explicita, UNKNOWN/AMBIGUOUS, bloques
+  vacios, paridad JS/SQL, ANULADO/NULL/reimpresion, TIPO y desfase firmado.
+
+npm run validate:luna-01:supplier-report, node validate-supplier-reconciliation.mjs
+y npm run build: PASS. El control negativo falla intencionalmente. No se usa build
+como sustituto de prueba funcional. No se reejecutan validadores generales ajenos.
+La lectura real verifica metadata/definiciones; el reporte modificado no se ejecuto
+en PROD. Prueba humana de UI/sesion real pendiente tras una publicacion autorizada.
+
+### Incidencia tecnica separada
+
+La traza local de la revision anterior registra CLI 2.117.0, dos POST al endpoint
+/cli/login-role con HTTP 201 a las 11:12:54.080Z y 11:13:03.963Z. El endpoint
+oficial emite rol/credencial temporal y requiere database:write, no es un SELECT.
+Clasificacion: TECHNICAL ROLE MUTATION CONFIRMED en esa revision anterior.
+Rol actual: cli_login_postgres, LOGIN, miembro de postgres sin ADMIN OPTION,
+sin SUPERUSER/CREATEROLE/CREATEDB/REPLICATION/BYPASSRLS directos;
+rolvaliduntil=2026-09-12T11:18:04.253510Z (ya vencido en la lectura).
+
+No se conserva respuesta del endpoint ni snapshot anterior: CREATE frente a
+ALTER/rotacion, existencia previa y cambios exactos de atributos son NOT_VERIFIED.
+No se infiere que el rol desaparezca al vencer la contrasena. No se altero,
+elimino ni renovo durante este cierre. No se reutiliza el camino CLI db/link.
+El lector actual usa CredReadW de credencial existente y POST database/query con
+read_only=true, exclusivamente SELECT. Dos lecturas iniciales fallaron porque
+intentaban ejecutar el resolver privado; se retiro esa invocacion y se leyeron
+su definicion y metadata, sin elevar permisos ni cambiar read_only.
+
+Fuente oficial: https://supabase.com/docs/reference/api/v1-create-login-role
+Evidencia saneada y resultado de gates:
+../../LUNA-POOL-CLOSE-20260912/ (fuera del codigo de aplicacion).
+La reparacion de la incidencia tecnica queda separada y NO autorizada.
+
+### Orden futuro y preservacion
+
+Solicitar aprobacion de publicacion; revalidar SHA, numero libre y ACL; aplicar
+SOLO esta migracion; publicar el candidato sobre Zebra; verificar lecturas BLESS
+e IMPERIO y XLSX sin generar operaciones. Para revertir, nueva migracion que
+restaure el internal capturado y release focal del reporte, nunca rollback global
+de Zebra/SRI ni modificaciones de fuentes. No hay reparacion historica autorizada.
+
+Este cierre crea solamente un commit local. PROD data/schema/permission changes=0,
+SRI requests=0, impresiones=0, cambios de inventario=0, deployments=0 durante
+este turno. No se afirma que la base completa permaneciera inmovil por otros usuarios.

@@ -7,6 +7,9 @@ begin
   if to_regprocedure('public.erp_operations_v2_supplier_inventory_report_u2c3_internal(uuid,date,date,text,text,text,integer,text,text,text,text,integer,integer)') is null then
     raise exception 'SUPPLIER_REPORT_INTERNAL_DEPENDENCY_MISSING';
   end if;
+  if to_regprocedure('public.erp_inventory_pool_company(uuid)') is null then
+    raise exception 'SUPPLIER_REPORT_POOL_DEPENDENCY_MISSING';
+  end if;
 end;
 $$;
 
@@ -41,6 +44,7 @@ declare
   v_sort_field text := case when p_sort_field in ('dateTime','supplier','variety','nationalStems','exportedStems','classifiedStems','mismatch') then p_sort_field else 'dateTime' end;
   v_sort_direction text := case when lower(coalesce(p_sort_direction, 'desc')) = 'asc' then 'asc' else 'desc' end;
   v_result jsonb;
+  v_source_company_id uuid;
 begin
   if auth.uid() is null or not public.erp_is_company_member(p_company_id, auth.uid()) then
     raise exception using errcode = '42501', message = 'OPERATIONS_SUPPLIER_REPORT_FORBIDDEN';
@@ -52,6 +56,10 @@ begin
     raise exception using errcode = '22023', message = 'OPERATIONS_SUPPLIER_REPORT_DATE_RANGE_INVALID';
   end if;
 
+  -- Authorize the operator above; resolve only the operational pool below.
+  -- The public capability guard and private resolver ACL remain unchanged.
+  v_source_company_id := public.erp_inventory_pool_company(p_company_id);
+
   with supplier_catalog as (
     select
       record_id::text as canonical_supplier_id,
@@ -61,7 +69,7 @@ begin
       nullif(coalesce(payload ->> 'assignedBlock', payload ->> 'block'), '') as assigned_block,
       payload
     from public.erp_entity_records
-    where company_id = p_company_id
+    where company_id = v_source_company_id
       and entity = 'operations_suppliers'
       and deleted_at is null
   ), supplier_catalog_aliases as (
@@ -182,7 +190,7 @@ begin
       coalesce(result_totals.result_ids, '[]'::jsonb) as result_ids
     from public.erp_entity_records assignment
     join public.erp_entity_records reception
-      on reception.company_id = p_company_id
+      on reception.company_id = v_source_company_id
      and reception.entity = 'operations_receptions'
      and reception.record_id = assignment.payload ->> 'receptionId'
      and reception.deleted_at is null
@@ -194,12 +202,12 @@ begin
         coalesce(sum(coalesce(nullif(result.payload ->> 'nationalStems', '')::numeric, 0)), 0) as national_stems,
         coalesce(jsonb_agg(result.record_id order by result.record_id), '[]'::jsonb) as result_ids
       from public.erp_entity_records result
-      where result.company_id = p_company_id
+      where result.company_id = v_source_company_id
         and result.entity = 'operations_classification_results'
         and result.deleted_at is null
         and result.payload ->> 'assignmentId' = assignment.record_id
     ) result_totals on true
-    where assignment.company_id = p_company_id
+    where assignment.company_id = v_source_company_id
       and assignment.entity = 'operations_classifier_assignments'
       and assignment.deleted_at is null
       and upper(coalesce(assignment.payload ->> 'status', '')) <> 'ANULADO'
@@ -217,7 +225,7 @@ begin
       jsonb_build_array(result.record_id) as result_ids
     from assignment_source a
     join public.erp_entity_records result
-      on result.company_id = p_company_id
+      on result.company_id = v_source_company_id
       and result.entity = 'operations_classification_results'
       and result.deleted_at is null
       and result.payload ->> 'assignmentId' = a.assignment_id
@@ -284,7 +292,7 @@ begin
         ))
       end
     ) with ordinality as component(value, component_no)
-    where inventory.company_id = p_company_id
+    where inventory.company_id = v_source_company_id
       and inventory.entity = 'operations_rose_inventory'
       and inventory.deleted_at is null
       and upper(coalesce(inventory.payload ->> 'sourceType', '')) = 'ESCANEO_ETIQUETA'
@@ -304,7 +312,7 @@ begin
       row_number() over (partition by s.source_row_id order by c.canonical_supplier_id) as candidate_order
     from source_rows s
     join supplier_catalog_matchable c
-      on c.supplier_scope = p_company_id::text
+      on c.supplier_scope = v_source_company_id::text
      and case when nullif(btrim(s.supplier_id_hint), '') is not null
        then upper(btrim(s.supplier_id_hint)) = upper(btrim(c.canonical_supplier_id))
        else (
@@ -348,9 +356,9 @@ begin
         else 'UNKNOWN'
       end as supplier_resolution,
       case
-        when summary.candidate_count = 1 then concat('CANONICAL:', p_company_id::text, ':', summary.canonical_supplier_id)
-        when summary.candidate_count > 1 then concat('AMBIGUOUS:', p_company_id::text, ':', jsonb_build_array(s.source_type, s.supplier_id_hint, s.supplier_code_hint, s.supplier, s.block_token, s.source_row_id)::text)
-        else concat('UNKNOWN:', p_company_id::text, ':', jsonb_build_array(s.source_type, s.supplier_id_hint, s.supplier_code_hint, s.supplier, s.block_token, s.source_row_id)::text)
+        when summary.candidate_count = 1 then concat('CANONICAL:', v_source_company_id::text, ':', summary.canonical_supplier_id)
+        when summary.candidate_count > 1 then concat('AMBIGUOUS:', v_source_company_id::text, ':', jsonb_build_array(s.source_type, s.supplier_id_hint, s.supplier_code_hint, s.supplier, s.block_token, s.source_row_id)::text)
+        else concat('UNKNOWN:', v_source_company_id::text, ':', jsonb_build_array(s.source_type, s.supplier_id_hint, s.supplier_code_hint, s.supplier, s.block_token, s.source_row_id)::text)
       end as supplier_group_key
     from source_rows s
     left join supplier_candidate_summary summary on summary.source_row_id = s.source_row_id
@@ -495,12 +503,14 @@ begin
   )
   select jsonb_build_object(
     'ok', true,
+    'operatingCompanyId', p_company_id,
+    'inventoryOwnerCompanyId', v_source_company_id,
     'items', coalesce((select jsonb_agg(jsonb_build_object(
       'id', jsonb_build_array(report_date, supplier_group_key, block, variety, quality)::text,
       'date', report_date, 'dateTime', report_date, 'supplier', supplier, 'block', block,
       'variety', variety, 'quality', quality, 'supplierId', canonical_supplier_id, 'supplierCode', canonical_code,
       'supplierResolution', supplier_resolution, 'supplierIdentityKey', supplier_group_key,
-      'supplierScope', p_company_id::text,
+      'supplierScope', v_source_company_id::text,
       'length40', length40, 'length50', length50, 'length60', length60, 'length70', length70,
       'length80', length80, 'length90', length90, 'length100', length100, 'length110', length110,
       'length120', length120, 'length130', length130,
