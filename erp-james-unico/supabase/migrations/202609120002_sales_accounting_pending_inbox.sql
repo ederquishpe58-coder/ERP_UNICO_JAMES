@@ -447,4 +447,58 @@ begin
  return public.erp_financial_v2_post_credit_note_u2c3_internal(p_operation_id,p_company_id,p_device_id,checked->'payload',p_local_created_at);
 end $$;
 -- CREATE OR REPLACE preserves existing owners and ACL of these public wrappers.
+
+-- Legacy writers must participate in the same fiscal row lock as V2. Checking
+-- only from V2 leaves the reverse race open when a waiting legacy writer resumes.
+-- Trigger rejection rolls back the entire legacy statement/transaction, including
+-- a journal created before its projection. No historical row is rewritten.
+create or replace function public.erp_financial_v2_guard_legacy_sales_write()
+returns trigger language plpgsql security definer set search_path=public,pg_temp as $$
+declare refs jsonb; owner_id uuid; d electronic_documents%rowtype; evidence jsonb; row_data jsonb:=to_jsonb(new);
+begin
+ owner_id:=(row_data->>'company_id')::uuid;
+ if tg_table_name='journal_entries' then
+   refs:=jsonb_build_array(jsonb_build_object('sourceDocumentId',row_data->>'source_document_id'));
+ else
+   refs:=jsonb_build_array((row_data->'payload')||jsonb_build_object('id',row_data->>'record_id'));
+   if row_data->>'entity'='accounting_journal_entries' then
+     refs:=jsonb_build_array(jsonb_build_object('sourceId',row_data#>>'{payload,externalReference}'));
+   elsif jsonb_typeof(row_data#>'{payload,creditNotes}')='array' then
+     select refs||coalesce(jsonb_agg(note||jsonb_build_object(
+       'parentDocumentId',coalesce(row_data#>>'{payload,sourceDocumentId}',row_data#>>'{payload,electronicDocumentId}'),
+       'environment',coalesce(note->>'environment',row_data#>>'{payload,environment}'))),'[]')
+     into refs from jsonb_array_elements(row_data#>'{payload,creditNotes}') note;
+   end if;
+ end if;
+ -- Company and document identity, never a company-wide/table lock or sequence suffix.
+ for d in select x.* from electronic_documents x where x.company_id=owner_id
+   and x.environment='PRODUCTION' and x.document_type in ('01','04')
+   and exists(select 1 from jsonb_array_elements(refs) r
+     where public.erp_financial_v2_sales_reference_kind(to_jsonb(x),r)<>'NONE')
+   order by x.id for update
+ loop
+   if exists(select 1 from jsonb_array_elements(refs) r where
+     public.erp_financial_v2_sales_reference_kind(to_jsonb(d),r) in ('POSSIBLE','CONFLICT')) then
+     raise exception using errcode='23514',message='SALES_POST_REQUIRES_REVIEW:LEGACY_REFERENCE_AMBIGUOUS';
+   end if;
+   -- A new snapshot after acquiring the lock sees the other committed writer.
+   evidence:=public.erp_financial_v2_sales_evidence(owner_id,d.id);
+   if exists(select 1 from jsonb_array_elements(evidence->'links') l where l->>'authority'='V2') then
+     raise exception using errcode='23514',message='SALES_POST_REQUIRES_REVIEW:LEGACY_V2_PRIOR_EFFECT';
+   end if;
+ end loop;
+ return new;
+end $$;
+revoke all on function public.erp_financial_v2_guard_legacy_sales_write() from public,anon,authenticated,service_role;
+drop trigger if exists aud02_legacy_sales_journal_guard on public.journal_entries;
+create trigger aud02_legacy_sales_journal_guard before insert or update on public.journal_entries
+for each row when (new.source_type='SRI' and new.source_document_id is not null)
+execute function public.erp_financial_v2_guard_legacy_sales_write();
+drop trigger if exists aud02_legacy_sales_projection_guard on public.erp_entity_records;
+create trigger aud02_legacy_sales_projection_guard before insert or update on public.erp_entity_records
+for each row when (new.entity in ('customer_receivables','accounting_journal_entries') and (
+ nullif(new.payload->>'journalEntryId','') is not null
+ or upper(coalesce(new.payload->>'postingStatus',new.payload->>'status','')) in ('POSTED','CONTABILIZADO')
+ or (jsonb_typeof(new.payload->'creditNotes')='array' and new.payload->'creditNotes'<>'[]'::jsonb)))
+execute function public.erp_financial_v2_guard_legacy_sales_write();
 commit;

@@ -35,6 +35,7 @@ create table public.electronic_documents(id uuid primary key,company_id uuid,env
 create table public.commercial_invoice_reservations(id uuid primary key,company_id uuid,environment text,document_type text,
  full_number text,status text,consumed_document_id uuid,record_id text,created_at timestamptz default now());
 create table public.accounting_document_links(id uuid,company_id uuid,document_id uuid unique,status text,journal_entry_id uuid,error_message text);
+create table public.journal_entries(id uuid primary key default gen_random_uuid(),company_id uuid,entry_number text,entry_date date,description text,status text,source_type text,source_document_id uuid unique,currency text,total_debit numeric,total_credit numeric,created_by uuid,posted_by uuid);
 -- Auth/session and sync publication boundaries are fixtures, not live RLS proof.
 create function public.erp_security_assert_capability(p_company_id uuid,p_capability_id text) returns void language plpgsql stable as $$
 begin if p_company_id::text<>current_setting('test.company') or current_setting('test.allowed')<>'yes'
