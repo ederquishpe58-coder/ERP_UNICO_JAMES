@@ -3190,26 +3190,7 @@
         result: ["DEVUELTO", "NO_AUTORIZADO", "ERROR_ENVIO"].includes(order.sriAuthorizationStatus) ? "advertencia" : "exitoso"
       });
     }
-    if (order.sriAuthorizationStatus === "AUTORIZADO") {
-      const receivableService = BlessERP.services?.receivables;
-      const receivableResult = receivableService?.syncAuthorizedSale?.(appState, order);
-      if (!receivableService?.syncAuthorizedSale) {
-        order.receivableSyncStatus = "PENDIENTE";
-        order.receivableSyncError = "El servicio contable de ventas no esta disponible en esta pantalla.";
-        order.saleAccountingStatus = "PENDIENTE";
-      } else if (!receivableResult?.ok) {
-        order.receivableSyncStatus = "ERROR";
-        order.receivableSyncError = receivableResult.message || receivableResult.errors?.join(" ") || "No se pudo crear la cuenta por cobrar.";
-      } else {
-        order.receivableSyncError = "";
-        order.saleAccountingStatus = receivableResult.accountingOk
-          ? "CONTABILIZADO"
-          : receivableResult.accountingPending ? "PENDIENTE" : "ERROR";
-        order.saleAccountingError = receivableResult.accountingOk || receivableResult.accountingPending
-          ? ""
-          : (receivableResult.errors?.join(" ") || "No se pudo contabilizar la venta.");
-      }
-    }
+    // Fiscal refresh does not prepare CxC, create customers or overwrite accounting links.
     saveDb();
     return order;
   }
@@ -3281,17 +3262,13 @@
     order.sriCreditNotes = Array.isArray(order.sriCreditNotes) ? order.sriCreditNotes : [];
     const index = order.sriCreditNotes.findIndex(note => String(note.remoteDocumentId || note.id) === String(record.remoteDocumentId));
     const before = index >= 0 ? order.sriCreditNotes[index] : null;
+    // Preserve prior accounting metadata; authorization alone never applies a credit note.
+    if (before) ["receivableApplyStatus", "receivableApplyMessage", "accountingStatus",
+      "accountingError", "journalEntryId", "journalEntryNumber"].forEach(key => {
+      if (Object.prototype.hasOwnProperty.call(before, key)) record[key] = before[key];
+    });
     if (index >= 0) order.sriCreditNotes[index] = record;
     else order.sriCreditNotes.unshift(record);
-    if (record.status === "AUTORIZADO") {
-      const applied = BlessERP.services?.receivables?.applyAuthorizedCreditNote?.(order, record);
-      record.receivableApplyStatus = applied?.ok ? "APLICADA" : "PENDIENTE";
-      record.receivableApplyMessage = applied?.ok ? "" : applied?.message || "";
-      record.accountingStatus = applied?.accountingOk ? "CONTABILIZADO" : "ERROR";
-      record.accountingError = applied?.accountingOk ? "" : (applied?.accounting?.errors?.join(" ") || "No se pudo contabilizar la nota de credito.");
-      record.journalEntryId = applied?.accounting?.entry?.id || "";
-      record.journalEntryNumber = applied?.accounting?.entry?.entryNumber || "";
-    }
     if (!before || before.status !== record.status) {
       workflow.recordEvent(order, appState, {
         action: "ACTUALIZAR_NOTA_CREDITO_SRI",

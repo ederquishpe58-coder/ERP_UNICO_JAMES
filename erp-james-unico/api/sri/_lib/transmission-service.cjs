@@ -612,7 +612,11 @@ async function processAuthorization(client, settings, document, actorUserId, opt
       await settleAuthorizationJob(client, job, attempt, actorUserId, persisted.hash);
       manualSettled = manualRecovery;
       const authorizedDetail = await getDocumentDetail(client, current.company_id, current.id);
-      if (options.skipAccounting !== true) await generateAccountingForDocument(client, current.id, actorUserId);
+      // Sales accounting is an explicit Contabilidad/Ventas command, not a fiscal event.
+      // Retention 07 keeps its existing accounting/recovery contract.
+      if (!["01", "04"].includes(current.document_type) && options.skipAccounting !== true) {
+        await generateAccountingForDocument(client, current.id, actorUserId);
+      }
       return ensureRide(client, authorizedDetail, actorUserId);
     }
     if (["NO AUTORIZADO", "NO_AUTORIZADO"].includes(result.state)) {

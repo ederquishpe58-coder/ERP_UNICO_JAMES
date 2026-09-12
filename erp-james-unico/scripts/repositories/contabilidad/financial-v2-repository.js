@@ -369,6 +369,23 @@
   }
 
   const repository = Object.freeze({
+    async salesInbox({ search = "", offset = 0, documentId = null, fiscalState = "", accountingState = "" } = {}) {
+      const companyId = activeCompanyUuid();
+      if (!commercialProfitabilityReadConfigured()) throw new Error("Bandeja de ventas: conexion canonica no disponible.");
+      const { data, error } = await BlessERP.getSupabaseClient().rpc("erp_financial_v2_sales_inbox", {
+        p_company_id: companyId, p_search: search, p_offset: offset, p_limit: 50, p_document_id: documentId,
+        p_fiscal_state: fiscalState, p_accounting_state: accountingState
+      });
+      if (error) throw new Error(`No se pudo leer la bandeja de ventas (${error.code || "ERROR"}). ${error.message || ""}`);
+      const result = Array.isArray(data) ? data[0] : data;
+      if (activeCompanyUuid() !== companyId) throw new Error("La empresa activa cambio durante la lectura.");
+      if (!result || result.companyId !== companyId || result.environment !== "PRODUCTION"
+        || !Array.isArray(result.rows) || !Number.isSafeInteger(Number(result.total))
+        || result.rows.some(row => row.companyId !== companyId || row.environment !== "PRODUCTION")) {
+        throw new Error("La bandeja devolvio un ambito o respuesta no valido.");
+      }
+      return result;
+    },
     activeCompanyUuid,
     canExecute,
     healthStatus,

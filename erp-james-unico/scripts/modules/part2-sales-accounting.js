@@ -4,6 +4,58 @@
   const receivables = () => BlessERP.services.receivables;
   const withholdings = () => BlessERP.services.taxWithholdings;
   const uiState = { search: "", status: "", accountingStatus: "", message: "", error: "", importing: false, reconciled: false };
+  const inbox = { key: "", companyId: "", request: 0, data: null, error: "", loading: false, offset: 0, posting: false, fiscalState: "", accountingState: "" };
+
+  function loadInbox(force = false) {
+    const companyId = BlessERP.getFinancialV2Repository?.()?.activeCompanyUuid?.() || "";
+    if (inbox.companyId !== companyId) {
+      inbox.companyId = companyId;
+      inbox.offset = 0;
+      uiState.message = "";
+      uiState.error = "";
+    }
+    const key = JSON.stringify([companyId, uiState.search, inbox.offset, inbox.fiscalState, inbox.accountingState]);
+    if (!force && key === inbox.key) return;
+    inbox.key = key;
+    inbox.data = null;
+    inbox.error = "";
+    inbox.loading = true;
+    const request = ++inbox.request;
+    Promise.resolve().then(() => BlessERP.services.salesInbox.list({ search: uiState.search, offset: inbox.offset,
+      fiscalState: inbox.fiscalState, accountingState: inbox.accountingState }))
+      .then(data => {
+        if (request !== inbox.request) return;
+        if (data.companyId !== companyId || BlessERP.getFinancialV2Repository().activeCompanyUuid() !== companyId) throw new Error("La empresa activa cambio.");
+        inbox.data = data;
+      }).catch(error => { if (request === inbox.request) inbox.error = error.message || "No se pudo consultar la bandeja."; })
+      .finally(() => {
+        if (request !== inbox.request) return;
+        inbox.loading = false;
+        BlessERP.layout.renderPage();
+      });
+  }
+
+  function inboxHtml() {
+    const rows = inbox.data?.rows || [];
+    return `<section class="panel-card"><div class="panel-card-head"><h3>Bandeja fiscal y contable · PRODUCTION</h3>
+      <button type="button" class="secondary-button" data-inbox-refresh ${inbox.loading || inbox.posting ? "disabled" : ""}>Actualizar</button></div>
+      <div class="compact-toolbar"><label>Estado fiscal<select data-inbox-fiscal><option value="">Todos</option>${["NO_DOCUMENT","BORRADOR","FIRMADO","ENVIADO_SRI","RECIBIDO_SRI","AUTORIZADO","DEVUELTO","NO_AUTORIZADO","ANULADO"].map(value=>`<option ${inbox.fiscalState===value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
+      <label>Estado contable<select data-inbox-accounting><option value="">Todos</option>${["NO_DOCUMENT","PENDING","POSTED","POSTED_LEGACY","REVERSED","CANCELLED","REVIEW_LINKS","REVIEW_LEGACY"].map(value=>`<option ${inbox.accountingState===value ? "selected" : ""}>${value}</option>`).join("")}</select></label></div>
+      ${inbox.loading ? `<p role="status">Consultando pendientes...</p>` : inbox.error ? `<p class="inline-feedback error" role="alert">${esc(inbox.error)}</p>` : `
+      <div class="compact-table-wrap"><table class="compact-table"><thead><tr><th>Documento / reserva</th><th>Pedido</th><th>Cliente</th><th>Tipo</th><th>Fiscal</th><th>Contable</th><th>Total</th><th>Revision / accion</th></tr></thead>
+      <tbody>${rows.map(row => {
+        const action = BlessERP.services.salesInbox.prepare(row, inbox.data);
+        return `<tr><td>${esc(row.document?.full_number || row.documentNumber)}<small>${esc(row.reservationState || "")}</small></td>
+        <td>${esc(row.orderNumber || row.orderId || "")}<small>${esc(row.orderState || "")}</small></td>
+        <td>${esc(row.document?.buyer_snapshot?.legalName || "")}</td><td>${esc(row.document?.document_type || "Reserva 01")}</td>
+        <td>${esc(row.fiscalState)}</td><td>${esc(row.accountingState)}<small>${esc(row.legacyStatus ? `Legacy: ${row.legacyStatus}` : "")}</small></td>
+        <td>${row.document ? money(row.document.grand_total) : ""}</td><td>${action.ok
+          ? `<button type="button" class="secondary-button compact-button" data-inbox-post="${esc(row.document.id)}" ${inbox.posting ? "disabled" : ""}>Contabilizar${row.document.document_type === "04" ? " NC" : ""}</button>`
+          : esc(action.message)}</td></tr>`;
+      }).join("") || `<tr><td colspan="8">Sin documentos para esta busqueda.</td></tr>`}</tbody></table></div>
+      <div class="compact-toolbar"><button type="button" class="secondary-button" data-inbox-prev ${inbox.offset === 0 ? "disabled" : ""}>Anterior</button>
+      <span>${Number(inbox.data?.total || 0)} ciclos</span><button type="button" class="secondary-button" data-inbox-next ${inbox.offset + 50 >= Number(inbox.data?.total || 0) ? "disabled" : ""}>Siguiente</button></div>`}</section>`;
+  }
 
   function money(value) {
     return new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(Number(value || 0));
@@ -137,6 +189,8 @@
   function filteredRows() {
     return receivables().receivables({ search: uiState.search, status: uiState.status })
       .filter(row => row.documentType === "factura sri")
+      // Native fiscal cycles belong to the canonical inbox, not this local/imported list.
+      .filter(row => row.source !== "SRI_AUTORIZADO" && !row.sourceDocumentId && !row.electronicDocumentId)
       .filter(row => !uiState.accountingStatus || row.postingStatus === uiState.accountingStatus);
   }
 
@@ -154,6 +208,7 @@
 
   function render(container, route) {
     reconcileAuthorizedSales();
+    loadInbox();
     const rows = filteredRows();
     const retentionRows = withholdings().receivedWithholdings();
     const salesPage = BlessERP.performance.paginate(rows, "accounting-sales", { pageSize: 50 });
@@ -161,7 +216,7 @@
     container.innerHTML = `
       <section class="module-hero compact-module-hero">
         <div><p class="section-kicker">CONTABILIDAD / VENTAS</p><h2>${esc(route.title)}</h2><p>${esc(route.description)}</p></div>
-        <span class="status-badge authorized">Solo documentos tributarios</span>
+        <span class="status-badge authorized">Ventas</span>
       </section>
       ${uiState.error ? `<section class="inline-feedback error">${esc(uiState.error)}</section>` : ""}
       ${uiState.message ? `<section class="inline-feedback success">${esc(uiState.message)}</section>` : ""}
@@ -176,8 +231,8 @@
             <button class="primary-button" type="button" data-route-link="portfolios-collections-single">Registrar cobro</button>
           </div>
         </div>
-        <p class="panel-note">Aquí se muestran exclusivamente facturas de venta autorizadas/importadas, notas de crédito, cobros y retenciones recibidas. Los pedidos no forman parte de esta vista contable.</p>
       </section>
+      ${inboxHtml()}
       <section class="summary-grid">
         <article class="summary-card"><span>Facturas</span><strong>${rows.length}</strong><small>Autorizadas o saldos iniciales XML</small></article>
         <article class="summary-card"><span>Pendientes contables</span><strong>${rows.filter(row => row.source === "SRI_AUTORIZADO" && row.postingStatus !== "CONTABILIZADO").length}</strong><small>Con error o pendientes de reintento</small></article>
@@ -187,7 +242,7 @@
         <article class="summary-card"><span>Saldo por cobrar</span><strong>${money(rows.reduce((sum,row)=>sum+Number(row.balance||0),0))}</strong></article>
       </section>
       <section class="panel-card">
-        <div class="panel-card-head"><div><p class="section-kicker">VENTAS CONTABILIZABLES</p><h3>Facturas y documentos aplicados</h3></div></div>
+        <div class="panel-card-head"><div><p class="section-kicker">REGISTROS LOCALES / IMPORTADOS</p><h3>Facturas y documentos aplicados</h3></div></div>
         <div class="compact-table-wrap"><table class="compact-table">
           <thead><tr><th>Fecha</th><th>Factura</th><th>Cliente</th><th>Total</th><th>Nota crédito</th><th>Retención</th><th>Cobrado</th><th>Saldo</th><th>Cartera</th><th>Contabilidad</th><th>Acción</th></tr></thead>
           <tbody>${salesPage.items.map(row => { const pendingNote = (row.creditNotes || []).find(note => note.status === "AUTORIZADO" && !note.journalEntryId); return `<tr><td>${esc(row.issueDate)}</td><td><strong>${esc(row.documentNumber)}</strong><small>${esc(row.authorizationNumber || row.source)}</small></td><td>${esc(row.customerName)}<small>${esc(row.customerTaxId)}</small></td><td>${money(row.total)}</td><td>${money(row.credited)}</td><td>${money(row.withheld)}</td><td>${money(row.collected)}</td><td><strong>${money(row.balance)}</strong></td><td><span class="status-badge ${row.status === "COBRADO" ? "authorized" : row.status === "ANULADO" ? "cancelled" : "pending"}">${esc(row.status)}</span></td><td>${accountingBadge(row)}</td><td><div class="table-actions">${row.source === "SRI_AUTORIZADO" && row.postingStatus !== "CONTABILIZADO" ? `<button type="button" class="secondary-button compact-button" data-sales-post="${esc(row.id)}">Contabilizar</button>` : ""}${pendingNote ? `<button type="button" class="secondary-button compact-button" data-credit-note-post="${esc(row.id)}" data-credit-note-id="${esc(pendingNote.id)}">Contabilizar NC</button>` : ""}${row.journalEntryId ? `<button type="button" class="ghost-button compact-button" data-route-link="accounting-journal">Libro diario</button>` : ""}</div></td></tr>`; }).join("") || `<tr><td colspan="11"><div class="empty-state">No existen facturas de venta contables para los filtros elegidos.</div></td></tr>`}</tbody>
@@ -202,6 +257,7 @@
 
     document.querySelector("#accounting-sales-search")?.addEventListener("input", BlessERP.performance.debounce(event => {
       uiState.search = event.target.value;
+      inbox.offset = 0;
       BlessERP.performance.resetPage("accounting-sales");
       BlessERP.layout.renderPage();
     }, 200));
@@ -231,6 +287,30 @@
     }));
     document.querySelector("[data-sales-opening-xml]")?.addEventListener("change", event => importSales(Array.from(event.target.files || [])));
     document.querySelector("[data-sales-retention-xml]")?.addEventListener("change", event => importRetentions(Array.from(event.target.files || [])));
+    container.querySelector("[data-inbox-refresh]")?.addEventListener("click", () => { loadInbox(true); BlessERP.layout.renderPage(); });
+    container.querySelector("[data-inbox-fiscal]")?.addEventListener("change", event => { inbox.fiscalState = event.target.value; inbox.offset = 0; BlessERP.layout.renderPage(); });
+    container.querySelector("[data-inbox-accounting]")?.addEventListener("change", event => { inbox.accountingState = event.target.value; inbox.offset = 0; BlessERP.layout.renderPage(); });
+    container.querySelector("[data-inbox-prev]")?.addEventListener("click", () => { inbox.offset = Math.max(0, inbox.offset - 50); BlessERP.layout.renderPage(); });
+    container.querySelector("[data-inbox-next]")?.addEventListener("click", () => { inbox.offset += 50; BlessERP.layout.renderPage(); });
+    container.querySelectorAll("[data-inbox-post]").forEach(button => button.addEventListener("click", async () => {
+      if (inbox.posting || !inbox.data) return;
+      const companyId = inbox.data.companyId;
+      const row = inbox.data.rows.find(item => item.document?.id === button.dataset.inboxPost);
+      if (!row || !window.confirm(`Confirmar contabilizacion de ${row.document.full_number}. Esta accion crea el efecto contable; no consulta ni transmite al SRI.`)) return;
+      inbox.posting = true;
+      BlessERP.layout.renderPage();
+      try {
+        const result = await BlessERP.services.salesInbox.post(companyId, row.document.id, true);
+        if (BlessERP.getFinancialV2Repository().activeCompanyUuid() === companyId) {
+          uiState.message = result.ok ? "Contabilizacion confirmada por Supabase." : "";
+          uiState.error = result.ok ? "" : result.errors?.join(" ") || result.message || "Contabilizacion no confirmada.";
+        }
+      } finally {
+        inbox.posting = false;
+        loadInbox(true);
+        BlessERP.layout.renderPage();
+      }
+    }));
   }
 
   BlessERP.modules = BlessERP.modules || {};
