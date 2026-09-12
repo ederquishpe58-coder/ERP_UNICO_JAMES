@@ -169,7 +169,7 @@ begin
       null::integer as length_cm,
       coalesce(nullif(assignment.payload ->> 'totalStems', '')::numeric, 0) as delivered_stems,
       0::numeric as inventory_stems,
-      coalesce(result_totals.national_stems, 0) as national_stems,
+      0::numeric as national_stems,
       not (
         upper(coalesce(assignment.payload ->> 'status', '')) in ('COMPLETADO','ENTREGADO + REGISTRADO NACIONAL')
         or coalesce(result_totals.result_count, 0) > 0
@@ -203,6 +203,24 @@ begin
       and assignment.entity = 'operations_classifier_assignments'
       and assignment.deleted_at is null
       and upper(coalesce(assignment.payload ->> 'status', '')) <> 'ANULADO'
+  ), closure_source as (
+    select concat('CLOSURE:', result.record_id) as source_row_id,
+      'CIERRE_CLASIFICACION'::text as source_type,
+      a.report_date, a.supplier, a.supplier_id_hint, a.supplier_code_hint,
+      a.block, a.block_token, a.variety,
+      coalesce(nullif(btrim(result.payload ->> 'quality'), ''), a.quality) as quality,
+      null::integer as length_cm,
+      0::numeric as delivered_stems, 0::numeric as inventory_stems,
+      coalesce(nullif(result.payload ->> 'nationalStems', '')::numeric, 0) as national_stems,
+      a.classification_pending, a.responsible, a.assignment_id,
+      null::text as inventory_id, a.reception_id, a.reception_item_id,
+      jsonb_build_array(result.record_id) as result_ids
+    from assignment_source a
+    join public.erp_entity_records result
+      on result.company_id = p_company_id
+      and result.entity = 'operations_classification_results'
+      and result.deleted_at is null
+      and result.payload ->> 'assignmentId' = a.assignment_id
   ), inventory_source as (
     select
       concat('INVENTORY:', inventory.record_id, ':', component.component_no) as source_row_id,
@@ -273,6 +291,8 @@ begin
       and upper(coalesce(inventory.payload ->> 'state', '')) <> 'ANULADO'
   ), source_rows as (
     select * from assignment_source
+    union all
+    select * from closure_source
     union all
     select * from inventory_source
   ), supplier_candidates as (
@@ -447,7 +467,7 @@ begin
       case when v_sort_field = 'classifiedStems' and v_sort_direction = 'desc' then delivered_stems end desc,
       case when v_sort_field = 'mismatch' and v_sort_direction = 'asc' then mismatch end asc,
       case when v_sort_field = 'mismatch' and v_sort_direction = 'desc' then mismatch end desc,
-      report_date desc, supplier, supplier_group_key, variety
+      report_date desc, supplier, supplier_group_key, block, variety, quality
     ) as row_number
     from filtered
   ), totals as (

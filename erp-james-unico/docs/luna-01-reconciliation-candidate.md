@@ -1,5 +1,45 @@
 # LUNA-01: conciliacion firmada (candidato local)
 
+## Addendum TIPO y gates, 2026-09-12
+
+TIPO usa flowerQuality.label: PREMIUM / TIPO_B se muestran PREMIUM / TIPO B.
+Se mantiene el enum y no se escribe ninguna traduccion en los datos. Quality
+ausente muestra SIN CALIDAD, no se convierte a PREMIUM.
+Los cierres aportan independientemente con su quality explicita; si no existe,
+usan la de su assignmentId demostrado. Si ambos carecen de tipo, permanecen en
+el grano sin calidad. Una entrega sin tipo no se copia en las filas tipadas.
+El calculo definitivo de mismatch permanece sin cambios.
+
+Las definiciones PROD fueron leidas y se conservan en el fixture
+test-fixtures/supplier-report-installed-20260912.json. Firma/retorno/STABLE,
+SECURITY DEFINER y search_path coinciden. El wrapper requiere
+operations.inventory.view y solo authenticated tiene EXECUTE (ademas de postgres).
+El internal solo tiene EXECUTE para postgres. La migracion preserva ambos.
+Se reprodujeron estas definiciones en PGlite, con mocks de identidad/capability,
+y se aplico la migracion dos veces preservando ACL. Esto no prueba una sesion RLS.
+
+Historial instalado leido: 202609120001 no aparece; se conserva esta version
+libre al momento de lectura. 202609110001 es SRI y no fue modificada. No se aplico
+la migracion del reporte. Revalidar la version antes de cualquier futura aplicacion.
+
+GATE POOL = FAIL: el helper instalado erp_inventory_pool_company resuelve al owner,
+pero el wrapper/internal del reporte no lo invoca. El candidato preserva ese
+scope anterior, p_company_id, que corresponde a la operadora. La prueba local con
+las definiciones instaladas reproduce que no lee el inventario del owner. No se
+amplio automaticamente el acceso para pasar este gate. Hace falta revisar la
+autorizacion del reporte para consumir las fuentes operativas del owner por el
+resolver canonico, sin conceder permisos ni ampliar a datos comerciales.
+
+Limite de lectura: supabase db query --linked imprimio Initialising login role
+en las dos consultas SELECT. Esa inicializacion puede crear/renovar un rol tecnico.
+Se detuvo esa ruta al detectar el efecto. No se afirma cero cambios de seguridad
+de infraestructura, aunque no se ejecutaron escrituras de negocio ni migraciones.
+No se intento revertir o cambiar ese rol. La metadata de companies del pool no
+se releeyo por esta via; los datos humanos/sesion real permanecen NOT_VERIFIED.
+
+El addendum sustituye los pendientes anteriores de lectura de firma/ACL e historial;
+NO sustituye el bloqueo funcional del pool. READY FOR DEPLOY APPROVAL = NO.
+
 ## Contrato definitivo
 
 `mismatch = classifiedStems - (exportedStems + nationalStems)`.

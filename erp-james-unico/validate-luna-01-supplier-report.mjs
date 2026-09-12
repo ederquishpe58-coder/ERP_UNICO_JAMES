@@ -7,6 +7,7 @@ const root = process.cwd();
 const reportPath = path.join(root, "scripts", "modules", "operaciones", "inventario-proveedores-report-xlsx.js");
 const codecPath = path.join(root, "scripts", "modules", "operaciones", "bunch-label-codec.js");
 const workbookPath = path.join(root, "scripts", "modules", "operaciones", "ramos-report-xlsx.js");
+const qualitySource = await readFile(path.join(root, "scripts", "core", "flower-quality.js"), "utf8");
 const migrationPath = path.join(root, "supabase", "migrations", "202609120001_supplier_inventory_report_reconciliation.sql");
 
 const [reportSource, codecSource, workbookSource, migrationSource] = await Promise.all([
@@ -53,6 +54,7 @@ function createBrowserApi() {
     setTimeout,
     clearTimeout
   };
+  vm.runInNewContext(qualitySource, context);
   vm.runInNewContext(codecSource, context, { filename: codecPath });
   vm.runInNewContext(workbookSource, context, { filename: workbookPath });
   vm.runInNewContext(reportSource, context, { filename: reportPath });

@@ -393,16 +393,11 @@
 
   function buildSupplierClassificationSourceRows(appState) {
     const store = BlessERP.operacionesState.getStore(appState);
-    // Closure totals are incremental. Their cause fields already form nationalStems.
-    const nationalByAssignment = new Map();
-    (store.classificationResults || []).filter(item => !item.deleted_at).forEach(item => {
-      nationalByAssignment.set(item.assignmentId, (nationalByAssignment.get(item.assignmentId) || 0) + Number(item.nationalStems || 0));
-    });
     const classificationRows = (store.classifierAssignments || [])
       .filter(item => String(item.status || "").toUpperCase() !== "ANULADO")
       .map(item => {
         const classifiedStems = Number(item.totalStems || 0);
-        const nationalStems = nationalByAssignment.get(item.id) || 0;
+        const nationalStems = 0;
         const isCompleted = hasRegisteredNationalStatus(item);
         const classifiedExportableStems = isCompleted ? Math.max(0, Number(item.exportableStems ?? (classifiedStems - nationalStems))) : 0;
         const supplierIdentity = resolveSupplierIdentity(store, {
@@ -434,6 +429,24 @@
           responsible: normalizeText(item.classifier) || "SIN RESPONSABLE"
         };
       });
+
+    // Preserve each closure's actual grain; the linked delivery may supply a
+    // missing quality, but an explicit closure quality is never copied elsewhere.
+    const assignmentsById = new Map(classificationRows.map(item => [item.id, item]));
+    const closureRows = (store.classificationResults || []).filter(item => !item.deleted_at).flatMap(item => {
+      const assignment = assignmentsById.get(item.assignmentId);
+      if (!assignment) return [];
+      const nationalStems = Number(item.nationalStems || 0);
+      return [{
+        ...assignment,
+        id: `CLOSURE:${item.id}`,
+        sourceType: "CIERRE_CLASIFICACION",
+        quality: normalizeText(item.quality) || assignment.quality,
+        classifiedStems: 0,
+        nationalStems,
+        mismatch: -nationalStems
+      }];
+    });
 
     const labelsById = new Map((store.labelBatches || []).map(item => [item.id, item]));
     const labelsByCode = new Map((store.labelBatches || []).map(item => [item.code, item]));
@@ -488,7 +501,7 @@
         });
       });
 
-    return [...classificationRows, ...scannedBunchRows];
+    return [...classificationRows, ...closureRows, ...scannedBunchRows];
   }
 
   function filterSupplierClassificationRows(rows, filters = {}) {
@@ -780,13 +793,7 @@
   }
 
   function supplierQualityTypeLabel(value) {
-    if (typeof value !== "string") return "";
-    const quality = value.trim();
-    if (!quality) return "";
-    if (quality === "PREMIUM") return "EXPORTACION";
-    if (quality === "TIPO_B") return "TIPO B";
-    if (quality === "EXPORTACION") return "EXPORTACION";
-    return quality;
+    return BlessERP.flowerQuality.label(value);
   }
 
   function renderSupplierClassificationReport(appState) {
