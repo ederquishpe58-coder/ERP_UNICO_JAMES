@@ -165,6 +165,197 @@
     return String(value || "").trim();
   }
 
+  function supplierIdentityText(value) {
+    return String(value ?? "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toUpperCase();
+  }
+
+  function supplierIdentityBlock(value) {
+    const normalized = supplierIdentityText(value).replace(/[^A-Z0-9]/g, "");
+    if (!normalized || normalized === "SINBLOQUE") return "SIN BLOQUE";
+    const match = normalized.match(/^(?:B|BQ|BLOQUE)0*(\d+)$/);
+    return match ? `B${Number(match[1])}` : normalized;
+  }
+
+  function supplierIdentityBlocks(value) {
+    const values = Array.isArray(value) ? value : [value];
+    const blocks = [...new Set(values.map(supplierIdentityBlock).filter(Boolean))];
+    return blocks.length ? blocks : ["SIN BLOQUE"];
+  }
+
+  function supplierReportScope(store) {
+    return normalizeText(
+      store?.companyId
+      || store?.company_id
+      || BlessERP.authAccess?.activeAccess?.()?.activeCompany?.id
+    ) || "CURRENT_COMPANY";
+  }
+
+  function supplierCanonicalId(item) {
+    return normalizeText(
+      item?.__canonicalRecordId
+      || item?.canonicalSupplierId
+      || item?.canonical_supplier_id
+      || item?.recordId
+      || item?.record_id
+      || item?.id
+    );
+  }
+
+  function supplierCatalogAliases(item) {
+    const aliases = [
+      item?.legacyCode,
+      item?.legacy_code,
+      item?.supplierCode,
+      item?.supplier_code,
+      item?.providerCode,
+      item?.provider_code
+    ];
+    ["aliases", "legacyCodes", "legacy_codes", "supplierAliases", "supplier_aliases"]
+      .forEach(field => {
+        if (Array.isArray(item?.[field])) aliases.push(...item[field]);
+        else if (item?.[field]) aliases.push(item[field]);
+      });
+    const codecSupplierCode = BlessERP.bunchLabelCodec?.supplierCode;
+    if (typeof codecSupplierCode === "function" && item?.code) aliases.push(codecSupplierCode(item.code));
+    return new Set(aliases.map(supplierIdentityText).filter(Boolean));
+  }
+
+  function supplierCatalogBlocks(item) {
+    const values = [item?.assignedBlock, item?.assigned_block, item?.block];
+    ["assignedBlocks", "assigned_blocks", "blocks", "blockCodes", "block_codes"].forEach(field => {
+      if (Array.isArray(item?.[field])) values.push(...item[field]);
+      else if (item?.[field]) values.push(item[field]);
+    });
+    return supplierIdentityBlocks(values.filter(Boolean));
+  }
+
+  function supplierCatalog(store) {
+    return (Array.isArray(store?.masterData?.suppliers) ? store.masterData.suppliers : [])
+      .filter(item => item && typeof item === "object")
+      .map(item => ({
+        item,
+        id: supplierCanonicalId(item),
+        code: normalizeText(item.code || item.supplierCode || item.supplier_code),
+        name: normalizeText(item.name || item.supplierName || item.supplier_name),
+        blocks: supplierCatalogBlocks(item),
+        aliases: supplierCatalogAliases(item)
+      }))
+      .filter(item => item.id || item.code || item.name);
+  }
+
+  function supplierSourceValue(value) {
+    return normalizeText(
+      value?.supplier
+      || value?.provider
+      || value?.supplierName
+      || value?.supplier_name
+    );
+  }
+
+  function supplierSourceId(value) {
+    return normalizeText(
+      value?.supplierId
+      || value?.supplier_id
+      || value?.providerId
+      || value?.provider_id
+      || value?.canonicalSupplierId
+      || value?.canonical_supplier_id
+    );
+  }
+
+  function supplierSourceCode(value) {
+    return normalizeText(
+      value?.supplierCode
+      || value?.supplier_code
+      || value?.providerCode
+      || value?.provider_code
+    );
+  }
+
+  function supplierBlockCompatible(sourceBlock, catalogBlock) {
+    const source = supplierIdentityBlock(sourceBlock);
+    const catalog = new Set(supplierIdentityBlocks(catalogBlock));
+    return source !== "SIN BLOQUE" && catalog.has(source);
+  }
+
+  function supplierIdentityKey(status, scope, sourceType, rawValue, block, canonicalId) {
+    if (status === "RESOLVED") return `CANONICAL:${scope}:${canonicalId}`;
+    return [status, scope, sourceType || "UNKNOWN", supplierIdentityText(rawValue) || "SIN PROVEEDOR", supplierIdentityBlock(block)]
+      .join(":");
+  }
+
+  function resolveSupplierIdentity(store, value = {}) {
+    const rawValue = supplierSourceValue(value) || "SIN PROVEEDOR";
+    const sourceId = supplierSourceId(value);
+    const sourceCode = supplierSourceCode(value);
+    const sourceBlock = normalizeText(value.block || value.assignedBlock);
+    const sourceType = normalizeText(value.sourceType) || "UNKNOWN";
+    const scope = supplierReportScope(store);
+    const rawReferences = [rawValue, sourceId, sourceCode]
+      .map(supplierIdentityText)
+      .filter(Boolean);
+    const catalog = supplierCatalog(store);
+    const directCandidates = catalog.filter(candidate => {
+      // Explicit identity is authoritative; a stale ID must not fall back to a name.
+      if (sourceId) return supplierIdentityText(candidate.id) === supplierIdentityText(sourceId);
+      const codeMatch = Boolean(sourceCode) && supplierIdentityText(candidate.code) === supplierIdentityText(sourceCode);
+      const aliasMatch = Boolean(sourceBlock)
+        && supplierIdentityBlock(sourceBlock) !== "SIN BLOQUE"
+        && !supplierIdentityBlocks(candidate.blocks).includes("SIN BLOQUE")
+        && supplierBlockCompatible(sourceBlock, candidate.blocks)
+        && rawReferences.some(reference => candidate.aliases.has(reference));
+      const rawCodeMatch = rawReferences.some(reference => supplierIdentityText(candidate.code) === reference);
+      const nameMatch = Boolean(rawValue) && supplierIdentityText(candidate.name) === supplierIdentityText(rawValue);
+      const explicitIdentity = codeMatch || rawCodeMatch;
+      return (explicitIdentity || aliasMatch || nameMatch)
+        && (explicitIdentity || supplierBlockCompatible(sourceBlock, candidate.blocks));
+    });
+    const directIds = [...new Map(directCandidates.map(candidate => [candidate.id || candidate.code || candidate.name, candidate])).values()];
+
+    if (directIds.length === 1) {
+      const match = directIds[0];
+      return {
+        status: "RESOLVED",
+        canonicalId: match.id || match.code || match.name,
+        canonicalCode: match.code,
+        canonicalName: match.name,
+        displayName: match.name || rawValue,
+        rawValue,
+        scope,
+        groupKey: supplierIdentityKey("RESOLVED", scope, sourceType, rawValue, sourceBlock, match.id || match.code || match.name)
+      };
+    }
+
+    const status = directIds.length > 1 ? "AMBIGUOUS" : "UNKNOWN";
+    return {
+      status,
+      canonicalId: "",
+      canonicalCode: "",
+      canonicalName: "",
+      displayName: rawValue,
+      rawValue,
+      scope,
+      groupKey: `${supplierIdentityKey(status, scope, sourceType, rawValue, sourceBlock, "")}:${JSON.stringify([sourceId, sourceCode, value.sourceRecordId || value.id || ""])}`
+    };
+  }
+
+  function supplierIdentityFields(identity) {
+    return {
+      supplier: identity.displayName,
+      supplierRaw: identity.rawValue,
+      supplierId: identity.canonicalId,
+      supplierCode: identity.canonicalCode,
+      supplierResolution: identity.status,
+      supplierIdentityKey: identity.groupKey,
+      supplierScope: identity.scope
+    };
+  }
+
   function hasRegisteredNationalStatus(assignment) {
     const status = String(assignment?.status || "").trim().toUpperCase();
     return status === "COMPLETADO" || status === "ENTREGADO + REGISTRADO NACIONAL";
@@ -202,21 +393,35 @@
 
   function buildSupplierClassificationSourceRows(appState) {
     const store = BlessERP.operacionesState.getStore(appState);
+    // Closure totals are incremental. Their cause fields already form nationalStems.
+    const nationalByAssignment = new Map();
+    (store.classificationResults || []).filter(item => !item.deleted_at).forEach(item => {
+      nationalByAssignment.set(item.assignmentId, (nationalByAssignment.get(item.assignmentId) || 0) + Number(item.nationalStems || 0));
+    });
     const classificationRows = (store.classifierAssignments || [])
       .filter(item => String(item.status || "").toUpperCase() !== "ANULADO")
       .map(item => {
         const classifiedStems = Number(item.totalStems || 0);
-        const nationalStems = Number(item.nationalStems || 0);
+        const nationalStems = nationalByAssignment.get(item.id) || 0;
         const isCompleted = hasRegisteredNationalStatus(item);
         const classifiedExportableStems = isCompleted ? Math.max(0, Number(item.exportableStems ?? (classifiedStems - nationalStems))) : 0;
+        const supplierIdentity = resolveSupplierIdentity(store, {
+          supplier: item.supplier,
+          supplierId: item.supplierId || item.supplier_id || item.providerId || item.provider_id,
+          supplierCode: item.supplierCode || item.supplier_code || item.providerCode || item.provider_code,
+          block: item.block,
+          sourceRecordId: item.id,
+          sourceType: "CLASIFICACION"
+        });
         return {
           id: item.id,
           sourceType: "CLASIFICACION",
           dateTime: normalizeText(item.dateTime),
           date: normalizeText(item.dateTime).slice(0, 10),
-          supplier: normalizeText(item.supplier) || "SIN PROVEEDOR",
+          ...supplierIdentityFields(supplierIdentity),
           block: normalizeText(item.block) || "SIN BLOQUE",
           variety: normalizeText(item.variety) || "SIN VARIEDAD",
+          quality: normalizeText(item.quality),
           length: resolveAssignmentLength(store, item),
           classification: reportClassificationType(item, classifiedExportableStems, nationalStems),
           classificationPending: !isCompleted,
@@ -224,7 +429,7 @@
           inventoryStems: 0,
           exportedStems: 0,
           nationalStems,
-          mismatch: nationalStems - classifiedStems,
+          mismatch: classifiedStems - nationalStems,
           utilization: 0,
           responsible: normalizeText(item.classifier) || "SIN RESPONSABLE"
         };
@@ -233,7 +438,7 @@
     const labelsById = new Map((store.labelBatches || []).map(item => [item.id, item]));
     const labelsByCode = new Map((store.labelBatches || []).map(item => [item.code, item]));
     const scannedBunchRows = (store.roseInventory || [])
-      .filter(item => item.sourceType === "ESCANEO_ETIQUETA")
+      .filter(item => item.sourceType === "ESCANEO_ETIQUETA" && normalizeText(item.state || item.payload?.state).toUpperCase() !== "ANULADO")
       .flatMap(item => {
         const label = labelsById.get(item.sourceLabelId) || labelsByCode.get(item.labelCode) || {};
         const admittedAt = normalizeText(item.admittedAt || item.date);
@@ -247,6 +452,17 @@
             }];
         return composition.map((part, index) => {
           const inventoryStems = Number(part.stems || 0);
+          const supplierIdentity = resolveSupplierIdentity(store, {
+            supplier: part.supplier || item.supplier || label.supplier,
+            supplierId: part.supplierId || part.supplier_id || part.providerId || part.provider_id
+              || item.supplierId || item.supplier_id || item.providerId || item.provider_id
+              || label.supplierId || label.supplier_id || label.providerId || label.provider_id,
+            supplierCode: part.supplierCode || part.supplier_code || part.providerCode || part.provider_code
+              || item.supplierCode || item.supplier_code || item.providerCode || item.provider_code,
+            block: part.block || item.block || label.block,
+            sourceRecordId: `${item.id || item.inventoryId || item.labelCode || "RAMO"}:${index}`,
+            sourceType: "INVENTARIO_BONCHES"
+          });
           return {
             id: `${item.inventoryId || item.labelCode || "RAMO"}-${index + 1}`,
             sourceType: "INVENTARIO_BONCHES",
@@ -254,9 +470,10 @@
             labelCode: normalizeText(item.labelCode || label.code),
             dateTime: admittedAt,
             date: admittedAt.slice(0, 10),
-            supplier: normalizeText(part.supplier || item.supplier || label.supplier) || "SIN PROVEEDOR",
+            ...supplierIdentityFields(supplierIdentity),
             block: normalizeText(part.block || item.block || label.block) || "SIN BLOQUE",
             variety: normalizeText(item.variety || label.variety) || "SIN VARIEDAD",
+            quality: normalizeText(item.quality),
             length: Number(item.length || label.length || 0),
             classification: "EXPORTACION",
             classificationPending: false,
@@ -264,7 +481,7 @@
             inventoryStems,
             exportedStems: inventoryStems,
             nationalStems: 0,
-            mismatch: inventoryStems,
+            mismatch: -inventoryStems,
             utilization: 0,
             responsible: normalizeText(item.buncher || label.buncher) || "SIN RESPONSABLE"
           };
@@ -414,17 +631,37 @@
     return { ok: true, queried: false };
   }
 
+  function reportSupplierIdentityKey(item) {
+    if (normalizeText(item?.supplierIdentityKey)) return normalizeText(item.supplierIdentityKey);
+    if (normalizeText(item?.supplierId)) return `CANONICAL:${normalizeText(item.supplierScope) || "CURRENT_COMPANY"}:${normalizeText(item.supplierId)}`;
+    return [
+      "UNKNOWN",
+      normalizeText(item?.supplierScope) || "CURRENT_COMPANY",
+      normalizeText(item?.sourceType) || "UNKNOWN",
+      supplierIdentityText(item?.supplier) || "SIN PROVEEDOR",
+      supplierIdentityBlock(item?.block)
+    ].join(":");
+  }
+
   function aggregateSupplierClassificationRows(rows) {
     const groups = new Map();
     rows.forEach(item => {
-      const key = [item.date, item.supplier, item.variety].join("|");
+      const supplierKey = reportSupplierIdentityKey(item);
+      const key = JSON.stringify([item.date, supplierKey, supplierIdentityBlock(item.block), item.variety, normalizeText(item.quality)]);
       const current = groups.get(key) || {
         id: `PROVIDER-REPORT-${key}`,
         dateTime: item.dateTime,
         date: item.date,
         supplier: item.supplier,
+        supplierRaw: item.supplierRaw || item.supplier,
+        supplierId: item.supplierId || "",
+        supplierCode: item.supplierCode || "",
+        supplierResolution: item.supplierResolution || "UNKNOWN",
+        supplierIdentityKey: supplierKey,
+        supplierScope: item.supplierScope || "CURRENT_COMPANY",
         blocks: new Set(),
         variety: item.variety,
+        quality: normalizeText(item.quality),
         classifiedStems: 0,
         exportedStems: 0,
         nationalStems: 0,
@@ -448,7 +685,7 @@
       groups.set(key, current);
     });
     return [...groups.values()].map(item => {
-      const mismatch = item.exportedStems + item.nationalStems - item.classifiedStems;
+      const mismatch = item.classifiedStems - (item.exportedStems + item.nationalStems);
       const classification = item.classificationPending
         ? "PENDIENTE"
         : item.nationalStems > 0 && item.exportedStems > 0
@@ -502,7 +739,7 @@
       ...Object.fromEntries(SUPPLIER_REPORT_LENGTHS.map(length => [`length${length}`, 0]))
     });
     totals.records = rows.length;
-    totals.suppliers = new Set(rows.flatMap(item => String(item.supplier || "").split(" + ")).filter(Boolean)).size;
+    totals.suppliers = new Set(rows.map(item => reportSupplierIdentityKey(item)).filter(Boolean)).size;
     totals.varieties = new Set(rows.flatMap(item => String(item.variety || "").split(" + ")).filter(Boolean)).size;
     return totals;
   }
@@ -604,13 +841,13 @@
               <th>TIPO</th>
               ${SUPPLIER_REPORT_LENGTHS.map(length => `<th>${length} cm</th>`).join("")}
               <th>${sortHeading("Nacional / rechazo", "nationalStems", sort)}</th>
-              <th>${sortHeading("Ingreso f&iacute;sico", "exportedStems", sort)}</th>
-              <th>${sortHeading("Tallos entregados", "classifiedStems", sort)}</th>
+              <th>${sortHeading("Ingreso f&iacute;sico confirmado", "exportedStems", sort)}</th>
+              <th>${sortHeading("Tallos entregados a clasificaci&oacute;n", "classifiedStems", sort)}</th>
               <th>${sortHeading("Desfase", "mismatch", sort)}</th>
             </tr></thead>
             <tbody>${report.rows.map(item => `<tr>
               <td>${utils.esc(formatReportDate(item.date))}</td>
-              <td><strong>${utils.esc(item.supplier)}</strong></td>
+              <td><strong>${utils.esc(supplierReportDisplayName(item))}</strong></td>
               <td>${utils.esc(item.block || "SIN BLOQUE")}</td>
               <td>${utils.esc(item.variety)}</td>
               <td>${utils.esc(supplierQualityTypeLabel(item.quality))}</td>
@@ -628,12 +865,17 @@
           <div><span>Registros</span><strong>${utils.esc(utils.number(report.totals.records))}</strong></div>
           <div><span>Proveedores</span><strong>${utils.esc(utils.number(report.totals.suppliers))}</strong></div>
           <div><span>Variedades</span><strong>${utils.esc(utils.number(report.totals.varieties))}</strong></div>
-          <div><span>Ingreso físico</span><strong>${utils.esc(utils.number(report.totals.exportedStems))}</strong></div>
-          <div><span>Tallos entregados</span><strong>${utils.esc(utils.number(report.totals.classifiedStems))}</strong></div>
+          <div><span>Ingreso físico confirmado</span><strong>${utils.esc(utils.number(report.totals.exportedStems))}</strong></div>
+          <div><span>Tallos entregados a clasificación</span><strong>${utils.esc(utils.number(report.totals.classifiedStems))}</strong></div>
           <div><span>Nacional / rechazo</span><strong>${utils.esc(utils.number(report.totals.nationalStems))}</strong></div>
           <div><span>Desfase</span><strong>${utils.esc(utils.number(report.totals.mismatch))}</strong></div>
         </div>` : ""}
       </section>`;
+  }
+
+  function supplierReportDisplayName(item) {
+    const status = item.supplierResolution;
+    return status && status !== "RESOLVED" ? `${item.supplier} [${status}]` : item.supplier;
   }
 
   function buildSupplierClassificationSheets(report) {
@@ -652,7 +894,7 @@
     const widths = [14, 30, 18, 25, 16, ...SUPPLIER_REPORT_LENGTHS.map(() => 10), 18, 24, 30, 14];
     const toSheetRow = item => [
       excelDateTime(item.date),
-      item.supplier,
+      supplierReportDisplayName(item),
       item.block || "SIN BLOQUE",
       item.variety,
       supplierQualityTypeLabel(item.quality),
@@ -682,13 +924,36 @@
       rows: report.rows.map(toSheetRow),
       totals: totalsRow(report.totals)
     }];
-    uniqueValues(report.rows, "supplier").forEach(supplier => {
-      const rows = report.rows.filter(item => item.supplier === supplier);
+    const detailGroups = new Map();
+    report.rows.forEach(item => {
+      const identityKey = reportSupplierIdentityKey(item);
+      const rows = detailGroups.get(identityKey) || [];
+      rows.push(item);
+      detailGroups.set(identityKey, rows);
+    });
+    const usedSheetNames = new Set(sheets.map(item => item.name));
+    detailGroups.forEach((rows, identityKey) => {
+      const first = rows[0] || {};
       const supplierTotals = supplierClassificationTotals(rows);
-      const blockSheetName = supplierBlockSheetName(rows);
+      const blockSheetBase = supplierBlockSheetName(rows);
+      const identitySuffix = (normalizeText(first.supplierCode || first.supplierId)
+        .replace(/[\[\]:*?/\\]/g, "")
+        || supplierIdentityText(first.supplierRaw || first.supplier).replace(/[^A-Z0-9]+/g, "").slice(0, 12)
+        || identityKey.replace(/[^A-Z0-9]+/gi, "").slice(-12)
+        || "PROV").slice(0, 12);
+      const safeBlockSheetBase = blockSheetBase.slice(0, 31) || "SIN BLOQUE";
+      let blockSheetName = safeBlockSheetBase;
+      let collision = 1;
+      while (usedSheetNames.has(blockSheetName)) {
+        collision += 1;
+        const suffix = `${identitySuffix}-${collision}`;
+        const baseLength = Math.max(1, 31 - suffix.length - 1);
+        blockSheetName = `${safeBlockSheetBase.slice(0, baseLength)}-${suffix}`;
+      }
+      usedSheetNames.add(blockSheetName);
       sheets.push({
         name: blockSheetName,
-        title: `BLESS FLOWER - BLOQUE ${blockSheetName} - ${supplier}`,
+        title: `BLESS FLOWER - BLOQUE ${blockSheetName} - ${first.supplier}`,
         widths,
         headers,
         rows: rows.map(toSheetRow),
@@ -757,6 +1022,7 @@
   BlessERP.operacionesInventarioProveedoresReport = {
     REPORT_LOGO_PATH,
     compactBlockCode,
+    resolveSupplierIdentity,
     supplierBlockSheetName,
     buildSupplierReport,
     buildSupplierSheets,

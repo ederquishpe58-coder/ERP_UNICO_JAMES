@@ -47,6 +47,8 @@
     "validate:reception-transition": "node validate-reception-classification-transition.mjs",
     "validate:reception-classification-search": "node validate-reception-classification-search-first.mjs",
     "validate:supplier-inventory-report-search": "node validate-supplier-inventory-report-search-first.mjs",
+    "validate:luna-01:supplier-report": "node validate-luna-01-supplier-report.mjs",
+    "validate:supplier-reconciliation": "node validate-supplier-reconciliation.mjs",
     "validate:mixed-label-no-block": "node validate-mixed-label-no-block.mjs",
     "validate:box-scanner-inventory": "node validate-box-scanner-inventory.mjs",
     "validate:local-html": "node validate-local-html.mjs",
